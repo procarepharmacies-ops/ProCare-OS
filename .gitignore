@@ -3,6 +3,7 @@ config/connections.json
 *.env
 .env*
 !.env.example
+!.env.local.example
 secrets/
 
 # Python
@@ -23,9 +24,10 @@ dist/
 build/
 *.local
 
-# Editors / OS
+# Editors / OS / local run config (launch.json holds machine-specific paths)
 .vscode/
 .idea/
+.claude/
 .DS_Store
 Thumbs.db
 

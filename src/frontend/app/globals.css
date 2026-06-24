@@ -1,0 +1,47 @@
+/* Theme tokens. Light is the default; [data-theme="dark"] overrides them.
+   RTL/LTR is driven by the dir attribute on <html>; use logical CSS props. */
+:root {
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --text: #1a1f24;
+  --muted: #5b6670;
+  --border: #e2e8ee;
+  --primary: #0a7d5a; /* pharmacy green */
+  --accent: #1763a6;
+  --danger: #c0392b;
+  --warning: #b9770e;
+  --ok: #0a7d5a;
+  --shadow: 0 1px 3px rgba(16, 24, 32, 0.08), 0 4px 16px rgba(16, 24, 32, 0.05);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1419;
+  --surface: #161c23;
+  --text: #e8edf2;
+  --muted: #9aa7b2;
+  --border: #263039;
+  --primary: #1fae82;
+  --accent: #4aa3e6;
+  --danger: #e57368;
+  --warning: #e0a23a;
+  --ok: #1fae82;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", Tahoma, "Cairo", system-ui, -apple-system, sans-serif;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+a {
+  color: var(--accent);
+}

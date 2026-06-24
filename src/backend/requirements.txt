@@ -1,0 +1,12 @@
+# ProCare OS backend — Phase 0 skeleton runtime (these alone let it run).
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+pydantic>=2.9,<3.0
+
+# --- Phase 1+ : uncomment when wiring DB / ETL / AI (not needed for the skeleton) ---
+# pyodbc>=5.1            # SQL Server connectivity (needs "ODBC Driver 18 for SQL Server")
+# SQLAlchemy>=2.0        # engines: procare (rw), estock (ro), titan (ro)
+# APScheduler>=3.10      # expiry alerts, reorder drafts, reconciliation jobs
+# prophet>=1.1           # demand forecasting
+# anthropic>=0.40        # Arabic assistant (NL -> constrained read-only SQL)
+# httpx>=0.27            # WhatsApp Cloud API client
