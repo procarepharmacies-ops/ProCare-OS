@@ -1,0 +1,67 @@
+{
+  "_comment": "Copy this file to connections.json (git-ignored) and fill in real values. NEVER commit connections.json.",
+
+  "network_host": "192.168.1.2",
+
+  "estock_source": {
+    "_role": "READ-ONLY source to mirror during transition. ProCare NEVER writes here.",
+    "driver": "ODBC Driver 18 for SQL Server",
+    "server": "192.168.1.2",
+    "database": "stock",
+    "version": "stock_phy_ver1.8.0.0",
+    "username": "REPLACE_WITH_READONLY_LOGIN",
+    "password": "REPLACE_ME",
+    "encrypt": "yes",
+    "trust_server_certificate": "yes"
+  },
+
+  "titan_drugeye_source": {
+    "_role": "READ-ONLY clinical source: product names + drug substitution/interactions.",
+    "path": "D:\\Labirdo",
+    "driver": "ODBC Driver 18 for SQL Server",
+    "server": "TBD_(local_or_192.168.1.2)",
+    "database": "TBD_(audit D:/Labirdo to discover)",
+    "username": "REPLACE_WITH_READONLY_LOGIN",
+    "password": "REPLACE_ME"
+  },
+
+  "procare_database": {
+    "_role": "ProCare OS OWN database — the new system of record. Read/write.",
+    "driver": "ODBC Driver 18 for SQL Server",
+    "server": "192.168.1.2",
+    "database": "ProCare",
+    "username": "REPLACE_ME",
+    "password": "REPLACE_ME",
+    "encrypt": "yes",
+    "trust_server_certificate": "yes"
+  },
+
+  "programs": {
+    "estock_app_path": "TBD_(confirm install path of eStock app)",
+    "titan_app_path": "D:\\downlod\\TITAN.W1B.exe"
+  },
+
+  "branches": {
+    "main": { "name_ar": "الرئيسي", "name_en": "Main" },
+    "elsanta": { "name_ar": "السنتا", "name_en": "Elsanta", "pilot": true }
+  },
+
+  "notifications": {
+    "whatsapp_provider": "TBD_(cloud_api_or_gateway)",
+    "manager_phone": "REPLACE_ME",
+    "smtp": { "host": "", "port": 587, "user": "", "password": "" }
+  },
+
+  "ai": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+
+  "ui": {
+    "default_language": "ar",
+    "languages": ["ar", "en"],
+    "default_theme": "light",
+    "themes": ["light", "dark"]
+  }
+}

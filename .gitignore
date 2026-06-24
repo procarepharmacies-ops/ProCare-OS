@@ -1,0 +1,44 @@
+# Secrets / local config — NEVER commit
+config/connections.json
+*.env
+.env*
+!.env.example
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+.next/
+dist/
+build/
+*.local
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Data / backups / large binaries (keep the repo lean)
+*.bak
+*.bacpac
+*.mdf
+*.ldf
+*.zip
+*.exe
+*.pdf
+*.png
+data/
+exports/
+logs/
+*.log
