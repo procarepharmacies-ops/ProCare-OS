@@ -67,6 +67,16 @@ Titan schema documented (or explicitly logged as still TBD with a follow‑up ow
 
 *ProCare reads the original eStock DB and mirrors it into its own clean DB. eStock stays untouched.*
 
+> **Implementation status:** the Phase‑1 *application* is built and runs today
+> (`src/`). The read‑only dashboard, Arabic AI assistant, expiry/low‑stock
+> alerts, drug‑interaction lookup, the eStock data‑quality rules and the
+> reconciliation harness all work against a seeded **shadow** database (no SQL
+> Server required). The items that need the live source — the initial/incremental
+> eStock load, the Titan load, and day‑over‑day reconciliation *against eStock* —
+> stay unchecked until the read‑only eStock login is provisioned; wiring is in
+> place (`app/etl.py`) and flips on automatically once `config/connections.json`
+> has real credentials.
+
 - [ ] ETL: initial full load from eStock → ProCare DB, applying every data‑quality rule in
       [`05-data-quality-and-fixes.md`](05-data-quality-and-fixes.md):
   - [ ] **Products** — eStock `Products` (53,474; 61 cols) → `products` (bilingual `name_ar/name_en`,
@@ -87,13 +97,16 @@ Titan schema documented (or explicitly logged as still TBD with a follow‑up ow
 - [ ] **Incremental sync** keeps ProCare's copy fresh (scheduled delta load) while validating.
 - [ ] Load Titan / Drug‑Eye drug names, substitution/alternatives, interaction, and dosing data — or,
       if the schema is still TBD, defer and read Titan live for clinical lookups (see [`03`](03-titan-drugeye-integration.md)).
-- [ ] Live dashboard (read‑only) — KPIs + the 10 dashboard queries seeded in
+- [x] Live dashboard (read‑only) — KPIs + the 10 dashboard queries seeded in
       [`../sql/dashboard-queries.sql`](../sql/dashboard-queries.sql): today/month revenue, top products,
       expiry‑in‑30‑days, low‑stock, debtors, vendor payables, daily sales chart, cashier performance, hourly peaks.
-- [ ] Arabic AI assistant (`PharmacyAI.chat`) read‑only over ProCare's own copy — constrained text‑to‑SQL.
-- [ ] Automated alerts running read‑only: `expiry_alerts` (daily 09:00 — 90/30/7 day horizons) and
-      low‑stock / smart‑reorder **drafts** (hourly). Per branch + consolidated.
-- [ ] Drug‑interaction lookup (advisory) wired to Titan / Drug‑Eye.
+      *(`app/queries.py` + the Next.js dashboard.)*
+- [x] Arabic AI assistant (`PharmacyAI.chat`) read‑only over ProCare's own copy — constrained text‑to‑SQL.
+      *(`app/ai.py`: view whitelist + SQL validator; Claude when keyed, offline Arabic rule engine otherwise.)*
+- [x] Automated alerts running read‑only: `expiry_alerts` (daily 09:00 — 90/30/7 day horizons) and
+      low‑stock / smart‑reorder **drafts** (hourly). Per branch + consolidated. *(`app/alerts.py` + `app/scheduler.py`.)*
+- [x] Drug‑interaction lookup (advisory) — local stand‑in until the Titan / Drug‑Eye schema is
+      audited (docs/03 — TBD). *(`app/drugs.py`; advisory, never blocks a sale.)*
 - [ ] **Reconcile** ProCare totals vs eStock **daily** until they match exactly:
   - [ ] Total sales per day (`COALESCE(bill_date, insert_date)`, `back <> 'Y'`).
   - [ ] Total stock value per branch (`amount > 0`, not expired).

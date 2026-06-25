@@ -81,5 +81,25 @@ class Settings:
             )
         return out
 
+    # -- Server-side-only connection accessors --------------------------------
+    # These return raw config blocks (including credentials) for internal use by
+    # db.py / etl.py / ai.py. They are NEVER serialised to the API; the API only
+    # ever exposes the boolean *_configured flags above.
+    @staticmethod
+    def procare_connection() -> dict | None:
+        return _data.get("procare_database") if Settings.procare_configured else None
+
+    @staticmethod
+    def estock_connection() -> dict | None:
+        return _data.get("estock_source") if Settings.estock_configured else None
+
+    @staticmethod
+    def titan_connection() -> dict | None:
+        return _data.get("titan_drugeye_source") if Settings.titan_configured else None
+
+    @staticmethod
+    def ai_config() -> dict:
+        return dict(_data.get("ai", {}))
+
 
 settings = Settings()

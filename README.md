@@ -56,7 +56,7 @@ Full delivery plan: **[`docs/06-roadmap.md`](docs/06-roadmap.md)**.
 | [`sql/dashboard-queries.sql`](sql/dashboard-queries.sql) | Ready-to-run, **read-only** KPI / dashboard queries against eStock |
 | [`config/connections.example.json`](config/connections.example.json) | Connection template (no secrets) — copy to `connections.json` |
 | [`.gitignore`](.gitignore) | Ensures `config/connections.json` (and other secrets) are never committed |
-| [`src/`](src/README.md) | Application source (scaffold to be filled from Phase 1) |
+| [`src/`](src/README.md) | Application source — **Phase 1 implemented**: FastAPI backend + Next.js dashboard (runnable now) |
 
 ## The two source systems (on `192.168.1.2`)
 
@@ -109,6 +109,35 @@ See [`docs/01-architecture.md`](docs/01-architecture.md) and [`docs/04-ai-automa
 - **Clinical / interaction output is ADVISORY**, shown to a pharmacist — it never silently blocks a sale.
 - See the full guardrails in [`docs/01-architecture.md`](docs/01-architecture.md#guardrails-non-negotiable).
 
+## Run it (Phase 1, shadow mode)
+
+The app runs **out of the box with no SQL Server** — the backend seeds a local
+SQLite *shadow* database with realistic synthetic data so every screen works.
+
+```bash
+# 1) Backend  → http://127.0.0.1:8000  (docs at /docs)
+cd src/backend && python -m pip install -r requirements.txt && python run.py
+
+# 2) Frontend → http://localhost:3000
+cd src/frontend && npm install && npm run dev
+```
+
+Then open the dashboard: live KPIs, a daily-sales chart, top products, expiry /
+low-stock / debtor panels, a Main / Elsanta / All switcher, and the **Arabic AI
+assistant** (ask _"مبيعات النهاردة"_ or _"الأصناف اللي هتخلص الأسبوع الجاي"_). Set
+`ANTHROPIC_API_KEY` to use Claude for the assistant; without it, a fully offline
+Arabic rule engine answers. Tests: `cd src/backend && python -m pytest`.
+
+To go live, fill `config/connections.json` with the **read-only** eStock login
+and the `procare_database` credentials — the same code then reads SQL Server
+instead of the shadow DB, and reconciliation runs side-by-side against eStock.
+
 ## Status
 
-Foundation / design phase. Next concrete step: stand up **Phase 1** — the read-only mirror ETL, the dashboard, and the Arabic AI assistant against the live eStock database, then validate against the source. See [`docs/06-roadmap.md`](docs/06-roadmap.md).
+**Phase 0 (foundation) and Phase 1 (mirror & read / shadow mode) are
+implemented.** The read-only dashboard, Arabic AI assistant, expiry/low-stock
+alerts, drug-interaction lookup, the eStock data-quality rules and the
+reconciliation harness all run today against the seeded shadow database.
+Connecting the read-only eStock login switches Phase 1 from shadow to live
+mirroring; Phase 2 (POS write path, pilot on Elsanta) is next. See
+[`docs/06-roadmap.md`](docs/06-roadmap.md).

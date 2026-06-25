@@ -1,12 +1,28 @@
-# ProCare OS backend — Phase 0 skeleton runtime (these alone let it run).
+# ProCare OS backend — Phase 1 (mirror & read / shadow mode).
+# Runs out of the box with these alone: the demo shadow DB uses Python's built-in
+# sqlite3 (no extra driver), the AI assistant has an offline rule engine, and the
+# scheduler degrades gracefully if APScheduler is absent.
+
+# --- Core runtime ---
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.32,<1.0
 pydantic>=2.9,<3.0
+SQLAlchemy>=2.0,<3.0        # engines: procare (rw), estock (ro), titan (ro)
+APScheduler>=3.10,<4.0      # expiry alerts, reorder drafts, reports
+httpx>=0.27                 # WhatsApp Cloud API / outbound clients
 
-# --- Phase 1+ : uncomment when wiring DB / ETL / AI (not needed for the skeleton) ---
-# pyodbc>=5.1            # SQL Server connectivity (needs "ODBC Driver 18 for SQL Server")
-# SQLAlchemy>=2.0        # engines: procare (rw), estock (ro), titan (ro)
-# APScheduler>=3.10      # expiry alerts, reorder drafts, reconciliation jobs
-# prophet>=1.1           # demand forecasting
-# anthropic>=0.40        # Arabic assistant (NL -> constrained read-only SQL)
-# httpx>=0.27            # WhatsApp Cloud API client
+# --- AI assistant (optional but recommended) ---
+# Without ANTHROPIC_API_KEY the assistant uses the offline Arabic rule engine.
+anthropic>=0.40             # Arabic NL -> constrained read-only SQL
+
+# --- SQL Server (Phase 1 production source / system of record) ---
+# Needed only to connect to the real eStock + ProCare SQL Server databases.
+# The demo shadow DB does NOT need this. Requires "ODBC Driver 18 for SQL Server".
+# pyodbc>=5.1
+
+# --- Forecasting (Phase 1+ smart reorder) ---
+# Heavy build; enable when wiring Prophet-based demand forecasting.
+# prophet>=1.1
+
+# --- Tests ---
+pytest>=8.0
