@@ -53,10 +53,11 @@ Full delivery plan: **[`docs/06-roadmap.md`](docs/06-roadmap.md)**.
 | [`docs/06-roadmap.md`](docs/06-roadmap.md) | Phase-by-phase delivery roadmap (mirror → parallel → cut over) |
 | [`docs/07-multi-branch.md`](docs/07-multi-branch.md) | Multi-branch model — Main + Elsanta, transfers, ledgers (eStock Module 7) |
 | [`sql/procare-schema.sql`](sql/procare-schema.sql) | ProCare's **own** clean SQL Server schema (FKs, indexes, NON-NULL dates) |
+| [`sql/procedures-and-views.sql`](sql/procedures-and-views.sql) | Hot-path stored procedures (`sp_create_sale`, FEFO `sp_deduct_stock`, `sp_check_credit`…) + the AI assistant's read-only whitelist views |
 | [`sql/dashboard-queries.sql`](sql/dashboard-queries.sql) | Ready-to-run, **read-only** KPI / dashboard queries against eStock |
 | [`config/connections.example.json`](config/connections.example.json) | Connection template (no secrets) — copy to `connections.json` |
 | [`.gitignore`](.gitignore) | Ensures `config/connections.json` (and other secrets) are never committed |
-| [`src/`](src/README.md) | Application source (scaffold to be filled from Phase 1) |
+| [`src/`](src/README.md) | Application source — **working full-stack app**: FastAPI backend + Next.js (Arabic/RTL) frontend |
 
 ## The two source systems (on `192.168.1.2`)
 
@@ -111,4 +112,27 @@ See [`docs/01-architecture.md`](docs/01-architecture.md) and [`docs/04-ai-automa
 
 ## Status
 
-Foundation / design phase. Next concrete step: stand up **Phase 1** — the read-only mirror ETL, the dashboard, and the Arabic AI assistant against the live eStock database, then validate against the source. See [`docs/06-roadmap.md`](docs/06-roadmap.md).
+**Working application.** The full stack runs standalone on ProCare's own database
+(SQLite in dev — zero setup; SQL Server in production) seeded with realistic
+demo data, because the live eStock SQL Server and credentials are not reachable
+outside the pharmacy LAN. Built and runnable today:
+
+- **Backend (FastAPI):** clean schema as ORM; dashboard KPIs + charts; inventory
+  with FEFO batches; customers/vendors with the credit picture; **POS write-path**
+  (`sp_create_sale`, FEFO `sp_deduct_stock`, `sp_check_credit`, `sp_transfer_stock`)
+  with the eStock data-quality bugs fixed by design; expiry / low-stock /
+  transfer-aware reorder automation; the **Arabic AI assistant** (constrained,
+  read-only); and the read-only **eStock mirror adapter** that activates the
+  moment real credentials are present. Tested with `pytest`.
+- **Frontend (Next.js, Arabic/RTL-first):** dashboard, inventory, POS, customers,
+  alerts, and AI assistant pages — branch switcher + language + theme toggles,
+  all persisted per user.
+
+```bash
+cd src/backend && pip install -r requirements.txt && python run.py      # API :8000
+cd src/frontend && npm install && npm run dev                           # UI  :3000
+```
+
+**To go live against the real pharmacy:** fill `config/connections.json` with the
+read-only eStock login + the ProCare SQL Server DB, then run the Phase-1 mirror.
+See [`docs/06-roadmap.md`](docs/06-roadmap.md).

@@ -44,4 +44,210 @@ body {
 
 a {
   color: var(--accent);
+  text-decoration: none;
+}
+
+/* ---- App shell: sidebar + content ---------------------------------------- */
+.shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+.sidebar {
+  background: var(--surface);
+  border-inline-end: 1px solid var(--border);
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brand {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--primary);
+  padding: 4px 10px 14px;
+}
+.brand small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.navlink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+.navlink:hover {
+  background: var(--bg);
+}
+.navlink.active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+  font-weight: 700;
+}
+.navlink .ico {
+  font-size: 18px;
+  width: 22px;
+  text-align: center;
+}
+.content {
+  padding: 24px 28px;
+  max-width: 1200px;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.page-title {
+  margin: 0;
+  font-size: 24px;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- Primitives ---------------------------------------------------------- */
+.btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+}
+.btn:hover {
+  border-color: var(--primary);
+}
+.btn.primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn.icon {
+  font-size: 16px;
+  line-height: 1;
+  padding: 8px 12px;
+}
+.input,
+.select {
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+.grid {
+  display: grid;
+  gap: 16px;
+}
+.kpis {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.kpi-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 6px 0 2px;
+}
+.kpi-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.section-title {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+table.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+table.tbl th,
+table.tbl td {
+  text-align: start;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+}
+table.tbl th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+table.tbl tbody tr:hover {
+  background: var(--bg);
+}
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+}
+.badge.warn {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.badge.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.muted {
+  color: var(--muted);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    flex-direction: row;
+    overflow-x: auto;
+    border-inline-end: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: none;
+  }
 }

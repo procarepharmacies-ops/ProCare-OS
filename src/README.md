@@ -1,43 +1,65 @@
-# src/ — Application source (scaffold)
+# src/ — Application source
 
-This is where ProCare OS code lives. It's intentionally a scaffold — the design is locked in
-[`../docs/`](../docs) first; code fills in per the [roadmap](../docs/06-roadmap.md).
+ProCare OS application code. The design is locked in [`../docs/`](../docs); this
+is the working implementation of it. The system runs **standalone on ProCare's
+own database** (SQLite in dev, SQL Server in prod) with realistic seeded data, so
+the full stack is runnable with zero infrastructure. eStock / Titan are read-only
+sources reached only by the mirror adapter — never written to.
 
-## Planned layout
+## Quick start
+
+```bash
+# 1) Backend  (http://127.0.0.1:8000, docs at /docs)
+cd backend && python -m pip install -r requirements.txt && python run.py
+
+# 2) Frontend (http://localhost:3000)  — in another terminal
+cd frontend && npm install && npm run dev
+```
+
+The backend auto-creates and seeds its database on first run. Open
+http://localhost:3000 for the Arabic-first dashboard.
+
+## Layout
 
 ```
 src/
-├── backend/                 # Python + FastAPI
+├── backend/                 # Python + FastAPI  (see backend/README.md)
 │   ├── app/
-│   │   ├── main.py          # FastAPI entrypoint
-│   │   ├── config.py        # loads ../../config/connections.json
-│   │   ├── db/              # SQLAlchemy engines: procare (rw), estock (ro), titan (ro)
-│   │   ├── modules/         # sales, inventory, purchasing, customers, vendors,
-│   │   │                    #   hr, accounts, branches, reports
-│   │   ├── etl/             # mirror eStock + Titan -> ProCare DB; reconciliation jobs
-│   │   ├── ai/              # PharmacyAI: chat (Arabic->safe SQL), forecast, insights
-│   │   ├── automation/      # PharmacyAutomation: reorder, expiry alerts, reports (APScheduler)
-│   │   ├── drugs/           # Titan/Drug-Eye: interactions, substitution, dosing
-│   │   └── notify/          # WhatsApp + email
+│   │   ├── main.py          # entrypoint; seeds the DB on startup
+│   │   ├── config.py        # reads ../../config/connections.json
+│   │   ├── db/              # engine + ORM (= sql/procare-schema.sql) + seed
+│   │   ├── services/        # dashboard, inventory, parties, pos, alerts, ai, etl
+│   │   ├── api/             # REST routers
+│   │   └── tests/           # POS guardrail + API tests (pytest)
 │   └── requirements.txt
 │
 └── frontend/                # React / Next.js (RTL, i18n ar/en, light/dark)
-    ├── app/                 # routes mirroring the 9 modules
-    ├── components/
-    ├── i18n/                # ar.json (default), en.json
-    └── theme/               # light (default) + dark tokens
+    └── app/
+        ├── page.js          # dashboard (KPIs, charts)
+        ├── inventory/       # catalogue + stock
+        ├── pos/             # point of sale (cash/credit, FEFO)
+        ├── customers/       # customers + credit picture
+        ├── alerts/          # expiry risk + reorder drafts
+        ├── assistant/       # Arabic AI assistant chat
+        ├── components/      # Shell (nav + branch switcher), charts
+        ├── api.js           # backend client
+        ├── i18n.js          # ar (default) / en strings
+        └── providers.js     # lang + theme + branch context (persisted)
 ```
 
-## Build order (see roadmap)
+## What's implemented (maps to the roadmap)
 
-1. **Phase 0** — backend skeleton + `config.py` reading `connections.json`; create ProCare DB from
-   [`../sql/procare-schema.sql`](../sql/procare-schema.sql); frontend skeleton with language + theme toggles.
-2. **Phase 1** — `etl/` initial load + incremental sync + reconciliation; read-only dashboard, AI
-   assistant, expiry/low-stock alerts, drug lookup.
-3. **Phase 2** — POS write path (`sp_create_sale`), pilot on Elsanta.
-4. **Phase 3** — both branches on ProCare; eStock retired.
+- **Phase 1 — read & shadow:** clean schema as ORM; KPI dashboard + 30-day
+  trend, top products, cashier performance; expiry alerts (7/30/90), low-stock
+  and transfer-aware smart-reorder drafts; Arabic AI assistant; the read-only
+  eStock mirror adapter (`services/etl.py`, activates with real credentials).
+- **Phase 2 — POS write-path:** `sp_create_sale` / `sp_deduct_stock` (FEFO) /
+  `sp_check_credit` / `sp_transfer_stock` as atomic, tested services, with the
+  eStock data-quality issues fixed by design (credit limit enforced, expired
+  stock locked, stock never negative). T-SQL equivalents in
+  [`../sql/procedures-and-views.sql`](../sql/procedures-and-views.sql).
 
 ## Principles
 - ProCare DB is the system of record; **eStock and Titan are read-only sources** (transition only).
 - All strings externalized for ar/en. Arabic + light are defaults; English + dark are toggles.
-- Secrets only in `config/connections.json` (git-ignored).
+- Secrets only in `config/connections.json` (git-ignored); the AI key comes from the environment.
