@@ -44,9 +44,40 @@ def _source_configured(block) -> bool:
     return _is_real(block.get("username")) and _is_real(block.get("password"))
 
 
+def _odbc_url(block: dict) -> str | None:
+    """Build a pyodbc SQLAlchemy URL from a connection block, or None.
+
+    Returns None unless the block carries real (non-placeholder) credentials, so
+    callers transparently fall back to the local SQLite dev database.
+    """
+    if not _source_configured(block):
+        return None
+    from urllib.parse import quote_plus
+
+    driver = block.get("driver", "ODBC Driver 18 for SQL Server")
+    server = block.get("server", "")
+    # Port forwarding: "SERVER=host,1433". Accept an explicit port (default 1433
+    # only when the server has no port baked in already).
+    port = block.get("port")
+    if port and "," not in str(server):
+        server = f"{server},{port}"
+    parts = [
+        f"DRIVER={{{driver}}}",
+        f"SERVER={server}",
+        f"DATABASE={block.get('database', '')}",
+        f"UID={block.get('username', '')}",
+        f"PWD={block.get('password', '')}",
+        f"Encrypt={block.get('encrypt', 'yes')}",
+        f"TrustServerCertificate={block.get('trust_server_certificate', 'yes')}",
+    ]
+    return "mssql+pyodbc:///?odbc_connect=" + quote_plus(";".join(parts))
+
+
 _data, _source = _load()
 _ui = _data.get("ui", {})
 _branches = _data.get("branches", {})
+_ai = _data.get("ai", {})
+_notify = _data.get("notifications", {})
 
 
 class Settings:
@@ -66,6 +97,38 @@ class Settings:
     estock_configured: bool = _source_configured(_data.get("estock_source", {}))
     titan_configured: bool = _source_configured(_data.get("titan_drugeye_source", {}))
     procare_configured: bool = _source_configured(_data.get("procare_database", {}))
+
+    # AI assistant (Claude). The key itself is read from the environment, never
+    # from git — config only names which env var holds it.
+    ai_provider: str = _ai.get("provider", "anthropic")
+    ai_model: str = _ai.get("model", "claude-sonnet-4-6")
+    ai_api_key_env: str = _ai.get("api_key_env", "ANTHROPIC_API_KEY")
+
+    @staticmethod
+    def procare_sqlalchemy_url() -> str | None:
+        """SQL Server URL for ProCare's own DB, or None to use SQLite dev DB."""
+        return _odbc_url(_data.get("procare_database", {}))
+
+    @staticmethod
+    def estock_sqlalchemy_url() -> str | None:
+        """Read-only SQL Server URL for the eStock mirror source, or None."""
+        return _odbc_url(_data.get("estock_source", {}))
+
+    @staticmethod
+    def estock_store_branch_map() -> dict | None:
+        """Optional eStock store_id -> ProCare branch CODE/id map for the mirror.
+
+        Configured under ``estock_source.store_branch_map`` (e.g.
+        ``{"1": "MAIN", "2": "ELSANTA"}``). None lets the ETL use its default.
+        """
+        return _data.get("estock_source", {}).get("store_branch_map")
+
+    @staticmethod
+    def ai_api_key():
+        """The Claude API key from the configured env var, or None if unset."""
+        import os
+
+        return os.environ.get(Settings.ai_api_key_env)
 
     @staticmethod
     def branch_list() -> list:

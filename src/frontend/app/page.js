@@ -1,167 +1,118 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Shell from "./components/Shell";
+import { BarChart, HBar } from "./components/charts";
 import { useUI } from "./providers";
 import { t } from "./i18n";
+import { api } from "./api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
-
-export default function Dashboard() {
-  const { lang, theme, toggleLang, toggleTheme } = useUI();
-  const [health, setHealth] = useState(null);
-  const [branches, setBranches] = useState([]);
-  const [branch, setBranch] = useState("ALL");
-  const [error, setError] = useState(false);
+export default function DashboardPage() {
+  const { lang, branch } = useUI();
+  const L = (k) => t(lang, k);
+  const [data, setData] = useState(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [h, b] = await Promise.all([
-          fetch(`${API_BASE}/api/health`).then((r) => r.json()),
-          fetch(`${API_BASE}/api/branches`).then((r) => r.json()),
+        const [summary, daily, top, cashiers] = await Promise.all([
+          api.dashboardSummary(branch),
+          api.dailySales(branch, 30),
+          api.topProducts(branch, 30),
+          api.cashiers(branch),
         ]);
-        if (!alive) return;
-        setHealth(h);
-        setBranches(b.branches || []);
-        setError(false);
+        if (alive) setData({ summary, daily: daily.series, top: top.products, cashiers: cashiers.cashiers });
       } catch {
-        if (alive) setError(true);
+        if (alive) setData({ error: true });
       }
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [branch]);
 
-  const L = (k) => t(lang, k);
-  const online = Boolean(health) && !error;
-  const kpis = ["sales_today", "sales_month", "low_stock", "expiring_30", "debtors"];
+  const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
 
   return (
-    <main style={S.main}>
-      <header style={S.header}>
-        <div>
-          <h1 style={S.h1}>{L("app")}</h1>
-          <p style={S.tagline}>
-            {L("tagline")} · {L("phase0")}
-          </p>
-        </div>
-        <div style={S.controls}>
-          <label style={S.field}>
-            <span style={S.fieldLabel}>{L("branch")}</span>
-            <select
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              style={S.select}
-            >
-              <option value="ALL">{L("all_branches")}</option>
-              {branches.map((b) => (
-                <option key={b.code} value={b.code}>
-                  {(lang === "ar" ? b.name_ar : b.name_en) + (b.pilot ? " ★" : "")}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={toggleLang} style={S.btn} title="language / اللغة">
-            {lang === "ar" ? "EN" : "ع"}
-          </button>
-          <button onClick={toggleTheme} style={S.btn} title="theme / المظهر">
-            {theme === "light" ? "🌙" : "☀️"}
-          </button>
-        </div>
-      </header>
+    <Shell titleKey="nav_dashboard">
+      {!data && <p className="muted">{L("loading")}</p>}
+      {data?.error && <p className="badge danger">{L("offline")}</p>}
+      {data && !data.error && (
+        <>
+          <KPIs k={data.summary.kpis} L={L} fmt={fmt} />
 
-      <section style={S.statusRow}>
-        <span
-          style={{ ...S.dot, background: online ? "var(--ok)" : "var(--danger)" }}
-        />
-        <strong>{L("backend_status")}:</strong>
-        <span>{online ? L("online") : L("offline")}</span>
-        {health?.using_example_config && (
-          <span style={S.badge}>{L("using_example")}</span>
-        )}
-      </section>
-
-      <section style={S.grid}>
-        {kpis.map((k) => (
-          <div key={k} style={S.card}>
-            <div style={S.cardLabel}>{L(k)}</div>
-            <div style={S.cardValue}>—</div>
-            <div style={S.cardNote}>{L("not_wired")}</div>
+          <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
+            <div className="card">
+              <h3 className="section-title">{L("daily_sales")}</h3>
+              <BarChart data={data.daily} valueKey="revenue" labelKey="date" />
+            </div>
+            <div className="card">
+              <h3 className="section-title">{L("top_products")}</h3>
+              <Ranked
+                rows={data.top.map((p) => ({
+                  name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
+                  value: p.revenue,
+                }))}
+                fmt={fmt}
+                unit={L("egp")}
+              />
+            </div>
           </div>
-        ))}
-      </section>
-    </main>
+
+          <div className="card" style={{ marginTop: 16 }}>
+            <h3 className="section-title">{L("cashier_perf")}</h3>
+            <Ranked
+              rows={data.cashiers.map((c) => ({ name: c.cashier, value: c.revenue, sub: `${c.bills} ${L("bills")}` }))}
+              fmt={fmt}
+              unit={L("egp")}
+              color="var(--primary)"
+            />
+          </div>
+        </>
+      )}
+    </Shell>
   );
 }
 
-// Inline styles keyed to the CSS variables in globals.css — themable + RTL-safe
-// (logical properties), with zero extra dependencies for the skeleton.
-const S = {
-  main: { maxWidth: 1100, margin: "0 auto", padding: "32px 24px" },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 16,
-    flexWrap: "wrap",
-  },
-  h1: { margin: 0, fontSize: 30, color: "var(--primary)" },
-  tagline: { margin: "4px 0 0", color: "var(--muted)", fontSize: 14 },
-  controls: { display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" },
-  field: { display: "flex", flexDirection: "column", gap: 4 },
-  fieldLabel: { fontSize: 12, color: "var(--muted)" },
-  select: {
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid var(--border)",
-    background: "var(--surface)",
-    color: "var(--text)",
-  },
-  btn: {
-    padding: "8px 14px",
-    borderRadius: 8,
-    border: "1px solid var(--border)",
-    background: "var(--surface)",
-    color: "var(--text)",
-    cursor: "pointer",
-    fontSize: 16,
-    lineHeight: 1,
-  },
-  statusRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    margin: "24px 0",
-    padding: "12px 16px",
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 10,
-    boxShadow: "var(--shadow)",
-  },
-  dot: { width: 10, height: 10, borderRadius: "50%", display: "inline-block" },
-  badge: {
-    marginInlineStart: "auto",
-    fontSize: 12,
-    color: "var(--warning)",
-    border: "1px solid var(--warning)",
-    borderRadius: 999,
-    padding: "2px 10px",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: 16,
-  },
-  card: {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 12,
-    padding: 18,
-    boxShadow: "var(--shadow)",
-  },
-  cardLabel: { color: "var(--muted)", fontSize: 13 },
-  cardValue: { fontSize: 30, fontWeight: 700, margin: "6px 0" },
-  cardNote: { fontSize: 11, color: "var(--muted)" },
-};
+function KPIs({ k, L, fmt }) {
+  const cards = [
+    { label: L("sales_today"), value: fmt(k.sales_today), sub: `${k.bills_today} ${L("bills")}` },
+    { label: L("sales_month"), value: fmt(k.sales_month), sub: L("egp") },
+    { label: L("profit_month"), value: fmt(k.profit_month), sub: L("egp") },
+    { label: L("low_stock"), value: fmt(k.low_stock), sub: "" },
+    { label: L("expiring_30"), value: fmt(k.expiring_30), sub: "" },
+    { label: L("debtors"), value: fmt(k.debtors), sub: "" },
+  ];
+  return (
+    <div className="grid kpis">
+      {cards.map((c) => (
+        <div className="card" key={c.label}>
+          <div className="kpi-label">{c.label}</div>
+          <div className="kpi-value num">{c.value}</div>
+          <div className="kpi-sub">{c.sub}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Ranked({ rows, fmt, unit, color = "var(--accent)" }) {
+  if (!rows || rows.length === 0) return <p className="muted">—</p>;
+  const max = Math.max(...rows.map((r) => r.value), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {rows.map((r, i) => (
+        <div key={i}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 4 }}>
+            <span>{r.name}</span>
+            <span className="num muted">
+              {fmt(r.value)} {unit} {r.sub ? `· ${r.sub}` : ""}
+            </span>
+          </div>
+          <HBar value={r.value} max={max} color={color} />
+        </div>
+      ))}
+    </div>
+  );
+}

@@ -1,33 +1,89 @@
 # ProCare OS — Backend (FastAPI)
 
-Phase-0 skeleton. Starts with **no database connection required**, so the
-frontend has a live API to talk to from day one. Wiring to the ProCare DB /
-eStock ETL / AI follows [`../../docs/06-roadmap.md`](../../docs/06-roadmap.md).
+ProCare's own, independent system of record. Runs **standalone on its own
+database** — SQLite in dev (zero setup), SQL Server in production — and serves
+the dashboard, inventory, customers/vendors, POS write-path, automation alerts,
+and the Arabic AI assistant.
+
+eStock and Titan/Drug-Eye are read-only **sources**, reached only by the
+[`app/services/etl.py`](app/services/etl.py) mirror adapter — never written to.
+When no live eStock login is configured, the system seeds realistic demo data
+([`app/db/seed.py`](app/db/seed.py)) so the whole stack is runnable offline.
 
 ## Run
 
 ```bash
 # from this folder
-python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt   # Windows
-# .venv/bin/python -m pip install -r requirements.txt       # macOS/Linux
-.venv\Scripts\python run.py
+python -m pip install -r requirements.txt
+python run.py
 ```
 
-API → http://127.0.0.1:8000  ·  interactive docs → http://127.0.0.1:8000/docs
+First start auto-creates the schema and seeds demo data into `data/procare.db`
+(git-ignored). API → http://127.0.0.1:8000 · interactive docs → `/docs`.
 
-Or use the editor **Run** (preview): see [`../../.claude/launch.json`](../../.claude/launch.json), server **`procare-backend`**.
+```bash
+python -m app.db.seed   # force a clean reseed
+python -m pytest        # run the test suite (POS guardrails + API + ETL)
+```
 
-## Endpoints (Phase 0)
+## eStock mirror (Phase 1, on-prem only)
+
+The read-only mirror connects to the live eStock SQL Server, so it must run on a
+machine that can reach the DB (inside the LAN, or via your port-forward) with
+`pyodbc` + "ODBC Driver 18 for SQL Server" installed. Configure
+`config/connections.json:estock_source` (server/port/database/username/password
++ `store_branch_map`), then:
+
+```bash
+pip install pyodbc
+python -m app.services.etl --status   # offline vs live + table mapping plan
+python -m app.services.etl --check    # connect + confirm the login is READ-ONLY
+python -m app.services.etl --run      # run the full read-only mirror
+# or via the API:  curl -X POST localhost:8000/api/etl/run
+```
+
+`--check` treats a *blocked* write as success — it verifies the login truly
+cannot write to eStock before any mirror run.
+
+## Architecture
+
+```
+app/
+├── main.py            # FastAPI app; seeds the DB on startup
+├── config.py          # reads config/connections.json (DB URL, AI, branches)
+├── db/
+│   ├── base.py        # engine/session (SQLite dev ↔ SQL Server prod)
+│   ├── models.py      # ORM = sql/procare-schema.sql (FKs, checks, branch_id)
+│   └── seed.py        # realistic demo data (stands in for the eStock ETL)
+├── services/
+│   ├── dashboard.py   # KPIs / charts (sql/dashboard-queries.sql, cleaned)
+│   ├── inventory.py   # catalogue + FEFO batch lookup
+│   ├── parties.py     # customers (credit picture) + vendors
+│   ├── pos.py         # sp_create_sale / sp_deduct_stock(FEFO) / sp_check_credit
+│   │                  #   / sp_transfer_stock — atomic, guardrailed
+│   ├── alerts.py      # expiry risk, low-stock, smart reorder, forecast
+│   ├── ai.py          # PharmacyAI.chat — constrained, read-only, Arabic-first
+│   └── etl.py         # read-only eStock → ProCare mirror (Phase 1 adapter)
+└── api/               # thin routers over the services
+```
+
+## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/` | service info |
-| GET | `/api/health` | status + which DBs are configured + UI defaults |
-| GET | `/api/branches` | the two branches (Main / Elsanta) from config |
-| GET | `/api/dashboard/summary` | stub KPIs (wired to DB in Phase 1) |
+| GET | `/api/health` | status, DB mode, AI engine, configured sources |
+| GET | `/api/branches` | branches (Main / Elsanta) |
+| GET | `/api/etl/status` | live vs offline mirror + the table-mapping plan |
+| GET | `/api/dashboard/summary` · `/daily-sales` · `/top-products` · `/hourly` · `/cashiers` | KPIs + charts |
+| GET | `/api/inventory/products` · `/products/{id}/batches` | catalogue + FEFO batches |
+| GET | `/api/customers` · `/api/vendors` | parties + credit picture |
+| GET | `/api/alerts/expiry` · `/low-stock` · `/reorder` · `/forecast/{id}` | automation |
+| POST | `/api/sales` · `/api/sales/transfer` | POS write-path (FEFO, credit, atomic) |
+| GET | `/api/sales/recent` | recent invoices |
+| POST | `/api/ai/chat` | Arabic assistant (read-only) |
 
-Config is read by [`app/config.py`](app/config.py) from `config/connections.json`
-(git-ignored), falling back to `config/connections.example.json`. **Secrets are
-never returned by the API** — `/api/health` only reports whether each source has
-real (non-placeholder) credentials.
+**Guardrails enforced in code** (see [`app/services/pos.py`](app/services/pos.py)):
+FEFO deduction, credit-limit block (override needs `can_sale_credit`),
+expired-stock lock, never-negative stock, all-or-nothing transactions. Secrets
+are never returned by the API — `/api/health` only reports *whether* each source
+is configured.
