@@ -10,6 +10,7 @@ const NAV = [
   { href: "/pos", key: "nav_pos", ico: "🧾" },
   { href: "/customers", key: "nav_customers", ico: "👥" },
   { href: "/alerts", key: "nav_alerts", ico: "🔔" },
+  { href: "/clinical", key: "nav_clinical", ico: "⚕️" },
   { href: "/assistant", key: "nav_assistant", ico: "🤖" },
 ];
 

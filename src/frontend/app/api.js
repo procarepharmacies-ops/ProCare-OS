@@ -54,4 +54,17 @@ export const api = {
 
   chat: (query, branch, lang) =>
     http("/ai/chat", { method: "POST", body: JSON.stringify({ query, branch_id: branch || null, lang }) }),
+
+  // Clinical drug advisory (read-only, advisory only — never blocks a sale).
+  clinicalStatus: () => http("/clinical/status"),
+  clinicalInteractions: (productIds, branch, lang, minSeverity = "moderate") =>
+    http("/clinical/interactions", {
+      method: "POST",
+      body: JSON.stringify({ product_ids: productIds, branch_id: branch || null, lang, min_severity: minSeverity }),
+    }),
+  drugInfo: (productId, branch, lang) =>
+    http(`/clinical/products/${productId}${bq(branch, `lang=${lang}`)}`),
+  substitutions: (productId, branch, lang) =>
+    http(`/clinical/products/${productId}/substitutions${bq(branch, `lang=${lang}`)}`),
+  dose: (productId, age, lang) => http(`/clinical/products/${productId}/dose?age=${age}&lang=${lang}`),
 };

@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import ai, alerts, dashboard, inventory, parties, sales
+from app.api import ai, alerts, clinical, dashboard, inventory, parties, sales
 from app.config import settings
 from app.db import models as m
 from app.db.base import IS_SQLITE, get_session
+from app.services import clinical as clinical_svc
 from app.services import etl
 
 router = APIRouter()
@@ -37,6 +38,9 @@ def health(session: Session = Depends(get_session)):
         "ai_assistant": {
             "engine": "claude" if settings.ai_api_key() else "rule-based (no API key set)",
             "model": settings.ai_model,
+        },
+        "clinical_advisory": {
+            "mode": "live" if clinical_svc.is_live() else "offline (curated advisory rules)",
         },
         "ui_defaults": {"language": settings.default_language, "theme": settings.default_theme},
     }
@@ -84,4 +88,5 @@ router.include_router(inventory.router)
 router.include_router(parties.router)
 router.include_router(sales.router)
 router.include_router(alerts.router)
+router.include_router(clinical.router)
 router.include_router(ai.router)

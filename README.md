@@ -121,12 +121,15 @@ outside the pharmacy LAN. Built and runnable today:
   with FEFO batches; customers/vendors with the credit picture; **POS write-path**
   (`sp_create_sale`, FEFO `sp_deduct_stock`, `sp_check_credit`, `sp_transfer_stock`)
   with the eStock data-quality bugs fixed by design; expiry / low-stock /
-  transfer-aware reorder automation; the **Arabic AI assistant** (constrained,
+  transfer-aware reorder automation; the **clinical drug-advisory layer**
+  (interactions, in-stock alternatives, age-based dosing — advisory, never
+  blocks a sale; Titan/Drug-Eye ready); the **Arabic AI assistant** (constrained,
   read-only); and the read-only **eStock mirror adapter** that activates the
   moment real credentials are present. Tested with `pytest`.
-- **Frontend (Next.js, Arabic/RTL-first):** dashboard, inventory, POS, customers,
-  alerts, and AI assistant pages — branch switcher + language + theme toggles,
-  all persisted per user.
+- **Frontend (Next.js, Arabic/RTL-first):** dashboard, inventory, POS (with a
+  live drug-interaction advisory banner), customers, alerts, a clinical drug-card
+  page, and the AI assistant — branch switcher + language + theme toggles, all
+  persisted per user.
 
 ```bash
 cd src/backend && pip install -r requirements.txt && python run.py      # API :8000
