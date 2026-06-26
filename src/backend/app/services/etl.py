@@ -194,12 +194,14 @@ def _resolve_branch_map(dst: Session, store_branch_map: dict | None) -> dict[int
         for k, v in store_branch_map.items():
             out[int(k)] = by_code.get(v, v) if isinstance(v, str) else int(v)
         return out
-    # Default: eStock store/branch 1 -> Main, 2 -> Elsanta when present.
+    # Default (confirmed by owner): eStock store_id 1 -> Elsanta. Main is
+    # assumed store_id 2 (pending confirmation); override via config
+    # estock_source.store_branch_map if Main uses a different store_id.
     default = {}
-    if "MAIN" in by_code:
-        default[1] = by_code["MAIN"]
     if "ELSANTA" in by_code:
-        default[2] = by_code["ELSANTA"]
+        default[1] = by_code["ELSANTA"]
+    if "MAIN" in by_code:
+        default[2] = by_code["MAIN"]
     return default or {1: next(iter(by_code.values()))}
 
 
