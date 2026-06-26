@@ -541,6 +541,37 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     counts["purchase_lines"] = len(line_rows)
 
 
+def preflight() -> dict:
+    """On-prem connectivity + read-only check before a first mirror run.
+
+    Confirms (1) we can connect to the configured eStock source, and (2) the
+    login truly cannot write — a blocked write is the SUCCESS case (roadmap
+    Phase 0). Run this on a machine that can reach the DB.
+    """
+    url = settings.estock_sqlalchemy_url()
+    if not url:
+        return {"ok": False, "reason": "No eStock credentials configured (config/connections.json)."}
+    try:
+        src = create_engine(url, echo=False)
+        with src.connect() as c:
+            c.execute(text("SELECT 1"))
+            tables = inspect(src).get_table_names()
+        result = {"ok": True, "connected": True, "source_tables": len(tables)}
+        # Verify the login is read-only: a write MUST be rejected.
+        try:
+            with src.begin() as c:
+                c.execute(text("CREATE TABLE procare_write_probe_x (n INT)"))
+            result["read_only"] = False
+            result["warning"] = "Login CAN write — use a dedicated READ-ONLY login before mirroring."
+            with src.begin() as c:  # best-effort cleanup if it did create
+                c.execute(text("DROP TABLE procare_write_probe_x"))
+        except Exception:
+            result["read_only"] = True  # write blocked == good
+        return result
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
+
+
 def run_full_load() -> dict:
     """Entry point for the Phase-1 full mirror against the live eStock DB.
 
@@ -567,5 +598,13 @@ def run_full_load() -> dict:
 
 if __name__ == "__main__":
     import json
+    import sys
 
-    print(json.dumps(status(), ensure_ascii=False, indent=2))
+    arg = sys.argv[1] if len(sys.argv) > 1 else "--status"
+    if arg == "--check":
+        out = preflight()
+    elif arg == "--run":
+        out = run_full_load()
+    else:
+        out = status()
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))

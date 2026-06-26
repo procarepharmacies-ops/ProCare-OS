@@ -23,8 +23,27 @@ First start auto-creates the schema and seeds demo data into `data/procare.db`
 
 ```bash
 python -m app.db.seed   # force a clean reseed
-python -m pytest        # run the test suite (POS guardrails + API)
+python -m pytest        # run the test suite (POS guardrails + API + ETL)
 ```
+
+## eStock mirror (Phase 1, on-prem only)
+
+The read-only mirror connects to the live eStock SQL Server, so it must run on a
+machine that can reach the DB (inside the LAN, or via your port-forward) with
+`pyodbc` + "ODBC Driver 18 for SQL Server" installed. Configure
+`config/connections.json:estock_source` (server/port/database/username/password
++ `store_branch_map`), then:
+
+```bash
+pip install pyodbc
+python -m app.services.etl --status   # offline vs live + table mapping plan
+python -m app.services.etl --check    # connect + confirm the login is READ-ONLY
+python -m app.services.etl --run      # run the full read-only mirror
+# or via the API:  curl -X POST localhost:8000/api/etl/run
+```
+
+`--check` treats a *blocked* write as success — it verifies the login truly
+cannot write to eStock before any mirror run.
 
 ## Architecture
 
