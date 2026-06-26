@@ -55,9 +55,15 @@ def _odbc_url(block: dict) -> str | None:
     from urllib.parse import quote_plus
 
     driver = block.get("driver", "ODBC Driver 18 for SQL Server")
+    server = block.get("server", "")
+    # Port forwarding: "SERVER=host,1433". Accept an explicit port (default 1433
+    # only when the server has no port baked in already).
+    port = block.get("port")
+    if port and "," not in str(server):
+        server = f"{server},{port}"
     parts = [
         f"DRIVER={{{driver}}}",
-        f"SERVER={block.get('server', '')}",
+        f"SERVER={server}",
         f"DATABASE={block.get('database', '')}",
         f"UID={block.get('username', '')}",
         f"PWD={block.get('password', '')}",
@@ -107,6 +113,15 @@ class Settings:
     def estock_sqlalchemy_url() -> str | None:
         """Read-only SQL Server URL for the eStock mirror source, or None."""
         return _odbc_url(_data.get("estock_source", {}))
+
+    @staticmethod
+    def estock_store_branch_map() -> dict | None:
+        """Optional eStock store_id -> ProCare branch CODE/id map for the mirror.
+
+        Configured under ``estock_source.store_branch_map`` (e.g.
+        ``{"1": "MAIN", "2": "ELSANTA"}``). None lets the ETL use its default.
+        """
+        return _data.get("estock_source", {}).get("store_branch_map")
 
     @staticmethod
     def ai_api_key():

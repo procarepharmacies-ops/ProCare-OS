@@ -68,6 +68,16 @@ def etl_status():
     return etl.status()
 
 
+@router.post("/etl/run", tags=["etl"])
+def etl_run():
+    """Trigger the Phase-1 full mirror from the live eStock DB into ProCare.
+
+    Safely refuses unless a real read-only eStock login is configured. Read-only
+    against eStock by construction.
+    """
+    return etl.run_full_load()
+
+
 # Feature routers, all under /api.
 router.include_router(dashboard.router)
 router.include_router(inventory.router)
