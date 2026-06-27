@@ -50,6 +50,7 @@ services:
       ESTOCK_DB_DATABASE: stock
       ESTOCK_DB_USER: sa
       ESTOCK_DB_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
+      ESTOCK_ENSURE_DB: "1"   # throwaway demo source — OK to create its DB
     depends_on:
       - estock-db
     restart: "no"
@@ -68,6 +69,7 @@ services:
       ESTOCK_DB_USER: sa
       ESTOCK_DB_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
       ESTOCK_STORE_BRANCH_MAP: '{"1":"MAIN","2":"ELSANTA"}'
+      ESTOCK_ENSURE_DB: "1"   # throwaway demo source — OK to create its DB
       SYNC_ENABLED: "1"
       SYNC_INTERVAL_SECONDS: "10"
     depends_on:

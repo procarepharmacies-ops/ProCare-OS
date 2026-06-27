@@ -134,7 +134,7 @@ outside the pharmacy LAN. Built and runnable today:
 **See it live — one command** (full stack via Docker, boots on seeded data):
 
 ```bash
-docker compose up -d --build      # UI http://localhost:3000 · API http://localhost:8000/docs
+docker compose up -d --build      # UI http://localhost:3000 · API http://localhost:8080/docs
 ```
 
 Run it on **SQL Server** (production engine) with a second SQL Server standing in

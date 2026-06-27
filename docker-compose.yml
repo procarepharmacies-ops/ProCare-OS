@@ -1,11 +1,14 @@
 # ProCare OS — full stack, one command.
 #
 #   docker compose up -d --build
-#   open http://localhost:3000          (UI)   ·   http://localhost:8000/docs (API)
+#   open http://localhost:3000          (UI)   ·   http://localhost:8080/docs (API)
 #
 # Runs entirely on ProCare's own seeded database (SQLite) — no external services
 # needed, so it's live immediately. To use the Arabic assistant with Claude,
 # export ANTHROPIC_API_KEY before bringing the stack up (optional).
+#
+# The API is published on host port 8080 by default (host 8000 is often taken by
+# an NVR/camera). Override with BACKEND_PORT, e.g. BACKEND_PORT=8090 docker compose up.
 services:
   backend:
     build:
@@ -17,7 +20,7 @@ services:
       PROCARE_CORS_ORIGINS: "*"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     ports:
-      - "8000:8000"        # exposes /docs and the API directly (optional)
+      - "${BACKEND_PORT:-8080}:8000"   # host 8080 -> container 8000 (avoids NVR on 8000)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s

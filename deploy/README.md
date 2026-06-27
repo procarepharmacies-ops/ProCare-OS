@@ -23,7 +23,7 @@ starts the stack, and prints the live URL. When it finishes:
 
 ```
 UI:   http://<foo-ip>:3000
-API:  http://<foo-ip>:8000/docs
+API:  http://<foo-ip>:8080/docs
 ```
 
 `<foo-ip>` is shown by the script (also `multipass info foo`). Re-run the script
@@ -33,7 +33,7 @@ any time to redeploy.
 
 ```bash
 docker compose up -d --build
-# UI  http://localhost:3000   ·   API http://localhost:8000/docs
+# UI  http://localhost:3000   ·   API http://localhost:8080/docs
 ```
 
 ## Option B2 — SQL Server + live sync (production engine)
@@ -43,7 +43,7 @@ playing the role of **eStock**, kept in sync **continuously** (near-real-time):
 
 ```bash
 docker compose -f docker-compose.yml -f deploy/docker-compose.sqlserver.yml up -d --build
-# UI http://localhost:3000 · API http://localhost:8000/docs · sync GET /api/sync/status
+# UI http://localhost:3000 · API http://localhost:8080/docs · sync GET /api/sync/status
 ```
 
 What it does:

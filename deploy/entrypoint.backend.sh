@@ -77,9 +77,16 @@ def ensure_db(b):
             time.sleep(2)
     raise SystemExit(f"entrypoint: SQL Server {b['server']} not reachable; giving up")
 
-for b in (data.get("procare_database"), data.get("estock_source")):
-    if b:
-        ensure_db(b)
+# Always ensure ProCare's OWN database. NEVER create/write the eStock source —
+# it's read-only by guardrail — unless explicitly asked (the local SQL Server
+# demo sets ESTOCK_ENSURE_DB=1 for its throwaway eStock container).
+targets = []
+if data.get("procare_database"):
+    targets.append(data["procare_database"])
+if data.get("estock_source") and os.environ.get("ESTOCK_ENSURE_DB", "").lower() in ("1", "true", "yes", "on"):
+    targets.append(data["estock_source"])
+for b in targets:
+    ensure_db(b)
 PY
 
 exec "$@"

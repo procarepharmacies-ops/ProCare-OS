@@ -1,0 +1,40 @@
+# Live eStock sync overlay — mirror the REAL pharmacy server into ProCare.
+#
+# Layer this on the base compose file to sync ProCare from the live eStock SQL
+# Server (e.g. the Main/Elsanta server at its static IP) continuously. ProCare's
+# own DB stays on SQLite here (persisted in a volume) as the mirror target; add
+# PROCARE_DB_* (see deploy/docker-compose.sqlserver.yml) to put ProCare on SQL
+# Server too.
+#
+#   1) cp deploy/estock.env.example deploy/estock.env   # git-ignored
+#   2) edit deploy/estock.env  (host IP, read-only username, password)
+#   3) docker compose --env-file deploy/estock.env \
+#        -f docker-compose.yml -f deploy/docker-compose.estock-live.yml up -d --build
+#
+#   open http://localhost:3000   ·   sync status: GET http://localhost:8080/api/sync/status
+#
+# GUARDRAIL: eStock is opened READ-ONLY (only SELECTs; ESTOCK_ENSURE_DB is NOT
+# set, so ProCare never tries to create/write anything on the eStock server).
+# Use a dedicated read-only SQL login. The machine running this must be able to
+# reach the eStock host (e.g. your foo VM on the pharmacy LAN, or via the server's
+# static IP + a forwarded SQL port).
+services:
+  backend:
+    environment:
+      PROCARE_CORS_ORIGINS: "*"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # --- live eStock source (from deploy/estock.env) ---
+      ESTOCK_DB_SERVER: "${ESTOCK_HOST:?set ESTOCK_HOST in deploy/estock.env}"
+      ESTOCK_DB_PORT: "${ESTOCK_PORT:-1433}"
+      ESTOCK_DB_DATABASE: "${ESTOCK_DB:-stock}"
+      ESTOCK_DB_USER: "${ESTOCK_USER:?set ESTOCK_USER in deploy/estock.env}"
+      ESTOCK_DB_PASSWORD: "${ESTOCK_PASSWORD:?set ESTOCK_PASSWORD in deploy/estock.env}"
+      # eStock store_id -> ProCare branch. Adjust if Elsanta isn't store_id 2.
+      ESTOCK_STORE_BRANCH_MAP: "${ESTOCK_STORE_BRANCH_MAP:-{\"1\":\"MAIN\",\"2\":\"ELSANTA\"}}"
+      SYNC_ENABLED: "1"
+      SYNC_INTERVAL_SECONDS: "${SYNC_INTERVAL_SECONDS:-15}"
+    volumes:
+      - procare_data:/app/src/backend/data   # persist the mirrored ProCare DB
+
+volumes:
+  procare_data:
