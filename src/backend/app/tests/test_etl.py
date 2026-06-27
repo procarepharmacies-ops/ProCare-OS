@@ -147,6 +147,26 @@ def test_mirror_transforms_and_cleans(estock_source):
         reset_and_seed()
 
 
+def test_unmapped_store_auto_creates_branch(estock_source):
+    """A store_id with no mapping (e.g. a Mashal branch) gets its own ProCare
+    branch instead of being merged into another."""
+    try:
+        with estock_source.begin() as c:
+            # New store_id 3 not present in the store_branch_map below.
+            c.execute(text(
+                "INSERT INTO Product_Amount VALUES (3,101,3,502,9,15,7,12,0,'2027-05-01')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: "ELSANTA", 2: "MAIN"})
+        with SessionLocal() as s:
+            br = s.query(m.Branch).filter(m.Branch.code == "STORE3").one_or_none()
+            assert br is not None  # auto-created
+            stock = s.query(m.StockBatch).filter(m.StockBatch.branch_id == br.branch_id).all()
+            assert len(stock) >= 1  # store-3 stock landed in the new branch
+    finally:
+        reset_and_seed()
+
+
 def test_run_full_load_refuses_without_credentials():
     # No estock_source credentials configured in the example config => safe refusal.
     result = etl.run_full_load()

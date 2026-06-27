@@ -164,10 +164,15 @@ def mirror(source_engine, dst: Session, store_branch_map: dict | None = None) ->
     core table; optional/absent source tables are skipped.
     """
     insp = inspect(source_engine)
-    branch_map = _resolve_branch_map(dst, store_branch_map)
-    default_branch = next(iter(branch_map.values()))
 
     with source_engine.connect() as src:
+        # Discover the branches that actually exist on the source and ensure a
+        # ProCare branch for each, so no branch's data is merged into another
+        # (the remote server may carry Main, Elsanta, Mashal, ...).
+        store_ids = _distinct_store_ids(insp, src)
+        branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
+        default_branch = next(iter(branch_map.values()))
+
         _wipe_destination(dst)
         counts: dict[str, int] = {}
 
@@ -183,26 +188,63 @@ def mirror(source_engine, dst: Session, store_branch_map: dict | None = None) ->
     return counts
 
 
-def _resolve_branch_map(dst: Session, store_branch_map: dict | None) -> dict[int, int]:
-    """store_id (eStock) -> branch_id (ProCare). Config-driven, safe fallback."""
-    by_code = {b.code: b.branch_id for b in dst.scalars(select(m.Branch)).all()}
-    if not by_code:
+def _distinct_store_ids(insp, src) -> set[int]:
+    """Every store_id present on the source (across the branch-bearing tables)."""
+    ids: set[int] = set()
+    for tbl in ("Product_Amount", "Sales_header", "Back_sales_header", "Purchase_header"):
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        if "store_id" not in cols:
+            continue
+        for (v,) in src.execute(text(f"SELECT DISTINCT store_id FROM {tbl}")):
+            if v is not None:
+                ids.add(int(v))
+    return ids
+
+
+def _resolve_branch_map(
+    dst: Session, store_branch_map: dict | None, store_ids: set[int] | None = None
+) -> dict[int, int]:
+    """store_id (eStock) -> branch_id (ProCare).
+
+    Honours an operator-provided map ({store_id: 'CODE'} or {store_id: branch_id}),
+    creating any named ProCare branch that doesn't exist yet. Any store_id seen on
+    the source but not mapped gets its own auto-created branch, so a new branch
+    (e.g. Mashal) never silently merges into another.
+    """
+    branches = {b.code: b for b in dst.scalars(select(m.Branch)).all()}
+    if not branches:
         raise RuntimeError("ProCare branches not seeded — run schema/seed first.")
+    by_code = {code: b.branch_id for code, b in branches.items()}
+
+    def ensure_branch(code: str, name_ar: str | None = None, name_en: str | None = None) -> int:
+        if code in by_code:
+            return by_code[code]
+        b = m.Branch(code=code, name_ar=name_ar or code, name_en=name_en or code)
+        dst.add(b)
+        dst.flush()
+        by_code[code] = b.branch_id
+        return b.branch_id
+
+    out: dict[int, int] = {}
     if store_branch_map:
-        # Caller may pass {store_id: branch_id} (tests) or {store_id: 'CODE'} (config).
-        out = {}
+        # {store_id: 'CODE'} (config — create if missing) or {store_id: id} (tests).
         for k, v in store_branch_map.items():
-            out[int(k)] = by_code.get(v, v) if isinstance(v, str) else int(v)
-        return out
-    # Default (confirmed by owner): eStock store_id 1 -> Elsanta. Main is
-    # assumed store_id 2 (pending confirmation); override via config
-    # estock_source.store_branch_map if Main uses a different store_id.
-    default = {}
-    if "ELSANTA" in by_code:
-        default[1] = by_code["ELSANTA"]
-    if "MAIN" in by_code:
-        default[2] = by_code["MAIN"]
-    return default or {1: next(iter(by_code.values()))}
+            out[int(k)] = ensure_branch(v) if isinstance(v, str) else int(v)
+    else:
+        # Default (owner-confirmed): store_id 1 = Elsanta, 2 = Main.
+        if "ELSANTA" in by_code:
+            out[1] = by_code["ELSANTA"]
+        if "MAIN" in by_code:
+            out[2] = by_code["MAIN"]
+
+    # Auto-create a branch for any source store_id we don't have a mapping for.
+    for sid in sorted(store_ids or []):
+        if sid not in out:
+            out[sid] = ensure_branch(f"STORE{sid}", name_ar=f"فرع {sid}", name_en=f"Store {sid}")
+
+    return out or {1: next(iter(by_code.values()))}
 
 
 def _wipe_destination(dst: Session) -> None:
