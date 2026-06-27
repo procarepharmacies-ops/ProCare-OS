@@ -35,6 +35,15 @@ function bq(branch, extra = "") {
 }
 
 export const api = {
+  get: async (path, params = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) qs.set(k, String(v));
+    });
+    const query = qs.toString();
+    return http(`${path}${query ? "?" + query : ""}`);
+  },
+
   health: () => http("/health"),
   branches: () => http("/branches"),
   etlStatus: () => http("/etl/status"),

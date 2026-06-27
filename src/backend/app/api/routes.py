@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import ai, alerts, clinical, dashboard, inventory, parties, sales
+from app.api import accounting, ai, alerts, clinical, dashboard, employees, inventory, parties, purchasing, sales
 from app.config import settings
 from app.db import models as m
 from app.db.base import IS_SQLITE, get_session
@@ -114,3 +114,6 @@ router.include_router(sales.router)
 router.include_router(alerts.router)
 router.include_router(clinical.router)
 router.include_router(ai.router)
+router.include_router(purchasing.router)
+router.include_router(accounting.router)
+router.include_router(employees.router)
