@@ -13,6 +13,7 @@ const EXAMPLES_AR = [
   "مين العملاء اللي تجاوزوا حد الائتمان؟",
   "أكتر صنف مبيعاً الشهر ده",
   "ربح الشهر كام؟",
+  "إيه بديل بانادول المتوفر؟",
 ];
 const EXAMPLES_EN = [
   "How much did we sell today?",
@@ -21,6 +22,7 @@ const EXAMPLES_EN = [
   "Which customers are over their credit limit?",
   "Top-selling product this month",
   "What is this month's profit?",
+  "What's an in-stock alternative to Panadol?",
 ];
 
 export default function AssistantPage() {

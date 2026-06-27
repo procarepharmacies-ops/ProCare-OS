@@ -1,6 +1,10 @@
 // Thin API client for the ProCare backend. All calls are read-only except the
 // POS endpoints. Base URL is configurable for deployment.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+// Base URL for the backend. An empty string means "same origin" — used in the
+// containerized deployment, where Next.js proxies /api to the backend
+// server-side (see next.config.mjs), so the browser never needs the backend's
+// address and there is no CORS hop. `??` (not `||`) so an explicit "" is kept.
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
 async function http(path, options) {
   const res = await fetch(`${API_BASE}/api${path}`, {
@@ -54,4 +58,17 @@ export const api = {
 
   chat: (query, branch, lang) =>
     http("/ai/chat", { method: "POST", body: JSON.stringify({ query, branch_id: branch || null, lang }) }),
+
+  // Clinical drug advisory (read-only, advisory only — never blocks a sale).
+  clinicalStatus: () => http("/clinical/status"),
+  clinicalInteractions: (productIds, branch, lang, minSeverity = "moderate") =>
+    http("/clinical/interactions", {
+      method: "POST",
+      body: JSON.stringify({ product_ids: productIds, branch_id: branch || null, lang, min_severity: minSeverity }),
+    }),
+  drugInfo: (productId, branch, lang) =>
+    http(`/clinical/products/${productId}${bq(branch, `lang=${lang}`)}`),
+  substitutions: (productId, branch, lang) =>
+    http(`/clinical/products/${productId}/substitutions${bq(branch, `lang=${lang}`)}`),
+  dose: (productId, age, lang) => http(`/clinical/products/${productId}/dose?age=${age}&lang=${lang}`),
 };

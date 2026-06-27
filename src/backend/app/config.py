@@ -115,6 +115,16 @@ class Settings:
         return _odbc_url(_data.get("estock_source", {}))
 
     @staticmethod
+    def titan_sqlalchemy_url() -> str | None:
+        """Read-only URL for the Titan / Drug-Eye clinical source, or None.
+
+        The Titan schema/engine under ``D:\\Labirdo`` is still TBD (docs/03), so
+        this only builds a SQL Server URL when a real login is configured; the
+        clinical service falls back to its curated advisory rules otherwise.
+        """
+        return _odbc_url(_data.get("titan_drugeye_source", {}))
+
+    @staticmethod
     def estock_store_branch_map() -> dict | None:
         """Optional eStock store_id -> ProCare branch CODE/id map for the mirror.
 

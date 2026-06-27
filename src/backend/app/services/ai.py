@@ -21,8 +21,11 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
+from sqlalchemy import select
+
 from app.config import settings
-from app.services import alerts, dashboard, parties
+from app.db import models as m
+from app.services import alerts, clinical, dashboard, parties
 from app.services.common import TODAY, money
 
 # The whitelist of intents the assistant is allowed to invoke.
@@ -35,6 +38,7 @@ INTENTS = {
     "reorder_draft": "Draft a purchase order for items that need reordering.",
     "debtors": "Customers over their credit limit / with outstanding balance.",
     "profit": "Gross profit (revenue - cost) for the current month.",
+    "drug_advice": "Clinical advice for a named drug: active ingredient, alternatives in stock, dosing.",
     "help": "Explain what the assistant can do.",
 }
 
@@ -64,10 +68,31 @@ def _route_keywords(query: str) -> str:
         return "debtors"
     if has("ربح", "أرباح", "مكسب", "profit", "margin"):
         return "profit"
+    if has("تفاعل", "بديل", "بدائل", "جرعة", "الماده الفعاله", "المادة الفعالة", "دواء",
+           "interaction", "alternative", "substitut", "dose", "dosage", "drug"):
+        return "drug_advice"
     return "help"
 
 
-def _execute(session: Session, intent: str, branch_id: int | None, lang: str) -> dict:
+def _find_drug(session: Session, query: str) -> m.Product | None:
+    """Best-effort match of a catalogue drug named in the question (substring,
+    longest name first so 'Panadol Extra' beats 'Panadol')."""
+    q = (query or "").lower()
+    products = session.scalars(
+        select(m.Product).where(
+            m.Product.is_active == True,  # noqa: E712
+            m.Product.is_deleted == False,  # noqa: E712
+        )
+    ).all()
+    best = None
+    for p in products:
+        for name in (p.name_ar, p.name_en, p.scientific_name):
+            if name and name.lower() in q and (best is None or len(name) > best[1]):
+                best = (p, len(name))
+    return best[0] if best else None
+
+
+def _execute(session: Session, intent: str, branch_id: int | None, lang: str, query: str = "") -> dict:
     """Run the curated query for an intent and return structured data + an
     Arabic/English summary line."""
     ar = lang != "en"
@@ -152,13 +177,39 @@ def _execute(session: Session, intent: str, branch_id: int | None, lang: str) ->
         )
         return {"intent": intent, "data": {"profit_month": s["profit_month"]}, "answer": text}
 
+    if intent == "drug_advice":
+        product = _find_drug(session, query)
+        if product is None:
+            text = (
+                "اذكر اسم الدواء لأعرض لك المادة الفعّالة والبدائل المتوفرة والجرعة الاسترشادية."
+                if ar
+                else "Name the drug and I'll show its active ingredient, in-stock alternatives, and an advisory dose."
+            )
+            return {"intent": intent, "data": {}, "answer": text}
+        info = clinical.drug_info(session, product.product_id, branch_id, lang)
+        subs = info["substitutions"]
+        sub_names = "، ".join(s["name"] for s in subs[:3]) if ar else ", ".join(s["name"] for s in subs[:3])
+        ingredients = "، ".join(info["active_ingredients"]) if ar else ", ".join(info["active_ingredients"])
+        if ar:
+            text = f"{info['name']}: المادة الفعّالة {ingredients or 'غير محددة'}. "
+            text += f"بدائل متوفرة بالمخزون: {sub_names}. " if subs else "لا توجد بدائل متوفرة بالمخزون. "
+            text += "يوجد جرعة استرشادية (حسب العمر)." if info["has_dosing"] else "لا توجد قاعدة جرعة لهذا الدواء."
+            text += " (إرشادي — لا يمنع البيع)"
+        else:
+            text = f"{info['name']}: active ingredient {ingredients or 'n/a'}. "
+            text += f"In-stock alternatives: {sub_names}. " if subs else "No alternatives in stock. "
+            text += "Advisory dosing available (by age)." if info["has_dosing"] else "No dosing rule for this drug."
+            text += " (advisory — does not block a sale)"
+        return {"intent": intent, "data": info, "answer": text}
+
     # help
     text = (
         "أقدر أجاوبك عن: مبيعات اليوم/الشهر، الأصناف الأكثر مبيعاً، الأصناف قرب انتهاء الصلاحية، "
-        "النواقص ومسودة طلب الشراء، العملاء المدينين، وأرباح الشهر."
+        "النواقص ومسودة طلب الشراء، العملاء المدينين، أرباح الشهر، ونصائح الأدوية (التفاعلات/البدائل/الجرعات)."
         if ar
         else "I can answer: today's/this month's sales, top sellers, items near expiry, "
-        "low stock and a draft purchase order, debtors, and this month's profit."
+        "low stock and a draft purchase order, debtors, this month's profit, and drug advice "
+        "(interactions/alternatives/dosing)."
     )
     return {"intent": "help", "data": {"intents": list(INTENTS)}, "answer": text}
 
@@ -238,7 +289,7 @@ def chat(session: Session, query: str, branch_id: int | None = None, lang: str =
         intent = _route_keywords(query)
         engine = "rule-based"
 
-    result = _execute(session, intent, branch_id, lang)
+    result = _execute(session, intent, branch_id, lang, query)
     result["engine"] = engine
     result["branch_id"] = branch_id or 0
     return result

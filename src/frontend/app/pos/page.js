@@ -16,6 +16,7 @@ export default function POSPage() {
   const [isCredit, setIsCredit] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [result, setResult] = useState(null);
+  const [advisory, setAdvisory] = useState([]);
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
@@ -40,6 +41,25 @@ export default function POSPage() {
   useEffect(() => {
     api.customers().then((r) => setCustomers(r.customers)).catch(() => {});
   }, []);
+
+  // Advisory drug-interaction check on the basket — runs as items change, shown
+  // to the pharmacist. Never blocks the sale (clinical guardrail).
+  useEffect(() => {
+    if (cart.length < 2) {
+      setAdvisory([]);
+      return;
+    }
+    let alive = true;
+    api
+      .clinicalInteractions(cart.map((x) => x.product_id), posBranch, lang)
+      .then((r) => alive && setAdvisory(r.interactions || []))
+      .catch(() => alive && setAdvisory([]));
+    return () => {
+      alive = false;
+    };
+  }, [cart, posBranch, lang]);
+
+  const sevClass = (s) => (s === "critical" || s === "major" ? "danger" : "warn");
 
   const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
 
@@ -159,6 +179,26 @@ export default function POSPage() {
                 {fmt(total)} {L("egp")}
               </span>
             </div>
+
+            {advisory.length > 0 && (
+              <div
+                className="card"
+                style={{ margin: "12px 0", padding: 10, borderColor: "var(--danger)", background: "var(--bg)" }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>⚕️ {L("interactions")}</div>
+                {advisory.map((it, i) => (
+                  <div key={i} style={{ marginBottom: 6, fontSize: 13 }}>
+                    <span className={`badge ${sevClass(it.severity)}`}>{L(`sev_${it.severity}`)}</span>{" "}
+                    <strong>{it.product_a.name} + {it.product_b.name}</strong>
+                    <div className="muted">{it.effect}</div>
+                    <div style={{ fontSize: 12 }}>↳ {it.recommendation}</div>
+                  </div>
+                ))}
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  {L("advisory_note")}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
               <button className={`btn ${!isCredit ? "primary" : ""}`} onClick={() => setIsCredit(false)} style={{ flex: 1 }}>

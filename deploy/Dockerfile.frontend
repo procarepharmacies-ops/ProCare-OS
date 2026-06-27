@@ -1,0 +1,24 @@
+# ProCare OS — frontend (Next.js, Arabic/RTL). Build context = repo root.
+FROM node:22-slim
+
+WORKDIR /app
+
+# Install deps first (cache layer) using the committed lockfile.
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN npm ci
+
+# App source.
+COPY src/frontend ./
+
+# Build with an EMPTY public API base => the browser calls the frontend's own
+# origin (/api). Next.js compiles the /api proxy rewrite into the build, so the
+# proxy destination (the backend's in-network address) must be set HERE at build
+# time. `backend` resolves to the backend service on the compose network at
+# request time. Result: no CORS, and no need to know the host's IP anywhere.
+ENV NEXT_PUBLIC_API_BASE="" \
+    BACKEND_INTERNAL="http://backend:8000"
+RUN npm run build
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["npm", "run", "start"]

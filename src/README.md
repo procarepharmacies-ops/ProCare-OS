@@ -28,7 +28,7 @@ src/
 │   │   ├── main.py          # entrypoint; seeds the DB on startup
 │   │   ├── config.py        # reads ../../config/connections.json
 │   │   ├── db/              # engine + ORM (= sql/procare-schema.sql) + seed
-│   │   ├── services/        # dashboard, inventory, parties, pos, alerts, ai, etl
+│   │   ├── services/        # dashboard, inventory, parties, pos, alerts, ai, etl, clinical
 │   │   ├── api/             # REST routers
 │   │   └── tests/           # POS guardrail + API tests (pytest)
 │   └── requirements.txt
@@ -40,6 +40,7 @@ src/
         ├── pos/             # point of sale (cash/credit, FEFO)
         ├── customers/       # customers + credit picture
         ├── alerts/          # expiry risk + reorder drafts
+        ├── clinical/        # drug card: interactions, in-stock alternatives, dosing
         ├── assistant/       # Arabic AI assistant chat
         ├── components/      # Shell (nav + branch switcher), charts
         ├── api.js           # backend client
@@ -58,6 +59,13 @@ src/
   eStock data-quality issues fixed by design (credit limit enforced, expired
   stock locked, stock never negative). T-SQL equivalents in
   [`../sql/procedures-and-views.sql`](../sql/procedures-and-views.sql).
+- **Clinical advisory (Titan/Drug-Eye layer):** `services/clinical.py` surfaces
+  drug interactions (incl. duplicate-ingredient/-class), in-stock generic
+  alternatives, and age-band dosing — **advisory only, never blocks a sale**
+  (docs/03 §5–6). Runs offline on curated active-ingredient rules and flips to a
+  live read-only Titan source when one is configured (same gated-adapter pattern
+  as the eStock mirror). Surfaced at POS (advisory banner), on the drug-card
+  page, and via the Arabic assistant (`drug_advice`).
 
 ## Principles
 - ProCare DB is the system of record; **eStock and Titan are read-only sources** (transition only).

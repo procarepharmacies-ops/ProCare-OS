@@ -12,6 +12,7 @@ whole stack is runnable offline.
 """
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -36,11 +37,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# The Next.js dev server runs on :3000.
+# CORS. In dev the Next.js server runs on :3000. In a deployment the frontend
+# proxies /api to the backend server-side (same origin), so CORS isn't strictly
+# needed — but allow it to be configured for setups that call the API directly.
+# Set PROCARE_CORS_ORIGINS to a comma-separated list, or "*" to allow any origin.
+_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").strip()
+_allow_all = _cors_env == "*"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
+    allow_origins=["*"] if _allow_all else [o.strip() for o in _cors_env.split(",") if o.strip()],
+    # "*" origins and credentials can't be combined per the CORS spec; the app
+    # uses no cookies/auth, so dropping credentials in that mode is safe.
+    allow_credentials=not _allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
 )
