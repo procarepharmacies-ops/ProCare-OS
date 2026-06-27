@@ -53,11 +53,22 @@ What it does:
    `SYNC_INTERVAL_SECONDS` (default 10s), applying the data-quality rules. Watch
    it at `GET /api/sync/status`.
 
-**Sync the REAL pharmacy data:** drop the `estock-db` / `estock-seed` services and
-point the backend's `ESTOCK_DB_SERVER` at the live eStock host (e.g. `192.168.1.2`)
-with a dedicated **read-only** login — the sync code is identical and never writes
-to eStock. The machine running this must be able to reach that host (e.g. your
-`foo` VM on the pharmacy LAN). Override the SA password with `SA_PASSWORD=...`.
+### Sync the REAL eStock server
+
+Use the dedicated overlay (no demo eStock containers — points at the live server):
+
+```bash
+cp deploy/estock.env.example deploy/estock.env     # git-ignored; fill host/user/password
+docker compose --env-file deploy/estock.env \
+  -f docker-compose.yml -f deploy/docker-compose.estock-live.yml up -d --build
+# UI http://localhost:3000 · sync GET http://localhost:8080/api/sync/status
+```
+
+eStock is opened **read-only** (only SELECTs; ProCare never creates or writes
+anything there — use a dedicated read-only login). The machine running this must
+reach the eStock host (e.g. your `foo` VM on the pharmacy LAN, or the server's
+static IP with the SQL port forwarded). Default mapping is owner-confirmed
+`store_id 1 = Elsanta`.
 
 ## Option C — no Docker (dev)
 

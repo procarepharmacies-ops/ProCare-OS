@@ -29,8 +29,8 @@ services:
       ESTOCK_DB_DATABASE: "${ESTOCK_DB:-stock}"
       ESTOCK_DB_USER: "${ESTOCK_USER:?set ESTOCK_USER in deploy/estock.env}"
       ESTOCK_DB_PASSWORD: "${ESTOCK_PASSWORD:?set ESTOCK_PASSWORD in deploy/estock.env}"
-      # eStock store_id -> ProCare branch. Adjust if Elsanta isn't store_id 2.
-      ESTOCK_STORE_BRANCH_MAP: "${ESTOCK_STORE_BRANCH_MAP:-{\"1\":\"MAIN\",\"2\":\"ELSANTA\"}}"
+      # eStock store_id -> ProCare branch (owner-confirmed: store_id 1 = Elsanta).
+      ESTOCK_STORE_BRANCH_MAP: "${ESTOCK_STORE_BRANCH_MAP:-{\"1\":\"ELSANTA\",\"2\":\"MAIN\"}}"
       SYNC_ENABLED: "1"
       SYNC_INTERVAL_SECONDS: "${SYNC_INTERVAL_SECONDS:-15}"
     volumes:
