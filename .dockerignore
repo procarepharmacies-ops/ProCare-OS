@@ -1,0 +1,15 @@
+# Keep the Docker build context small and reproducible.
+.git
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv
+**/*.db
+**/*.sqlite3
+config/connections.json
+**/.env
+**/.env.local
+*.log

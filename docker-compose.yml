@@ -1,0 +1,42 @@
+# ProCare OS — full stack, one command.
+#
+#   docker compose up -d --build
+#   open http://localhost:3000          (UI)   ·   http://localhost:8000/docs (API)
+#
+# Runs entirely on ProCare's own seeded database (SQLite) — no external services
+# needed, so it's live immediately. To use the Arabic assistant with Claude,
+# export ANTHROPIC_API_KEY before bringing the stack up (optional).
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    environment:
+      # Frontend proxies /api server-side, so CORS isn't required; "*" is kept
+      # permissive for setups that call the API directly (e.g. /docs, tools).
+      PROCARE_CORS_ORIGINS: "*"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    ports:
+      - "8000:8000"        # exposes /docs and the API directly (optional)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+    environment:
+      # Server-side proxy target for /api/* (Next.js rewrite). The browser only
+      # ever talks to the frontend's own origin.
+      BACKEND_INTERNAL: "http://backend:8000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

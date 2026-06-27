@@ -1,0 +1,24 @@
+# ProCare OS — backend (FastAPI). Build context = repo root.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src/backend \
+    PROCARE_API_PORT=8000
+
+WORKDIR /app/src/backend
+
+# Install deps first for layer caching. pyodbc (SQL Server) is optional and
+# commented out in requirements.txt, so no system build tools are needed here.
+COPY src/backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# App code + the config dir that app/config.py reads (repo-root/config).
+COPY src/backend /app/src/backend
+COPY config /app/config
+
+EXPOSE 8000
+
+# Production launch: bind all interfaces, no autoreload. The DB is created and
+# seeded with demo data on startup (idempotent) so it's live immediately.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

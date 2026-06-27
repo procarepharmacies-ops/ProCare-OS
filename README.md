@@ -131,6 +131,16 @@ outside the pharmacy LAN. Built and runnable today:
   page, and the AI assistant — branch switcher + language + theme toggles, all
   persisted per user.
 
+**See it live — one command** (full stack via Docker, boots on seeded data):
+
+```bash
+docker compose up -d --build      # UI http://localhost:3000 · API http://localhost:8000/docs
+```
+
+Deploying to a Multipass VM named `foo`? Run `./deploy/foo-up.sh` on the host —
+it provisions the VM, builds the stack, and prints the live URL. See
+[`deploy/README.md`](deploy/README.md). Or run the two services directly for dev:
+
 ```bash
 cd src/backend && pip install -r requirements.txt && python run.py      # API :8000
 cd src/frontend && npm install && npm run dev                           # UI  :3000
