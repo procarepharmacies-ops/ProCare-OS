@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useUI } from "../providers";
 import Shell from "../components/Shell";
 import { t } from "../i18n";
-import api from "../api";
+import { api } from "../api";
 
 export default function EmployeesPage() {
   const { lang, branch } = useUI();
