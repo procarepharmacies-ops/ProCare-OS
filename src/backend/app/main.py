@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.db.seed import ensure_seeded
+from app.services import sync
 
 
 @asynccontextmanager
@@ -27,7 +28,13 @@ async def lifespan(_app: FastAPI):
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
-    yield
+    # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
+    # read-only eStock source configured); otherwise it stays idle.
+    sync.start()
+    try:
+        yield
+    finally:
+        sync.stop()
 
 
 app = FastAPI(

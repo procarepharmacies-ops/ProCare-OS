@@ -1,0 +1,79 @@
+# SQL Server + live sync overlay for ProCare OS.
+#
+# Layer this on top of the base compose file to run ProCare on SQL Server (its
+# production engine) with a second SQL Server playing the role of eStock, kept in
+# sync continuously:
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.sqlserver.yml up -d --build
+#   open http://localhost:3000
+#
+# What happens:
+#   1. procare-db (SQL Server) and estock-db (SQL Server) start.
+#   2. estock-seed fills estock-db with realistic eStock-shaped data (once).
+#   3. backend creates its own SQL Server schema, then syncs eStock → ProCare
+#      every SYNC_INTERVAL_SECONDS (default 10) — near-real-time.
+#
+# To sync the REAL pharmacy data instead, drop the estock-db/estock-seed services
+# and point ESTOCK_DB_SERVER at the live eStock host (e.g. 192.168.1.2) with a
+# dedicated READ-ONLY login. The sync code is identical.
+#
+# Override the SA password via the SA_PASSWORD env var before `up`.
+services:
+  procare-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
+      MSSQL_PID: "Developer"
+    volumes:
+      - procare_mssql:/var/opt/mssql
+    restart: unless-stopped
+
+  estock-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
+      MSSQL_PID: "Developer"
+    volumes:
+      - estock_mssql:/var/opt/mssql
+    restart: unless-stopped
+
+  # One-shot: create + fill the eStock-shaped source database, then exit.
+  estock-seed:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    command: ["python", "-m", "app.db.estock_seed"]
+    environment:
+      ESTOCK_DB_SERVER: estock-db
+      ESTOCK_DB_DATABASE: stock
+      ESTOCK_DB_USER: sa
+      ESTOCK_DB_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
+    depends_on:
+      - estock-db
+    restart: "no"
+
+  backend:
+    # ProCare runs on SQL Server and syncs from the eStock source continuously.
+    environment:
+      PROCARE_CORS_ORIGINS: "*"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      PROCARE_DB_SERVER: procare-db
+      PROCARE_DB_DATABASE: procare
+      PROCARE_DB_USER: sa
+      PROCARE_DB_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
+      ESTOCK_DB_SERVER: estock-db
+      ESTOCK_DB_DATABASE: stock
+      ESTOCK_DB_USER: sa
+      ESTOCK_DB_PASSWORD: "${SA_PASSWORD:-ProCare!Pass1}"
+      ESTOCK_STORE_BRANCH_MAP: '{"1":"MAIN","2":"ELSANTA"}'
+      SYNC_ENABLED: "1"
+      SYNC_INTERVAL_SECONDS: "10"
+    depends_on:
+      - procare-db
+      - estock-seed
+
+volumes:
+  procare_mssql:
+  estock_mssql:

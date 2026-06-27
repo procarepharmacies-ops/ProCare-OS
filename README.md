@@ -137,6 +137,14 @@ outside the pharmacy LAN. Built and runnable today:
 docker compose up -d --build      # UI http://localhost:3000 · API http://localhost:8000/docs
 ```
 
+Run it on **SQL Server** (production engine) with a second SQL Server standing in
+for eStock, kept in sync continuously (near-real-time):
+
+```bash
+docker compose -f docker-compose.yml -f deploy/docker-compose.sqlserver.yml up -d --build
+# watch the mirror at  GET /api/sync/status
+```
+
 Deploying to a Multipass VM named `foo`? Run `./deploy/foo-up.sh` on the host —
 it provisions the VM, builds the stack, and prints the live URL. See
 [`deploy/README.md`](deploy/README.md). Or run the two services directly for dev:

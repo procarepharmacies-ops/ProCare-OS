@@ -4,21 +4,38 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/src/backend \
-    PROCARE_API_PORT=8000
+    PROCARE_API_PORT=8000 \
+    ACCEPT_EULA=Y
 
 WORKDIR /app/src/backend
 
-# Install deps first for layer caching. pyodbc (SQL Server) is optional and
-# commented out in requirements.txt, so no system build tools are needed here.
-COPY src/backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Microsoft ODBC Driver 18 + build deps for pyodbc, so ProCare can run on (and
+# sync from) SQL Server. The app still falls back to SQLite when no SQL Server
+# credentials are provided, so this image runs either way.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl gnupg ca-certificates apt-transport-https gcc g++ unixodbc-dev \
+ && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+ && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list \
+      | sed 's#deb \[#deb [signed-by=/usr/share/keyrings/microsoft-prod.gpg #' > /etc/apt/sources.list.d/mssql-release.list \
+ && apt-get update \
+ && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
+ && rm -rf /var/lib/apt/lists/*
 
-# App code + the config dir that app/config.py reads (repo-root/config).
+# Python deps first for layer caching, then pyodbc (SQL Server driver).
+COPY src/backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pyodbc
+
+# App code + the config dir that app/config.py reads (repo-root/config) + the
+# entrypoint that materialises connections.json from environment variables.
 COPY src/backend /app/src/backend
 COPY config /app/config
+COPY deploy/entrypoint.backend.sh /app/deploy/entrypoint.backend.sh
+RUN chmod +x /app/deploy/entrypoint.backend.sh
 
 EXPOSE 8000
 
-# Production launch: bind all interfaces, no autoreload. The DB is created and
-# seeded with demo data on startup (idempotent) so it's live immediately.
+# The entrypoint writes config/connections.json from env (if SQL Server vars are
+# set) then runs the command. Default: serve the API on all interfaces. The DB
+# is created and seeded on startup (idempotent) so it's live immediately.
+ENTRYPOINT ["/app/deploy/entrypoint.backend.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

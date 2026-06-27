@@ -15,7 +15,7 @@ from app.config import settings
 from app.db import models as m
 from app.db.base import IS_SQLITE, get_session
 from app.services import clinical as clinical_svc
-from app.services import etl
+from app.services import etl, sync
 
 router = APIRouter()
 
@@ -41,6 +41,11 @@ def health(session: Session = Depends(get_session)):
         },
         "clinical_advisory": {
             "mode": "live" if clinical_svc.is_live() else "offline (curated advisory rules)",
+        },
+        "sync": {
+            "enabled": sync.is_enabled(),
+            "configured": sync.is_configured(),
+            "interval_seconds": sync.interval_seconds(),
         },
         "ui_defaults": {"language": settings.default_language, "theme": settings.default_theme},
     }
@@ -80,6 +85,18 @@ def etl_run():
     against eStock by construction.
     """
     return etl.run_full_load()
+
+
+@router.get("/sync/status", tags=["sync"])
+def sync_status():
+    """Continuous eStock→ProCare sync status (enabled, interval, last run)."""
+    return sync.status()
+
+
+@router.post("/sync/run", tags=["sync"])
+def sync_run():
+    """Run one sync cycle now (in addition to the background interval)."""
+    return sync.run_once()
 
 
 # Feature routers, all under /api.

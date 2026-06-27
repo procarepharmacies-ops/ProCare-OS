@@ -36,6 +36,29 @@ docker compose up -d --build
 # UI  http://localhost:3000   ·   API http://localhost:8000/docs
 ```
 
+## Option B2 — SQL Server + live sync (production engine)
+
+Run ProCare on **SQL Server** (its production database) with a second SQL Server
+playing the role of **eStock**, kept in sync **continuously** (near-real-time):
+
+```bash
+docker compose -f docker-compose.yml -f deploy/docker-compose.sqlserver.yml up -d --build
+# UI http://localhost:3000 · API http://localhost:8000/docs · sync GET /api/sync/status
+```
+
+What it does:
+1. `procare-db` + `estock-db` (SQL Server) start.
+2. `estock-seed` fills `estock-db` with realistic eStock-shaped data (once).
+3. `backend` creates its own SQL Server schema and mirrors eStock → ProCare every
+   `SYNC_INTERVAL_SECONDS` (default 10s), applying the data-quality rules. Watch
+   it at `GET /api/sync/status`.
+
+**Sync the REAL pharmacy data:** drop the `estock-db` / `estock-seed` services and
+point the backend's `ESTOCK_DB_SERVER` at the live eStock host (e.g. `192.168.1.2`)
+with a dedicated **read-only** login — the sync code is identical and never writes
+to eStock. The machine running this must be able to reach that host (e.g. your
+`foo` VM on the pharmacy LAN). Override the SA password with `SA_PASSWORD=...`.
+
 ## Option C — no Docker (dev)
 
 ```bash
@@ -50,7 +73,9 @@ cd src/frontend && npm install && npm run dev                        # :3000
 | What | How |
 |------|-----|
 | **Arabic assistant via Claude** | `export ANTHROPIC_API_KEY=sk-ant-...` before `docker compose up` (compose passes it through). Without it, the assistant uses the offline keyword router. |
-| **Live eStock mirror / real ProCare SQL Server** | Copy `config/connections.example.json` → `config/connections.json` (git-ignored) and fill the read-only eStock login + ProCare DB, then `python -m app.services.etl --check` and `--run`. Uncomment `pyodbc` in `src/backend/requirements.txt`. |
+| **SQL Server (compose)** | Use the Option B2 overlay. The backend reads `PROCARE_DB_*` / `ESTOCK_DB_*` env vars and writes `connections.json` at startup; no secrets in git. |
+| **Continuous sync cadence** | `SYNC_INTERVAL_SECONDS` (default 10 in the overlay, 30 otherwise). `SYNC_ENABLED=1` + a configured eStock source turns it on. Status at `/api/sync/status`. |
+| **Live eStock mirror / real ProCare SQL Server (no Docker)** | Copy `config/connections.example.json` → `config/connections.json` (git-ignored) and fill the read-only eStock login + ProCare DB, then `python -m app.services.etl --check` and `--run`. Uncomment `pyodbc` in `src/backend/requirements.txt`. |
 | **Titan / Drug-Eye clinical source** | Fill `titan_drugeye_source` in `connections.json` once the `D:\Labirdo` schema is audited; the advisory layer flips from curated rules to the live source automatically. |
 | **Call the API directly (not via the proxy)** | Set `PROCARE_CORS_ORIGINS` on the backend (comma-separated origins, or `*`). |
 
