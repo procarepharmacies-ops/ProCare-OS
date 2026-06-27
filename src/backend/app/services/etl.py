@@ -597,8 +597,22 @@ def preflight() -> dict:
         src = create_engine(url, echo=False)
         with src.connect() as c:
             c.execute(text("SELECT 1"))
-            tables = inspect(src).get_table_names()
-        result = {"ok": True, "connected": True, "source_tables": len(tables)}
+            insp = inspect(src)
+            tables = insp.get_table_names()
+            # Discover the branches present so the operator can name them (e.g.
+            # which store_id is Mashal) before/after the first sync.
+            try:
+                store_ids = sorted(_distinct_store_ids(insp, c))
+            except Exception:  # noqa: BLE001
+                store_ids = []
+        result = {
+            "ok": True,
+            "connected": True,
+            "source_tables": len(tables),
+            "store_ids_found": store_ids,
+            "hint": "Map each store_id to a branch via ESTOCK_STORE_BRANCH_MAP; "
+            "unmapped ids auto-create a STORE<id> branch.",
+        }
         # Verify the login is read-only: a write MUST be rejected.
         try:
             with src.begin() as c:

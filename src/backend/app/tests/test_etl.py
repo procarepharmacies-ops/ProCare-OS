@@ -167,6 +167,13 @@ def test_unmapped_store_auto_creates_branch(estock_source):
         reset_and_seed()
 
 
+def test_distinct_store_ids_discovery(estock_source):
+    from sqlalchemy import inspect
+    with estock_source.connect() as c:
+        ids = etl._distinct_store_ids(inspect(estock_source), c)
+    assert ids == {1, 2}  # what preflight reports so branches can be named
+
+
 def test_run_full_load_refuses_without_credentials():
     # No estock_source credentials configured in the example config => safe refusal.
     result = etl.run_full_load()

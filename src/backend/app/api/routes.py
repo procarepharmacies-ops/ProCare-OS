@@ -99,6 +99,13 @@ def sync_run():
     return sync.run_once()
 
 
+@router.get("/sync/preflight", tags=["sync"])
+def sync_preflight():
+    """Check the eStock connection: reachable, read-only, and which store_ids
+    (branches) it exposes. Safe to run before the first sync."""
+    return etl.preflight()
+
+
 # Feature routers, all under /api.
 router.include_router(dashboard.router)
 router.include_router(inventory.router)

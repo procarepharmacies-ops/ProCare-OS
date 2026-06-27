@@ -66,9 +66,22 @@ docker compose --env-file deploy/estock.env \
 
 eStock is opened **read-only** (only SELECTs; ProCare never creates or writes
 anything there — use a dedicated read-only login). The machine running this must
-reach the eStock host (e.g. your `foo` VM on the pharmacy LAN, or the server's
-static IP with the SQL port forwarded). Default mapping is owner-confirmed
-`store_id 1 = Elsanta`.
+reach the eStock host (a LAN IP, or a **public static IP** for a remote server).
+Default mapping is owner-confirmed `store_id 1 = Elsanta`; any store_id you don't
+map (e.g. Mashal) is still synced into an auto-created `STORE<id>` branch.
+
+**Check the connection first (recommended):**
+
+```bash
+docker compose --env-file deploy/estock.env \
+  -f docker-compose.yml -f deploy/docker-compose.estock-live.yml \
+  run --rm estock-preflight
+```
+
+It reports `connected`, `read_only` (a blocked write is the good outcome), and
+`store_ids_found` so you can see/name each branch. A timeout means the server's
+firewall is blocking this machine's IP (allowlist it) or the SQL port is closed.
+The same check is available on the running backend at `GET /api/sync/preflight`.
 
 ## Option C — no Docker (dev)
 

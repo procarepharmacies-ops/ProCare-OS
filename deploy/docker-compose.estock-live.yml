@@ -36,5 +36,25 @@ services:
     volumes:
       - procare_data:/app/src/backend/data   # persist the mirrored ProCare DB
 
+  # One-shot connectivity + read-only check (does NOT start with `up`).
+  # Run it before the first sync to confirm the login works, is read-only, and to
+  # list the store_ids/branches the server exposes:
+  #   docker compose --env-file deploy/estock.env \
+  #     -f docker-compose.yml -f deploy/docker-compose.estock-live.yml \
+  #     run --rm estock-preflight
+  estock-preflight:
+    profiles: ["preflight"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    command: ["python", "-m", "app.services.etl", "--check"]
+    environment:
+      ESTOCK_DB_SERVER: "${ESTOCK_HOST:?set ESTOCK_HOST in deploy/estock.env}"
+      ESTOCK_DB_PORT: "${ESTOCK_PORT:-1433}"
+      ESTOCK_DB_DATABASE: "${ESTOCK_DB:-stock}"
+      ESTOCK_DB_USER: "${ESTOCK_USER:?set ESTOCK_USER in deploy/estock.env}"
+      ESTOCK_DB_PASSWORD: "${ESTOCK_PASSWORD:?set ESTOCK_PASSWORD in deploy/estock.env}"
+    restart: "no"
+
 volumes:
   procare_data:
