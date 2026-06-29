@@ -1,0 +1,72 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: procare-backend
+    ports:
+      - "7000:8000"
+    environment:
+      - DATABASE_URL=mssql+pyodbc://sa:ProCareAdmin%23Strong2024@sqlserver:1433/procare_db?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes
+      - ESTOCK_HOST=196.202.93.37
+      - ESTOCK_PORT=1433
+      - ESTOCK_DB=stock
+      - ESTOCK_USER=procare_reader
+      - ESTOCK_PASS=ProCareReadOnly#2024
+      - PROCARE_HOST=sqlserver
+      - PROCARE_PORT=1433
+      - PROCARE_DB=procare_db
+      - PROCARE_USER=sa
+      - PROCARE_PASS=ProCareAdmin#Strong2024
+      - SYNC_ENABLED=true
+      - SYNC_INTERVAL_SECONDS=300
+      - DEFAULT_LANGUAGE=ar
+      - DEFAULT_THEME=light
+      - AI_MODEL=claude-3-5-sonnet-20241022
+    depends_on:
+      - sqlserver
+    networks:
+      - procare-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: procare-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:7000/api
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - procare-net
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: procare-sqlserver
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "ProCareAdmin#Strong2024"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - procare-net
+
+volumes:
+  sqlserver_data:
+
+networks:
+  procare-net:
+    driver: bridge
