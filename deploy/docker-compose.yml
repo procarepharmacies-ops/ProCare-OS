@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   backend:
     build:
@@ -26,6 +24,7 @@ services:
       - DEFAULT_THEME=light
       - AI_MODEL=claude-3-5-sonnet-20241022
     network_mode: host
+    restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 10s
@@ -42,6 +41,5 @@ services:
     environment:
       - NEXT_PUBLIC_API_BASE=http://196.202.93.36:7000
       - NODE_ENV=production
-    depends_on:
-      - backend
     network_mode: host
+    restart: always
