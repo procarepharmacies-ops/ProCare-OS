@@ -43,7 +43,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:7000/api
+      - NEXT_PUBLIC_API_BASE=http://196.202.93.36:7000
       - NODE_ENV=production
     depends_on:
       - backend
