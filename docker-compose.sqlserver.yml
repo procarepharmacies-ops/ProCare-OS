@@ -1,0 +1,22 @@
+version: "3.8"
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: procare-sqlserver
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "ProCareAdmin#Strong2024"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - procare-net
+
+volumes:
+  sqlserver_data:
+
+networks:
+  procare-net:
+    driver: bridge
