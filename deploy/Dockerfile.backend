@@ -25,6 +25,12 @@ RUN apt-get update \
 COPY src/backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pyodbc
 
+# Allow ODBC Driver 18 (OpenSSL 3) to connect to OLDER SQL Servers that only
+# negotiate TLS 1.0/1.1 — e.g. the live eStock box. Without this, the mirror
+# fails its TLS handshake with "SSL routines::unsupported protocol".
+RUN sed -i '/^\[openssl_init\]/a ssl_conf = ssl_sect' /etc/ssl/openssl.cnf \
+ && printf '\n[ssl_sect]\nsystem_default = system_default_sect\n\n[system_default_sect]\nMinProtocol = TLSv1\nCipherString = DEFAULT@SECLEVEL=0\n' >> /etc/ssl/openssl.cnf
+
 # App code + the config dir that app/config.py reads (repo-root/config) + the
 # entrypoint that materialises connections.json from environment variables.
 COPY src/backend /app/src/backend
