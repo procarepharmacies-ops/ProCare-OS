@@ -58,9 +58,12 @@ def ensure_db(b):
         return
     port = b.get("port", "1433")
     server = b["server"] if "," in b["server"] else f"{b['server']},{port}"
+    # Local container connection: disable encryption (same network, no threat).
+    # eStock (external server) uses the encrypt setting from config.
+    encrypt = "no" if b["server"] == "sqlserver" else b.get("encrypt", "yes")
     master = (
         f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={server};DATABASE=master;"
-        f"UID={b['username']};PWD={b['password']};Encrypt=yes;TrustServerCertificate=yes"
+        f"UID={b['username']};PWD={b['password']};Encrypt={encrypt};TrustServerCertificate=yes"
     )
     dbname = b["database"]
     for attempt in range(60):
