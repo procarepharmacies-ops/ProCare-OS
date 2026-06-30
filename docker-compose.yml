@@ -1,45 +1,97 @@
-# ProCare OS — full stack, one command.
+# ProCare OS — the one and only stack file.
 #
 #   docker compose up -d --build
-#   open http://localhost:3000          (UI)   ·   http://localhost:8080/docs (API)
+#   open http://localhost:3000           (UI)
 #
-# Runs entirely on ProCare's own seeded database (SQLite) — no external services
-# needed, so it's live immediately. To use the Arabic assistant with Claude,
-# export ANTHROPIC_API_KEY before bringing the stack up (optional).
+# Brings up the whole system together: SQL Server (ProCare's own database),
+# the FastAPI backend (which mirrors live eStock into that database on a timer),
+# and the Next.js UI.
 #
-# The API is published on host port 8080 by default (host 8000 is often taken by
-# an NVR/camera). Override with BACKEND_PORT, e.g. BACKEND_PORT=8090 docker compose up.
+# Networking: all three services share one bridge network. The browser only ever
+# talks to the frontend on port 3000; the frontend proxies /api to backend:8000
+# server-side, and the backend reaches the database at sqlserver:1433 by name.
+# The API is also published on host port 7000 (host 7000 -> container 8000) for
+# direct access/tools — so host port 8000 stays free for an NVR/camera.
+#
+# To use the Arabic assistant with Claude, export ANTHROPIC_API_KEY first (optional).
 services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: procare-sqlserver
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "ProCareAdmin#Strong2024"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - procare-net
+    restart: always
+
   backend:
     build:
       context: .
       dockerfile: deploy/Dockerfile.backend
-    environment:
-      # Frontend proxies /api server-side, so CORS isn't required; "*" is kept
-      # permissive for setups that call the API directly (e.g. /docs, tools).
-      PROCARE_CORS_ORIGINS: "*"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    container_name: procare-backend
     ports:
-      - "${BACKEND_PORT:-8080}:8000"   # host 8080 -> container 8000 (avoids NVR on 8000)
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
-    restart: unless-stopped
+      - "7000:8000"            # host 7000 -> container 8000 (host 8000 left free)
+    environment:
+      PROCARE_DB_SERVER: "sqlserver"
+      PROCARE_DB_PORT: "1433"
+      PROCARE_DB_DATABASE: "procare_db"
+      PROCARE_DB_USER: "sa"
+      PROCARE_DB_PASSWORD: "ProCareAdmin#Strong2024"
+      ESTOCK_DB_SERVER: "196.202.93.37"
+      ESTOCK_DB_PORT: "1433"
+      ESTOCK_DB_DATABASE: "stock"
+      ESTOCK_DB_USER: "procare_reader"
+      ESTOCK_DB_PASSWORD: "ProCareReadOnly#2024"
+      # eStock store_id -> ProCare branch code (owner-confirmed: store_id 1 = Elsanta).
+      # Any store_id NOT listed is still synced into an auto-created "STORE<id>"
+      # branch, so no branch's data is ever merged into another. Run
+      # GET /api/sync/preflight to see the real store_ids, then map them here.
+      ESTOCK_STORE_BRANCH_MAP: '{"1":"ELSANTA"}'
+      SYNC_ENABLED: "true"
+      SYNC_INTERVAL_SECONDS: "300"
+      DEFAULT_LANGUAGE: "ar"
+      DEFAULT_THEME: "light"
+      PROCARE_CORS_ORIGINS: "*"
+      # Arabic AI assistant. Default provider is Gemini (Google) — put your key in
+      # a .env file next to this compose file:  GEMINI_API_KEY=AIza...
+      # To use Claude instead, set AI_PROVIDER=anthropic and ANTHROPIC_API_KEY.
+      # With no key set, the assistant uses the offline keyword router.
+      AI_PROVIDER: "${AI_PROVIDER:-gemini}"
+      AI_MODEL: "${AI_MODEL:-gemini-flash-latest}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    depends_on:
+      - sqlserver
+    networks:
+      - procare-net
+    restart: always
 
   frontend:
     build:
       context: .
       dockerfile: deploy/Dockerfile.frontend
+    container_name: procare-frontend
+    ports:
+      - "3000:3000"
     environment:
       # Server-side proxy target for /api/* (Next.js rewrite). The browser only
       # ever talks to the frontend's own origin.
       BACKEND_INTERNAL: "http://backend:8000"
-    ports:
-      - "3000:3000"
     depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
+      - backend
+    networks:
+      - procare-net
+    restart: always
+
+volumes:
+  sqlserver_data:
+
+networks:
+  procare-net:
+    driver: bridge
