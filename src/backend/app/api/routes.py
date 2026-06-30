@@ -36,7 +36,8 @@ def health(session: Session = Depends(get_session)):
             "procare_database": settings.procare_configured,
         },
         "ai_assistant": {
-            "engine": "claude" if settings.ai_api_key() else "rule-based (no API key set)",
+            "engine": settings.ai_provider if settings.ai_api_key() else "rule-based (no API key set)",
+            "provider": settings.ai_provider,
             "model": settings.ai_model,
         },
         "clinical_advisory": {
