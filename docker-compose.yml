@@ -46,8 +46,8 @@ services:
       ESTOCK_DB_SERVER: "196.202.93.37"
       ESTOCK_DB_PORT: "1433"
       ESTOCK_DB_DATABASE: "stock"
-      ESTOCK_DB_USER: "procare_reader"
-      ESTOCK_DB_PASSWORD: "ProCareReadOnly#2024"
+      ESTOCK_DB_USER: "${ESTOCK_DB_USER}"
+      ESTOCK_DB_PASSWORD: "${ESTOCK_DB_PASSWORD}"
       # eStock store_id -> ProCare branch code (owner-confirmed: store_id 1 = Elsanta).
       # Any store_id NOT listed is still synced into an auto-created "STORE<id>"
       # branch, so no branch's data is ever merged into another. Run
