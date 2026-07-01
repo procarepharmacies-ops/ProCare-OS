@@ -79,6 +79,57 @@ _branches = _data.get("branches", {})
 _ai = _data.get("ai", {})
 _notify = _data.get("notifications", {})
 
+# Per-provider defaults: which model to use and which env var holds the key.
+_AI_PROVIDER_DEFAULTS = {
+    "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
+    "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+}
+
+
+def _norm_provider(p: str) -> str:
+    p = (p or "").strip().lower()
+    return "gemini" if p in ("gemini", "google") else p
+
+
+def _detect_ai_provider() -> str:
+    """Pick the AI provider: explicit AI_PROVIDER env or config wins; otherwise
+    infer from whichever API key is present in the environment."""
+    import os
+
+    explicit = os.environ.get("AI_PROVIDER") or _ai.get("provider")
+    if explicit:
+        return _norm_provider(explicit)
+    if os.environ.get("GEMINI_API_KEY"):
+        return "gemini"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    return "anthropic"
+
+
+def _config_is_for(provider: str) -> bool:
+    """True if the config file's ``ai`` block targets the active provider, so its
+    model / api_key_env apply. When the provider was switched via env (e.g. to
+    Gemini), the example file's Anthropic values must NOT leak through."""
+    return _norm_provider(_ai.get("provider", "")) == provider
+
+
+def _ai_model_for(provider: str) -> str:
+    import os
+
+    default = _AI_PROVIDER_DEFAULTS.get(provider, _AI_PROVIDER_DEFAULTS["anthropic"])["model"]
+    if os.environ.get("AI_MODEL"):
+        return os.environ["AI_MODEL"]
+    if _config_is_for(provider) and _ai.get("model"):
+        return _ai["model"]
+    return default
+
+
+def _ai_key_env_for(provider: str) -> str:
+    default = _AI_PROVIDER_DEFAULTS.get(provider, _AI_PROVIDER_DEFAULTS["anthropic"])["key_env"]
+    if _config_is_for(provider) and _ai.get("api_key_env"):
+        return _ai["api_key_env"]
+    return default
+
 
 class Settings:
     """Read-only view of config, safe to serialise (no secrets)."""
@@ -98,11 +149,14 @@ class Settings:
     titan_configured: bool = _source_configured(_data.get("titan_drugeye_source", {}))
     procare_configured: bool = _source_configured(_data.get("procare_database", {}))
 
-    # AI assistant (Claude). The key itself is read from the environment, never
-    # from git — config only names which env var holds it.
-    ai_provider: str = _ai.get("provider", "anthropic")
-    ai_model: str = _ai.get("model", "claude-sonnet-4-6")
-    ai_api_key_env: str = _ai.get("api_key_env", "ANTHROPIC_API_KEY")
+    # AI assistant. Supports Anthropic (Claude) and Google (Gemini). The key is
+    # read from the environment, never from git — config only names which env var
+    # holds it. Provider/model/key-env can be set in the config "ai" block OR via
+    # environment (AI_PROVIDER / AI_MODEL), which is how the Docker stack sets it.
+    # If nothing is set, we auto-detect from whichever API key is present.
+    ai_provider: str = _detect_ai_provider()
+    ai_model: str = _ai_model_for(ai_provider)
+    ai_api_key_env: str = _ai_key_env_for(ai_provider)
 
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:
@@ -135,7 +189,7 @@ class Settings:
 
     @staticmethod
     def ai_api_key():
-        """The Claude API key from the configured env var, or None if unset."""
+        """The AI provider's API key from the configured env var, or None if unset."""
         import os
 
         return os.environ.get(Settings.ai_api_key_env)

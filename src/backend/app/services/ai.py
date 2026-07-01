@@ -6,9 +6,10 @@ small whitelist of curated, read-only *intents*, each backed by a tested query
 in the service layer. The worst case of a bad classification is an empty read.
 
 Two routing paths:
-  * If a Claude API key is configured (``ai.api_key_env``), Claude classifies the
-    Arabic/English question into an intent + parameters via tool-use, then we
-    execute the curated query and let Claude phrase the answer in Arabic.
+  * If an API key is configured for the active provider (``settings.ai_provider``
+    — Anthropic/Claude or Google/Gemini), that provider classifies the
+    Arabic/English question into an intent + parameters via tool-use /
+    function-calling, then we execute the curated query and phrase the answer.
   * With no key, a deterministic keyword router (Arabic + English) picks the
     intent and we format a clear Arabic/English answer locally.
 
@@ -275,16 +276,89 @@ def _classify_with_claude(query: str, branch_id: int | None) -> tuple[str, int |
         return None
 
 
+def _classify_with_gemini(query: str, branch_id: int | None) -> tuple[str, int | None] | None:
+    """Use Gemini function-calling to pick an intent + branch. Returns None on any
+    error so the caller falls back to the keyword router."""
+    api_key = settings.ai_api_key()
+    if not api_key:
+        return None
+    try:
+        import httpx
+
+        tools = [
+            {
+                "function_declarations": [
+                    {
+                        "name": "answer_with_intent",
+                        "description": "Pick the single best intent to answer the pharmacy question.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "intent": {"type": "string", "enum": list(INTENTS)},
+                                "branch_id": {
+                                    "type": "integer",
+                                    "description": "1=Main, 2=Elsanta, 0=all branches",
+                                },
+                            },
+                            "required": ["intent"],
+                        },
+                    }
+                ]
+            }
+        ]
+        system = (
+            "You route an Arabic/English pharmacy-manager question to exactly one read-only intent. "
+            "Intents: " + json.dumps(INTENTS) + ". Always call the answer_with_intent function."
+        )
+        model = settings.ai_model
+        resp = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            params={"key": api_key},
+            json={
+                "system_instruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": query}]}],
+                "tools": tools,
+                "tool_config": {"function_calling_config": {"mode": "ANY"}},
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        candidates = resp.json().get("candidates", [])
+        for cand in candidates:
+            for part in cand.get("content", {}).get("parts", []):
+                call = part.get("functionCall")
+                if call and call.get("name") == "answer_with_intent":
+                    args = call.get("args", {})
+                    intent = args.get("intent", "help")
+                    if intent not in INTENTS:
+                        intent = "help"
+                    b = args.get("branch_id", branch_id)
+                    return intent, (b if b else branch_id)
+        return None
+    except Exception:
+        return None
+
+
+def _classify(query: str, branch_id: int | None) -> tuple[str, int | None, str] | None:
+    """Dispatch to the configured AI provider's classifier. Returns
+    (intent, branch_id, engine_name) or None to fall back to the keyword router."""
+    provider = settings.ai_provider
+    if provider == "gemini":
+        routed = _classify_with_gemini(query, branch_id)
+        return (routed[0], routed[1], "gemini") if routed else None
+    routed = _classify_with_claude(query, branch_id)
+    return (routed[0], routed[1], "claude") if routed else None
+
+
 def chat(session: Session, query: str, branch_id: int | None = None, lang: str = "ar") -> dict:
     """Answer a natural-language question, read-only. Returns intent + data + text."""
     query = (query or "").strip()
     if not query:
         return {"intent": "help", "answer": _execute(session, "help", branch_id, lang)["answer"], "data": {}}
 
-    routed = _classify_with_claude(query, branch_id)
+    routed = _classify(query, branch_id)
     if routed is not None:
-        intent, branch_id = routed
-        engine = "claude"
+        intent, branch_id, engine = routed
     else:
         intent = _route_keywords(query)
         engine = "rule-based"

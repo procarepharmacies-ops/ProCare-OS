@@ -17,6 +17,8 @@ const NAV = [
   { href: "/alerts", key: "nav_alerts", ico: "🔔" },
   { href: "/clinical", key: "nav_clinical", ico: "⚕️" },
   { href: "/assistant", key: "nav_assistant", ico: "🤖" },
+  { href: "/reports", key: "nav_reports", ico: "📈" },
+  { href: "/settings", key: "nav_settings", ico: "⚙️" },
 ];
 
 export default function Shell({ titleKey, children }) {
