@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import Icon from "./icons";
+import Wordmark from "./Wordmark";
 
 // `roles: null` = visible to everyone logged in. Otherwise the user's role
 // must be in the list. Mirrors the backend's CEO-only gate on accounting /
@@ -39,7 +40,7 @@ export default function Shell({ titleKey, children }) {
       <aside className="sidebar">
         <div className="brand">
           <span className="logo">
-            <Icon name="cross" size={22} strokeWidth={2} />
+            <Wordmark size={38} />
           </span>
           <span>
             {L("app")}

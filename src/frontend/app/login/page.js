@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
+import Wordmark from "../components/Wordmark";
 
 export default function LoginPage() {
   const { lang, theme, toggleLang, toggleTheme, login } = useUI();
@@ -53,7 +54,7 @@ export default function LoginPage() {
 
       <div className={`login-card card ${shake ? "shake" : ""}`}>
         <div className="login-mark">
-          <LogoMark />
+          <Wordmark size={56} />
         </div>
         <h1 className="login-app-name">{L("app")}</h1>
         <p className="login-tagline">{L("tagline")}</p>
@@ -96,29 +97,11 @@ export default function LoginPage() {
   );
 }
 
-// The brand mark used on the login card itself — a static, calm version.
-function LogoMark({ size = 56 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <defs>
-        <linearGradient id="login-mark-grad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="var(--primary)" />
-          <stop offset="100%" stopColor="var(--primary-2)" />
-        </linearGradient>
-      </defs>
-      <rect width="40" height="40" rx="11" fill="url(#login-mark-grad)" />
-      <path d="M9 13.5C9 9.9 12.1 7 16 7" stroke="#fff" strokeOpacity="0.55" strokeWidth="2.1" strokeLinecap="round" />
-      <path d="M31 26.5c0 3.6-3.1 6.5-7 6.5" stroke="#fff" strokeOpacity="0.55" strokeWidth="2.1" strokeLinecap="round" />
-      <path d="M17 12.2h6v4.8h4.8v6h-4.8v4.8h-6v-4.8h-4.8v-6H17z" fill="#fff" />
-    </svg>
-  );
-}
-
-// Post-login flourish: the brand mark's three parts fly in from the corners
-// and assemble, then the welcome line + slogan fade up. This is a generic
-// placeholder built from primitives — swap the three <g> pieces below for the
-// real ProCare logo's parts the moment that artwork is available; the timing
-// and stage choreography stay the same.
+// Post-login flourish: the brand plate scales in, then the "P" monogram
+// settles into place, then the welcome line + slogan fade up. Built from the
+// same Wordmark primitive as the sidebar/login card — swap in the real
+// ProCare logo file (once available as an actual asset) by replacing the
+// <rect>/<text> pair below with an <image>; the stage choreography stays.
 function LogoRevealOverlay({ greetName, lang }) {
   return (
     <div className="reveal-overlay">
@@ -130,27 +113,18 @@ function LogoRevealOverlay({ greetName, lang }) {
           </linearGradient>
         </defs>
         <rect className="reveal-part reveal-part-plate" width="40" height="40" rx="11" fill="url(#reveal-grad)" />
-        <path
-          className="reveal-part reveal-part-arc-l"
-          d="M9 13.5C9 9.9 12.1 7 16 7"
-          stroke="#fff"
-          strokeOpacity="0.6"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-        />
-        <path
-          className="reveal-part reveal-part-arc-r"
-          d="M31 26.5c0 3.6-3.1 6.5-7 6.5"
-          stroke="#fff"
-          strokeOpacity="0.6"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-        />
-        <path
+        <text
           className="reveal-part reveal-part-cross"
-          d="M17 12.2h6v4.8h4.8v6h-4.8v4.8h-6v-4.8h-4.8v-6H17z"
+          x="20"
+          y="27"
+          textAnchor="middle"
+          fontFamily="var(--font-cairo), sans-serif"
+          fontWeight="800"
+          fontSize="20"
           fill="#fff"
-        />
+        >
+          P
+        </text>
       </svg>
       <div className="reveal-text">
         <div className="reveal-welcome">

@@ -1,45 +1,46 @@
-/* ProCare OS design system — glassmorphism edition.
-   Brand: pharmacy green (#0a7d5a) with emerald gradient accents.
+/* ProCare AI design system — glassmorphism edition.
+   Brand: ProCare blue (#1a76b4) with the ProCare lime-green accent (#8cc63f),
+   taken directly from the ProCare logo — NOT an invented palette.
    Light is the default; [data-theme="dark"] overrides tokens.
    RTL/LTR is driven by the dir attribute on <html>; use logical CSS props.
    All animation is pure CSS (no JS deps) and respects prefers-reduced-motion. */
 :root {
-  --bg: #eef4f1;
+  --bg: #eef4f8;
   --surface: rgba(255, 255, 255, 0.62);
   --surface-solid: #ffffff;
-  --text: #14231d;
-  --muted: #5b6b64;
-  --border: rgba(16, 44, 34, 0.1);
+  --text: #14202b;
+  --muted: #5b6874;
+  --border: rgba(16, 40, 60, 0.1);
   --glass-border: rgba(255, 255, 255, 0.65);
-  --primary: #0a7d5a; /* pharmacy green */
-  --primary-2: #10b981; /* emerald gradient end */
-  --accent: #1763a6;
+  --primary: #1a76b4; /* ProCare blue */
+  --primary-2: #8cc63f; /* ProCare lime green */
+  --accent: #145d8e;
   --danger: #c0392b;
   --warning: #b9770e;
-  --ok: #0a7d5a;
-  --shadow: 0 2px 6px rgba(10, 60, 42, 0.06), 0 12px 32px rgba(10, 60, 42, 0.08);
-  --shadow-hover: 0 4px 12px rgba(10, 60, 42, 0.1), 0 18px 44px rgba(10, 60, 42, 0.14);
-  --glow: 0 0 0 1px rgba(10, 125, 90, 0.18), 0 6px 22px rgba(10, 125, 90, 0.35);
+  --ok: #6ba62e;
+  --shadow: 0 2px 6px rgba(10, 40, 62, 0.06), 0 12px 32px rgba(10, 40, 62, 0.08);
+  --shadow-hover: 0 4px 12px rgba(10, 40, 62, 0.1), 0 18px 44px rgba(10, 40, 62, 0.14);
+  --glow: 0 0 0 1px rgba(26, 118, 180, 0.18), 0 6px 22px rgba(26, 118, 180, 0.35);
   --blur: 14px;
 }
 
 :root[data-theme="dark"] {
-  --bg: #0a1210;
-  --surface: rgba(20, 32, 27, 0.55);
-  --surface-solid: #15201b;
-  --text: #e8f2ed;
-  --muted: #93a89e;
+  --bg: #0a1218;
+  --surface: rgba(20, 30, 38, 0.55);
+  --surface-solid: #151f27;
+  --text: #e8f0f5;
+  --muted: #93a4b2;
   --border: rgba(255, 255, 255, 0.08);
   --glass-border: rgba(255, 255, 255, 0.1);
-  --primary: #1fae82;
-  --primary-2: #34d399;
-  --accent: #4aa3e6;
+  --primary: #4aa3dd;
+  --primary-2: #a3d968;
+  --accent: #4aa3dd;
   --danger: #e57368;
   --warning: #e0a23a;
-  --ok: #1fae82;
+  --ok: #a3d968;
   --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 14px 36px rgba(0, 0, 0, 0.4);
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.4), 0 20px 48px rgba(0, 0, 0, 0.5);
-  --glow: 0 0 0 1px rgba(31, 174, 130, 0.25), 0 6px 24px rgba(31, 174, 130, 0.35);
+  --glow: 0 0 0 1px rgba(74, 163, 221, 0.25), 0 6px 24px rgba(74, 163, 221, 0.35);
 }
 
 * {
@@ -64,15 +65,15 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(620px 420px at 10% 6%, rgba(10, 125, 90, 0.16), transparent 62%),
-    radial-gradient(720px 520px at 92% 10%, rgba(23, 99, 166, 0.11), transparent 65%),
-    radial-gradient(900px 640px at 50% 104%, rgba(16, 185, 129, 0.13), transparent 62%);
+    radial-gradient(620px 420px at 10% 6%, rgba(26, 118, 180, 0.16), transparent 62%),
+    radial-gradient(720px 520px at 92% 10%, rgba(140, 198, 63, 0.12), transparent 65%),
+    radial-gradient(900px 640px at 50% 104%, rgba(20, 93, 142, 0.1), transparent 62%);
 }
 :root[data-theme="dark"] body::before {
   background:
-    radial-gradient(620px 420px at 10% 6%, rgba(31, 174, 130, 0.14), transparent 62%),
-    radial-gradient(720px 520px at 92% 10%, rgba(74, 163, 230, 0.09), transparent 65%),
-    radial-gradient(900px 640px at 50% 104%, rgba(52, 211, 153, 0.1), transparent 62%);
+    radial-gradient(620px 420px at 10% 6%, rgba(74, 163, 221, 0.14), transparent 62%),
+    radial-gradient(720px 520px at 92% 10%, rgba(163, 217, 104, 0.1), transparent 65%),
+    radial-gradient(900px 640px at 50% 104%, rgba(74, 163, 221, 0.09), transparent 62%);
 }
 
 a {
@@ -173,10 +174,11 @@ a {
   height: 38px;
   display: grid;
   place-items: center;
-  color: #fff;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-2));
   box-shadow: var(--glow);
+}
+.brand .logo svg {
+  border-radius: 11px;
 }
 .brand small {
   display: block;
@@ -606,7 +608,7 @@ table.tbl tbody tr:hover {
   display: flex;
   justify-content: center;
   margin-bottom: 14px;
-  filter: drop-shadow(0 6px 18px rgba(10, 125, 90, 0.35));
+  filter: drop-shadow(0 6px 18px rgba(26, 118, 180, 0.35));
 }
 .login-app-name {
   margin: 0;
@@ -675,14 +677,8 @@ table.tbl tbody tr:hover {
 .reveal-part-plate {
   animation: reveal-plate 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0ms both;
 }
-.reveal-part-arc-l {
-  animation: reveal-arc-l 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 250ms both;
-}
-.reveal-part-arc-r {
-  animation: reveal-arc-r 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 380ms both;
-}
 .reveal-part-cross {
-  animation: reveal-cross 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) 520ms both;
+  animation: reveal-letter 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) 380ms both;
 }
 @keyframes reveal-plate {
   from {
@@ -694,27 +690,7 @@ table.tbl tbody tr:hover {
     transform: scale(1) rotate(0deg);
   }
 }
-@keyframes reveal-arc-l {
-  from {
-    opacity: 0;
-    transform: translate(-14px, -10px) rotate(-40deg);
-  }
-  to {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
-  }
-}
-@keyframes reveal-arc-r {
-  from {
-    opacity: 0;
-    transform: translate(14px, 10px) rotate(40deg);
-  }
-  to {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
-  }
-}
-@keyframes reveal-cross {
+@keyframes reveal-letter {
   from {
     opacity: 0;
     transform: scale(0.3);
