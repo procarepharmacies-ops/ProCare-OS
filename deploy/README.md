@@ -121,3 +121,33 @@ browser ──http──> frontend :3000 ──(/api/* proxied server-side)─�
 - `deploy/Dockerfile.backend` — Python 3.11 + FastAPI (uvicorn on 0.0.0.0:8000).
 - `deploy/Dockerfile.frontend` — Node 22, `next build` with the `/api` proxy baked to `backend:8000`, `next start` on :3000.
 - `deploy/foo-up.sh` — the Multipass one-shot above.
+
+---
+
+## Control Center (the simple way — production server)
+
+One script drives everything on the pharmacy server:
+
+```bash
+./deploy/procare.sh            # interactive menu (start/stop/update/logs…)
+./deploy/procare.sh start      # start ProCare
+./deploy/procare.sh update     # pull the newest version and rebuild
+```
+
+**Desktop icon (Windows + WSL):** copy `deploy/ProCare.bat` to the Windows
+Desktop. Double-click = server starts (if not already running) and the app
+opens in the browser. On a plain Ubuntu desktop use `deploy/procare.desktop`
+instead (edit the two paths inside).
+
+**Access from anywhere on the internet (Cloudflare Tunnel):**
+1. Cloudflare Zero Trust → Networks → Tunnels → create/open your tunnel and
+   copy its **token**.
+2. Add to `.env` next to this repo's `docker-compose.yml`:
+   `TUNNEL_TOKEN=eyJ...`
+3. In the tunnel's *Public Hostname* settings, point your hostname at
+   `http://frontend:3000` (type: HTTP).
+4. `./deploy/procare.sh start` — the tunnel container joins automatically.
+
+Because the app is now reachable from the internet, keep `AUTH_ENABLED=true`
+(the default) and set a strong `AUTH_SECRET` in `.env` — the login screen is
+what stands between the internet and your pharmacy data.

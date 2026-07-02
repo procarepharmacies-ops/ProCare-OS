@@ -96,6 +96,22 @@ services:
       - procare-net
     restart: always
 
+  # Cloudflare Tunnel — secure access from anywhere on the internet, no port
+  # forwarding. Included only when TUNNEL_TOKEN is set in .env (the control
+  # script adds --profile tunnel automatically). Get the token from
+  # Cloudflare Zero Trust -> Networks -> Tunnels -> your tunnel -> token,
+  # and set the tunnel's public hostname service to  http://frontend:3000
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: procare-tunnel
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-}
+    profiles: ["tunnel"]
+    depends_on:
+      - frontend
+    networks:
+      - procare-net
+    restart: always
+
 volumes:
   sqlserver_data:
 

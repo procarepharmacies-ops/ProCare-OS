@@ -1,0 +1,13 @@
+[Desktop Entry]
+# ProCare AI launcher for Ubuntu desktop machines (not needed under WSL —
+# use deploy/ProCare.bat on the Windows side instead).
+# Install:  cp deploy/procare.desktop ~/.local/share/applications/
+#           (edit Path= below if the repo is not at ~/ProCare-OS)
+Type=Application
+Name=ProCare AI
+Comment=Not just a pharmacy — a family for all your needs
+Path=/home/YOUR_USER/ProCare-OS
+Exec=bash -c './deploy/procare.sh start && xdg-open http://localhost:3000'
+Icon=/home/YOUR_USER/ProCare-OS/src/frontend/public/logo.png
+Terminal=false
+Categories=Office;
