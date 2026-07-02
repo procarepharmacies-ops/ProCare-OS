@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, auth, clinical, dashboard, employees, inventory, parties, purchasing, sales, transfers, vendors
+from app.api import accounting, ai, alerts, auth, clinical, dashboard, employees, footfall, insights, inventory, parties, purchasing, sales, tasks, transfers, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -124,3 +124,10 @@ router.include_router(accounting.router, dependencies=[Depends(auth_guard(("ceo"
 router.include_router(employees.router, dependencies=[Depends(auth_guard(("ceo",)))])
 router.include_router(transfers.router)
 router.include_router(vendors.router)
+# Daily staff tasks (role checks live on the endpoints themselves).
+router.include_router(tasks.router)
+# NVR door-counter ingestion + visitor analytics (POST is key-protected via
+# FOOTFALL_KEY, not bearer auth — the NVR can't do a login flow).
+router.include_router(footfall.router)
+# Owner intelligence: daily report + staff productivity — management only.
+router.include_router(insights.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])

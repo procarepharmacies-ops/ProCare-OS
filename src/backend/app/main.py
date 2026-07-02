@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.db.base import SessionLocal, engine
-from app.db.migrate import bootstrap_ceo_if_configured, ensure_role_column
+from app.db.migrate import bootstrap_ceo_if_configured, ensure_role_column, ensure_roster
 from app.db.seed import ensure_seeded
 from app.services import sync
 
@@ -38,6 +38,8 @@ async def lifespan(_app: FastAPI):
     # has no login at all unless BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
     with SessionLocal() as session:
         bootstrap_ceo_if_configured(session)
+        # The pharmacy's real staff accounts (create-only, survives restarts).
+        ensure_roster(session)
     # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
     # read-only eStock source configured); otherwise it stays idle.
     sync.start()

@@ -110,6 +110,14 @@ const P = {
       <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9" />
     </>
   ),
+  // Clipboard with a check — daily tasks.
+  clipboard: (
+    <>
+      <rect x="5" y="4.5" width="14" height="17" rx="2.5" />
+      <path d="M9 4.5V3.2h6v1.3" />
+      <path d="M8.8 13.2l2.2 2.2 4.2-4.6" />
+    </>
+  ),
   // Door with an exit arrow — log out.
   logout: (
     <>

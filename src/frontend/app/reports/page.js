@@ -7,12 +7,12 @@ import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
 
-const TABS = ["sales", "purchasing", "stock", "cashiers"];
+const TABS = ["daily", "sales", "purchasing", "stock", "cashiers", "productivity"];
 
 export default function ReportsPage() {
   const { lang, branch } = useUI();
   const L = (k) => t(lang, k);
-  const [tab, setTab] = useState("sales");
+  const [tab, setTab] = useState("daily");
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
@@ -21,7 +21,7 @@ export default function ReportsPage() {
     let alive = true;
     (async () => {
       try {
-        const [salesSummary, daily, top, cashiers, purchSummary, expiry, lowStock] = await Promise.all([
+        const [salesSummary, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall] = await Promise.all([
           api.get("/accounting/sales-summary", { branch_id: branch || undefined, days }),
           api.dailySales(branch, days),
           api.topProducts(branch, days),
@@ -29,6 +29,9 @@ export default function ReportsPage() {
           api.get("/purchasing/summary", { branch_id: branch || undefined }),
           api.expiry(branch, 30),
           api.lowStock(branch),
+          api.get("/insights/daily", { branch_id: branch || undefined }),
+          api.get("/insights/productivity", { branch_id: branch || undefined, days }),
+          api.get("/footfall/summary", { branch_id: branch || undefined, days: Math.min(days, 90) }),
         ]);
         if (alive) {
           setData({
@@ -39,6 +42,9 @@ export default function ReportsPage() {
             purchSummary,
             expiry,
             lowStock: lowStock.items,
+            dailyReport,
+            productivity,
+            footfall,
           });
         }
       } catch {
@@ -74,6 +80,123 @@ export default function ReportsPage() {
 
         {!data && <p className="muted">{L("loading")}</p>}
         {data?.error && <p className="badge danger">{L("offline")}</p>}
+
+        {data && !data.error && tab === "daily" && (
+          <>
+            <div className="kpi-row">
+              <div className="kpi-box">
+                <div className="kpi-value">{fmt(data.dailyReport.sales.revenue)}</div>
+                <div className="kpi-label">{L("sales_today")} ({L("egp")})</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.sales.bills}</div>
+                <div className="kpi-label">{L("bills_today")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.sales.returns}</div>
+                <div className="kpi-label">{L("returns_lbl")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.visitors}</div>
+                <div className="kpi-label">{L("visitors")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.conversion_pct != null ? `${data.dailyReport.conversion_pct}%` : "—"}</div>
+                <div className="kpi-label">{L("conversion")}</div>
+              </div>
+            </div>
+            <div className="kpi-row">
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.tasks.pending}</div>
+                <div className="kpi-label">{L("pending_tasks")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.tasks.done_today}</div>
+                <div className="kpi-label">{L("done_today")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.alerts.low_stock}</div>
+                <div className="kpi-label">{L("low_stock")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.dailyReport.alerts.expiring_30d}</div>
+                <div className="kpi-label">{L("expiring_30")}</div>
+              </div>
+            </div>
+            {!data.footfall.counter_connected && (
+              <p className="badge warn" style={{ display: "block", padding: 10 }}>{L("counter_offline")}</p>
+            )}
+          </>
+        )}
+
+        {data && !data.error && tab === "productivity" && (
+          <>
+            <div className="kpi-row">
+              <div className="kpi-box">
+                <div className="kpi-value">{data.productivity.busiest_hour != null ? `${data.productivity.busiest_hour}:00` : "—"}</div>
+                <div className="kpi-label">{L("busiest_hour")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.productivity.quietest_open_hour != null ? `${data.productivity.quietest_open_hour}:00` : "—"}</div>
+                <div className="kpi-label">{L("quietest_hour")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.footfall.total_visitors}</div>
+                <div className="kpi-label">{L("visitors")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.footfall.conversion_pct != null ? `${data.footfall.conversion_pct}%` : "—"}</div>
+                <div className="kpi-label">{L("conversion")}</div>
+              </div>
+            </div>
+
+            <div className="card" style={{ marginTop: 16 }}>
+              <h3 className="section-title">{L("hourly_rhythm")}</h3>
+              <BarChart
+                data={data.productivity.hourly_total.map((v, h) => ({ hour: `${h}:00`, bills: v }))}
+                valueKey="bills"
+                labelKey="hour"
+                height={120}
+              />
+            </div>
+
+            <div className="table-wrapper" style={{ marginTop: 16 }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>{L("employee")}</th>
+                    <th>{L("bills_count")}</th>
+                    <th>{L("revenue")}</th>
+                    <th>{L("avg_bill")}</th>
+                    <th>{L("bills_per_day")}</th>
+                    <th>{L("active_days")}</th>
+                    <th>{L("peak_hour")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.productivity.employees.length === 0 ? (
+                    <tr><td colSpan="7" className="empty">{L("none")}</td></tr>
+                  ) : (
+                    data.productivity.employees.map((e) => (
+                      <tr key={e.employee_id}>
+                        <td>{e.name}</td>
+                        <td>{e.bills}</td>
+                        <td>{fmt(e.revenue)}</td>
+                        <td>{fmt(e.avg_bill)}</td>
+                        <td>{e.bills_per_active_day}</td>
+                        <td>{e.active_days}</td>
+                        <td>{e.peak_hour != null ? `${e.peak_hour}:00` : "—"}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {!data.footfall.counter_connected && (
+              <p className="badge warn" style={{ display: "block", padding: 10, marginTop: 12 }}>{L("counter_offline")}</p>
+            )}
+          </>
+        )}
 
         {data && !data.error && tab === "sales" && (
           <>

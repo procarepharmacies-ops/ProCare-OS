@@ -55,6 +55,29 @@ def login(payload: LoginIn, session: Session = Depends(get_session)):
     return {"token": auth_svc.create_token(emp), "employee": _employee_out(emp)}
 
 
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(
+    payload: ChangePasswordIn,
+    token: dict = Depends(_require_token),
+    session: Session = Depends(get_session),
+):
+    """Everyone changes their own initial password here (token required, old
+    password re-verified). Minimal policy: 8+ characters."""
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=422, detail={"code": "weak_password", "message": "Password must be at least 8 characters"})
+    emp = session.scalar(select(m.Employee).where(m.Employee.employee_id == token["employee_id"]))
+    if emp is None or not auth_svc.verify_password(payload.old_password, emp.password_hash):
+        raise HTTPException(status_code=401, detail={"code": "invalid_credentials", "message": "Current password is wrong"})
+    emp.password_hash = auth_svc.hash_password(payload.new_password)
+    session.commit()
+    return {"ok": True}
+
+
 @router.get("/me")
 def me(payload: dict = Depends(_require_token), session: Session = Depends(get_session)):
     emp = session.scalar(select(m.Employee).where(m.Employee.employee_id == payload["employee_id"]))
