@@ -13,7 +13,7 @@ const cairo = Cairo({
 
 export const metadata = {
   title: "ProCare AI",
-  description: "Independent pharmacy operating system",
+  description: "Not just a pharmacy — a family for all your needs",
 };
 
 // Apply saved lang/dir/theme before first paint to avoid a flash and to keep
