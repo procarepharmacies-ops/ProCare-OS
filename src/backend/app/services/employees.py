@@ -1,10 +1,16 @@
 """Employee management."""
 from __future__ import annotations
 
+import re
+import secrets
+
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db import models as m
+from app.services import auth as auth_svc
+
+ROLES = ("ceo", "manager", "assistant")
 
 
 def _job_map(session: Session) -> dict[int, str]:
@@ -31,6 +37,7 @@ def list_employees(session: Session, branch_id: int | None = None, limit: int = 
             "name_ar": e.name_ar,
             "name_en": e.name_en,
             "username": e.username,
+            "role": e.role,
             "job_id": e.job_id,
             "job_name": jobs.get(e.job_id) if e.job_id else None,
             "branch_id": e.branch_id,
@@ -62,6 +69,7 @@ def employee_detail(session: Session, employee_id: int) -> dict | None:
         "name_ar": e.name_ar,
         "name_en": e.name_en,
         "username": e.username,
+        "role": e.role,
         "job_id": e.job_id,
         "job_name": jobs.get(e.job_id) if e.job_id else None,
         "branch_id": e.branch_id,
@@ -101,4 +109,74 @@ def employee_summary(session: Session, branch_id: int | None = None) -> dict:
         "total_employees": total,
         "active_employees": active,
         "inactive_employees": total - active,
+    }
+
+
+def _slugify_username(session: Session, name_en: str | None, name_ar: str) -> str:
+    """A short, unique, login-shaped username from a name. ASCII only — falls
+    back to a generic prefix when the name has no Latin characters (Arabic
+    names with no name_en given)."""
+    base = re.sub(r"[^a-z0-9]+", "", (name_en or "").lower()) or "staff"
+    candidate = base
+    n = 1
+    existing = set(session.scalars(select(m.Employee.username)).all())
+    while candidate in existing:
+        n += 1
+        candidate = f"{base}{n}"
+    return candidate
+
+
+def create_employee(
+    session: Session,
+    name_ar: str,
+    name_en: str | None = None,
+    role: str | None = None,
+    branch_id: int | None = None,
+    job_id: int | None = None,
+    basic_salary: float = 0,
+    username: str | None = None,
+    password: str | None = None,
+    has_login: bool = True,
+) -> dict:
+    """Create an employee. When ``has_login`` is False (e.g. cleaning staff,
+    anyone who shouldn't sign into ProCare), an inert, never-disclosed
+    username/password is generated instead — the row still satisfies the
+    schema's NOT NULL columns, but nobody can ever authenticate as them."""
+    if role and role not in ROLES:
+        raise ValueError(f"role must be one of {ROLES}")
+
+    if has_login:
+        final_username = (username or "").strip() or _slugify_username(session, name_en, name_ar)
+        final_password = password or secrets.token_urlsafe(12)
+        final_role = role or "assistant"
+    else:
+        final_username = f"nologin-{secrets.token_hex(6)}"
+        final_password = secrets.token_urlsafe(24)
+        final_role = role or "assistant"
+
+    emp = m.Employee(
+        name_ar=name_ar,
+        name_en=name_en,
+        username=final_username,
+        password_hash=auth_svc.hash_password(final_password),
+        role=final_role,
+        branch_id=branch_id,
+        job_id=job_id,
+        basic_salary=basic_salary,
+    )
+    session.add(emp)
+    session.commit()
+    session.refresh(emp)
+
+    return {
+        "employee_id": emp.employee_id,
+        "name_ar": emp.name_ar,
+        "name_en": emp.name_en,
+        "username": emp.username if has_login else None,
+        # Only ever returned once, at creation time — never stored in plain
+        # text and never retrievable again after this response.
+        "password": final_password if has_login else None,
+        "role": emp.role,
+        "has_login": has_login,
+        "branch_id": emp.branch_id,
     }

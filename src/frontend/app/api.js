@@ -65,6 +65,7 @@ export const api = {
     const query = qs.toString();
     return http(`${path}${query ? "?" + query : ""}`);
   },
+  post: (path, body) => http(path, { method: "POST", body: JSON.stringify(body) }),
 
   health: () => http("/health"),
   branches: () => http("/branches"),
