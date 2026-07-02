@@ -174,11 +174,8 @@ a {
   height: 38px;
   display: grid;
   place-items: center;
-  border-radius: 11px;
+  border-radius: 50%;
   box-shadow: var(--glow);
-}
-.brand .logo svg {
-  border-radius: 11px;
 }
 .brand small {
   display: block;
@@ -654,9 +651,8 @@ table.tbl tbody tr:hover {
   padding: 11px;
 }
 
-/* Post-login logo-assembly reveal — full-screen brand moment before handoff
-   to the dashboard. Parts fly in from off-canvas and converge; see the
-   reveal-part-* classes below for each piece's individual entrance. */
+/* Post-login logo reveal — full-screen brand moment before handoff to the
+   dashboard. The logo scales in with a glow, then the welcome text follows. */
 .reveal-overlay {
   position: fixed;
   inset: 0;
@@ -670,15 +666,11 @@ table.tbl tbody tr:hover {
   animation: fade-up 0.3s ease both;
 }
 .reveal-part {
-  transform-box: fill-box;
-  transform-origin: center;
   opacity: 0;
 }
 .reveal-part-plate {
+  filter: drop-shadow(0 8px 28px rgba(26, 118, 180, 0.4));
   animation: reveal-plate 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0ms both;
-}
-.reveal-part-cross {
-  animation: reveal-letter 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) 380ms both;
 }
 @keyframes reveal-plate {
   from {
@@ -688,12 +680,6 @@ table.tbl tbody tr:hover {
   to {
     opacity: 1;
     transform: scale(1) rotate(0deg);
-  }
-}
-@keyframes reveal-letter {
-  from {
-    opacity: 0;
-    transform: scale(0.3);
   }
   to {
     opacity: 1;

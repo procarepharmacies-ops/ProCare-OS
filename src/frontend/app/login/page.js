@@ -97,35 +97,14 @@ export default function LoginPage() {
   );
 }
 
-// Post-login flourish: the brand plate scales in, then the "P" monogram
-// settles into place, then the welcome line + slogan fade up. Built from the
-// same Wordmark primitive as the sidebar/login card — swap in the real
-// ProCare logo file (once available as an actual asset) by replacing the
-// <rect>/<text> pair below with an <image>; the stage choreography stays.
+// Post-login flourish: the real ProCare logo scales in with a glow, then the
+// welcome line + slogan fade up underneath it.
 function LogoRevealOverlay({ greetName, lang }) {
   return (
     <div className="reveal-overlay">
-      <svg width="140" height="140" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="reveal-grad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="var(--primary)" />
-            <stop offset="100%" stopColor="var(--primary-2)" />
-          </linearGradient>
-        </defs>
-        <rect className="reveal-part reveal-part-plate" width="40" height="40" rx="11" fill="url(#reveal-grad)" />
-        <text
-          className="reveal-part reveal-part-cross"
-          x="20"
-          y="27"
-          textAnchor="middle"
-          fontFamily="var(--font-cairo), sans-serif"
-          fontWeight="800"
-          fontSize="20"
-          fill="#fff"
-        >
-          P
-        </text>
-      </svg>
+      <div className="reveal-part reveal-part-plate">
+        <Wordmark size={140} />
+      </div>
       <div className="reveal-text">
         <div className="reveal-welcome">
           {t(lang, "welcome_back")}, {greetName}
