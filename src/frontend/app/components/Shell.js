@@ -3,22 +3,23 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useUI } from "../providers";
 import { t } from "../i18n";
+import Icon from "./icons";
 
 const NAV = [
-  { href: "/", key: "nav_dashboard", ico: "📊" },
-  { href: "/inventory", key: "nav_inventory", ico: "💊" },
-  { href: "/pos", key: "nav_pos", ico: "🧾" },
-  { href: "/customers", key: "nav_customers", ico: "👥" },
-  { href: "/vendors", key: "nav_vendors", ico: "🏪" },
-  { href: "/purchasing", key: "nav_purchasing", ico: "📦" },
-  { href: "/transfers", key: "nav_transfers", ico: "🚚" },
-  { href: "/accounting", key: "nav_accounting", ico: "💰" },
-  { href: "/employees", key: "nav_employees", ico: "👨‍💼" },
-  { href: "/alerts", key: "nav_alerts", ico: "🔔" },
-  { href: "/clinical", key: "nav_clinical", ico: "⚕️" },
-  { href: "/assistant", key: "nav_assistant", ico: "🤖" },
-  { href: "/reports", key: "nav_reports", ico: "📈" },
-  { href: "/settings", key: "nav_settings", ico: "⚙️" },
+  { href: "/", key: "nav_dashboard", ico: "dashboard" },
+  { href: "/inventory", key: "nav_inventory", ico: "pill" },
+  { href: "/pos", key: "nav_pos", ico: "receipt" },
+  { href: "/customers", key: "nav_customers", ico: "customers" },
+  { href: "/vendors", key: "nav_vendors", ico: "store" },
+  { href: "/purchasing", key: "nav_purchasing", ico: "box" },
+  { href: "/transfers", key: "nav_transfers", ico: "transfer" },
+  { href: "/accounting", key: "nav_accounting", ico: "coins" },
+  { href: "/employees", key: "nav_employees", ico: "badge" },
+  { href: "/alerts", key: "nav_alerts", ico: "bell" },
+  { href: "/clinical", key: "nav_clinical", ico: "mortar" },
+  { href: "/assistant", key: "nav_assistant", ico: "sparkle" },
+  { href: "/reports", key: "nav_reports", ico: "chart" },
+  { href: "/settings", key: "nav_settings", ico: "gear" },
 ];
 
 export default function Shell({ titleKey, children }) {
@@ -31,8 +32,13 @@ export default function Shell({ titleKey, children }) {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          {L("app")}
-          <small>{L("tagline")}</small>
+          <span className="logo">
+            <Icon name="cross" size={22} strokeWidth={2} />
+          </span>
+          <span>
+            {L("app")}
+            <small>{L("tagline")}</small>
+          </span>
         </div>
         {NAV.map((n) => (
           <div
@@ -40,7 +46,9 @@ export default function Shell({ titleKey, children }) {
             className={`navlink ${pathname === n.href ? "active" : ""}`}
             onClick={() => router.push(n.href)}
           >
-            <span className="ico">{n.ico}</span>
+            <span className="ico">
+              <Icon name={n.ico} />
+            </span>
             <span>{L(n.key)}</span>
           </div>
         ))}
@@ -73,8 +81,8 @@ export default function Shell({ titleKey, children }) {
             <button className="btn icon" onClick={toggleLang} title="language / اللغة">
               {lang === "ar" ? "EN" : "ع"}
             </button>
-            <button className="btn icon" onClick={toggleTheme} title="theme / المظهر">
-              {theme === "light" ? "🌙" : "☀️"}
+            <button className="btn icon" onClick={toggleTheme} title="theme / المظهر" style={{ display: "grid", placeItems: "center" }}>
+              <Icon name={theme === "light" ? "moon" : "sun"} size={17} />
             </button>
           </div>
         </div>

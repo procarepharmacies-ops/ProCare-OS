@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Shell from "./components/Shell";
-import { BarChart, HBar } from "./components/charts";
+import { BarChart, HBar, CountUp } from "./components/charts";
+import Icon from "./components/icons";
 import { useUI } from "./providers";
 import { t } from "./i18n";
 import { api } from "./api";
@@ -36,7 +37,7 @@ export default function DashboardPage() {
 
   return (
     <Shell titleKey="nav_dashboard">
-      {!data && <p className="muted">{L("loading")}</p>}
+      {!data && <DashboardSkeleton />}
       {data?.error && <p className="badge danger">{L("offline")}</p>}
       {data && !data.error && (
         <>
@@ -77,19 +78,24 @@ export default function DashboardPage() {
 
 function KPIs({ k, L, fmt }) {
   const cards = [
-    { label: L("sales_today"), value: fmt(k.sales_today), sub: `${k.bills_today} ${L("bills")}` },
-    { label: L("sales_month"), value: fmt(k.sales_month), sub: L("egp") },
-    { label: L("profit_month"), value: fmt(k.profit_month), sub: L("egp") },
-    { label: L("low_stock"), value: fmt(k.low_stock), sub: "" },
-    { label: L("expiring_30"), value: fmt(k.expiring_30), sub: "" },
-    { label: L("debtors"), value: fmt(k.debtors), sub: "" },
+    { label: L("sales_today"), value: k.sales_today, sub: `${k.bills_today} ${L("bills")}`, ico: "receipt" },
+    { label: L("sales_month"), value: k.sales_month, sub: L("egp"), ico: "coins" },
+    { label: L("profit_month"), value: k.profit_month, sub: L("egp"), ico: "chart" },
+    { label: L("low_stock"), value: k.low_stock, sub: "", ico: "pill" },
+    { label: L("expiring_30"), value: k.expiring_30, sub: "", ico: "bell" },
+    { label: L("debtors"), value: k.debtors, sub: "", ico: "customers" },
   ];
   return (
     <div className="grid kpis">
       {cards.map((c) => (
         <div className="card" key={c.label}>
+          <span className="kpi-ico">
+            <Icon name={c.ico} size={19} />
+          </span>
           <div className="kpi-label">{c.label}</div>
-          <div className="kpi-value num">{c.value}</div>
+          <div className="kpi-value num">
+            <CountUp value={c.value} format={(n) => fmt(Math.round(n))} />
+          </div>
           <div className="kpi-sub">{c.sub}</div>
         </div>
       ))}
@@ -114,5 +120,30 @@ function Ranked({ rows, fmt, unit, color = "var(--accent)" }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// Shimmering placeholder cards shown while the dashboard data loads.
+function DashboardSkeleton() {
+  return (
+    <>
+      <div className="grid kpis">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div className="card" key={i}>
+            <div className="shimmer" style={{ height: 13, width: "55%" }} />
+            <div className="shimmer" style={{ height: 30, width: "70%", margin: "10px 0 6px" }} />
+            <div className="shimmer" style={{ height: 11, width: "35%" }} />
+          </div>
+        ))}
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
+        <div className="card">
+          <div className="shimmer" style={{ height: 180 }} />
+        </div>
+        <div className="card">
+          <div className="shimmer" style={{ height: 180 }} />
+        </div>
+      </div>
+    </>
   );
 }

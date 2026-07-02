@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Shell from "../components/Shell";
+import Icon from "../components/icons";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
@@ -185,7 +186,9 @@ export default function POSPage() {
                 className="card"
                 style={{ margin: "12px 0", padding: 10, borderColor: "var(--danger)", background: "var(--bg)" }}
               >
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>⚕️ {L("interactions")}</div>
+                <div style={{ fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="mortar" size={16} /> {L("interactions")}
+                </div>
                 {advisory.map((it, i) => (
                   <div key={i} style={{ marginBottom: 6, fontSize: 13 }}>
                     <span className={`badge ${sevClass(it.severity)}`}>{L(`sev_${it.severity}`)}</span>{" "}

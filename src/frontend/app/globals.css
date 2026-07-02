@@ -1,31 +1,45 @@
-/* Theme tokens. Light is the default; [data-theme="dark"] overrides them.
-   RTL/LTR is driven by the dir attribute on <html>; use logical CSS props. */
+/* ProCare OS design system — glassmorphism edition.
+   Brand: pharmacy green (#0a7d5a) with emerald gradient accents.
+   Light is the default; [data-theme="dark"] overrides tokens.
+   RTL/LTR is driven by the dir attribute on <html>; use logical CSS props.
+   All animation is pure CSS (no JS deps) and respects prefers-reduced-motion. */
 :root {
-  --bg: #f6f8fa;
-  --surface: #ffffff;
-  --text: #1a1f24;
-  --muted: #5b6670;
-  --border: #e2e8ee;
+  --bg: #eef4f1;
+  --surface: rgba(255, 255, 255, 0.62);
+  --surface-solid: #ffffff;
+  --text: #14231d;
+  --muted: #5b6b64;
+  --border: rgba(16, 44, 34, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.65);
   --primary: #0a7d5a; /* pharmacy green */
+  --primary-2: #10b981; /* emerald gradient end */
   --accent: #1763a6;
   --danger: #c0392b;
   --warning: #b9770e;
   --ok: #0a7d5a;
-  --shadow: 0 1px 3px rgba(16, 24, 32, 0.08), 0 4px 16px rgba(16, 24, 32, 0.05);
+  --shadow: 0 2px 6px rgba(10, 60, 42, 0.06), 0 12px 32px rgba(10, 60, 42, 0.08);
+  --shadow-hover: 0 4px 12px rgba(10, 60, 42, 0.1), 0 18px 44px rgba(10, 60, 42, 0.14);
+  --glow: 0 0 0 1px rgba(10, 125, 90, 0.18), 0 6px 22px rgba(10, 125, 90, 0.35);
+  --blur: 14px;
 }
 
 :root[data-theme="dark"] {
-  --bg: #0f1419;
-  --surface: #161c23;
-  --text: #e8edf2;
-  --muted: #9aa7b2;
-  --border: #263039;
+  --bg: #0a1210;
+  --surface: rgba(20, 32, 27, 0.55);
+  --surface-solid: #15201b;
+  --text: #e8f2ed;
+  --muted: #93a89e;
+  --border: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.1);
   --primary: #1fae82;
+  --primary-2: #34d399;
   --accent: #4aa3e6;
   --danger: #e57368;
   --warning: #e0a23a;
   --ok: #1fae82;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 18px rgba(0, 0, 0, 0.35);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 14px 36px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.4), 0 20px 48px rgba(0, 0, 0, 0.5);
+  --glow: 0 0 0 1px rgba(31, 174, 130, 0.25), 0 6px 24px rgba(31, 174, 130, 0.35);
 }
 
 * {
@@ -39,7 +53,26 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", Tahoma, "Cairo", system-ui, -apple-system, sans-serif;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* Ambient mesh-gradient backdrop in brand hues — the glass blurs against it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(620px 420px at 10% 6%, rgba(10, 125, 90, 0.16), transparent 62%),
+    radial-gradient(720px 520px at 92% 10%, rgba(23, 99, 166, 0.11), transparent 65%),
+    radial-gradient(900px 640px at 50% 104%, rgba(16, 185, 129, 0.13), transparent 62%);
+}
+:root[data-theme="dark"] body::before {
+  background:
+    radial-gradient(620px 420px at 10% 6%, rgba(31, 174, 130, 0.14), transparent 62%),
+    radial-gradient(720px 520px at 92% 10%, rgba(74, 163, 230, 0.09), transparent 65%),
+    radial-gradient(900px 640px at 50% 104%, rgba(52, 211, 153, 0.1), transparent 62%);
 }
 
 a {
@@ -47,59 +80,146 @@ a {
   text-decoration: none;
 }
 
-/* ---- App shell: sidebar + content ---------------------------------------- */
+::selection {
+  background: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/* Slim brand scrollbars. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- Motion vocabulary ---------------------------------------------------- */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes hbar-grow {
+  from {
+    width: 0;
+  }
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+/* ---- App shell: glass sidebar + content ----------------------------------- */
 .shell {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 248px 1fr;
   min-height: 100vh;
 }
 .sidebar {
   background: var(--surface);
-  border-inline-end: 1px solid var(--border);
+  backdrop-filter: blur(var(--blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
+  border-inline-end: 1px solid var(--glass-border);
   padding: 20px 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: 100vh;
+  position: sticky;
+  top: 0;
 }
 .brand {
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
   font-weight: 800;
   color: var(--primary);
-  padding: 4px 10px 14px;
+  padding: 4px 8px 16px;
+}
+.brand .logo {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  box-shadow: var(--glow);
 }
 .brand small {
   display: block;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 500;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .navlink {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 9px;
+  padding: 9px 12px;
+  border-radius: 10px;
   color: var(--text);
-  font-size: 15px;
+  font-size: 14.5px;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 .navlink:hover {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  transform: translateX(2px);
+}
+[dir="rtl"] .navlink:hover {
+  transform: translateX(-2px);
 }
 .navlink.active {
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
-  color: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  color: #fff;
   font-weight: 700;
+  box-shadow: var(--glow);
 }
 .navlink .ico {
-  font-size: 18px;
+  flex: none;
   width: 22px;
-  text-align: center;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  opacity: 0.9;
 }
 .content {
   padding: 24px 28px;
-  max-width: 1200px;
+  max-width: 1240px;
 }
 .topbar {
   display: flex;
@@ -112,6 +232,7 @@ a {
 .page-title {
   margin: 0;
   font-size: 24px;
+  letter-spacing: -0.01em;
 }
 .controls {
   display: flex;
@@ -120,27 +241,37 @@ a {
   flex-wrap: wrap;
 }
 
-/* ---- Primitives ---------------------------------------------------------- */
+/* ---- Primitives ------------------------------------------------------------ */
 .btn {
   padding: 8px 14px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--text);
   cursor: pointer;
   font-size: 15px;
+  transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
 }
 .btn:hover {
   border-color: var(--primary);
+  transform: translateY(-1px);
+}
+.btn:active {
+  transform: translateY(0);
 }
 .btn.primary {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
   color: #fff;
-  border-color: var(--primary);
+  border-color: transparent;
+  box-shadow: var(--glow);
 }
 .btn.primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 .btn.icon {
   font-size: 16px;
@@ -150,18 +281,36 @@ a {
 .input,
 .select {
   padding: 9px 11px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--text);
   font-size: 15px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+/* Frosted-glass card — the core surface. */
 .card {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  backdrop-filter: blur(var(--blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   padding: 18px;
   box-shadow: var(--shadow);
+  animation: fade-up 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-hover);
 }
 .grid {
   display: grid;
@@ -170,6 +319,31 @@ a {
 .kpis {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
+
+/* Staggered entrance for card groups. */
+.grid > .card:nth-child(1),
+.kpi-row > .kpi-box:nth-child(1) {
+  animation-delay: 0ms;
+}
+.grid > .card:nth-child(2),
+.kpi-row > .kpi-box:nth-child(2) {
+  animation-delay: 60ms;
+}
+.grid > .card:nth-child(3),
+.kpi-row > .kpi-box:nth-child(3) {
+  animation-delay: 120ms;
+}
+.grid > .card:nth-child(4),
+.kpi-row > .kpi-box:nth-child(4) {
+  animation-delay: 180ms;
+}
+.grid > .card:nth-child(5) {
+  animation-delay: 240ms;
+}
+.grid > .card:nth-child(6) {
+  animation-delay: 300ms;
+}
+
 .kpi-label {
   color: var(--muted);
   font-size: 13px;
@@ -178,10 +352,24 @@ a {
   font-size: 28px;
   font-weight: 700;
   margin: 6px 0 2px;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, var(--text), color-mix(in srgb, var(--text) 70%, var(--primary)));
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 .kpi-sub {
   font-size: 12px;
   color: var(--muted);
+}
+.kpi-ico {
+  float: inline-end;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 .section-title {
   font-size: 16px;
@@ -202,9 +390,14 @@ table.tbl th {
   color: var(--muted);
   font-weight: 600;
   font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+table.tbl tbody tr {
+  transition: background 0.12s ease;
 }
 table.tbl tbody tr:hover {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
 }
 .badge {
   display: inline-block;
@@ -216,20 +409,24 @@ table.tbl tbody tr:hover {
 .badge.warn {
   color: var(--warning);
   border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
 }
 .badge.danger {
   color: var(--danger);
   border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 .badge.ok {
   color: var(--ok);
   border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
 .dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
   display: inline-block;
+  animation: pulse-dot 2.4s ease-out infinite;
 }
 .muted {
   color: var(--muted);
@@ -238,7 +435,20 @@ table.tbl tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- KPI row/boxes (used in Purchasing, Vendors, Transfers, Employees) --- */
+/* Loading shimmer — apply to placeholder rows/blocks while data fetches. */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 25%,
+    color-mix(in srgb, var(--text) 7%, transparent) 50%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+
+/* ---- KPI row/boxes (Purchasing, Vendors, Transfers, Employees, Reports) --- */
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -247,13 +457,21 @@ table.tbl tbody tr:hover {
 }
 .kpi-box {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  backdrop-filter: blur(var(--blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   padding: 16px;
   box-shadow: var(--shadow);
+  animation: fade-up 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.kpi-box:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
 }
 
-/* ---- Tabs (Purchasing, Accounting) --------------------------------------- */
+/* ---- Tabs (Purchasing, Accounting, Reports) -------------------------------- */
 .tabs {
   display: flex;
   gap: 4px;
@@ -281,33 +499,28 @@ table.tbl tbody tr:hover {
   font-weight: 600;
 }
 
-/* ---- Table wrapper (scrollable on small screens) ------------------------- */
+/* ---- Table wrapper (glass, scrollable on small screens) -------------------- */
 .table-wrapper {
   overflow-x: auto;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  backdrop-filter: blur(var(--blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   box-shadow: var(--shadow);
+  animation: fade-up 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
-/* ---- Empty-state cell ---------------------------------------------------- */
+/* ---- Empty-state cell ------------------------------------------------------ */
 .empty {
   text-align: center;
   color: var(--muted);
   padding: 24px 10px;
 }
 
-/* ---- Page container padding ---------------------------------------------- */
+/* ---- Page container --------------------------------------------------------- */
 .page {
   padding: 0;
-}
-
-/* ---- Sidebar scrollable when many nav items ------------------------------ */
-.sidebar {
-  overflow-y: auto;
-  max-height: 100vh;
-  position: sticky;
-  top: 0;
 }
 
 @media (max-width: 760px) {
@@ -321,7 +534,7 @@ table.tbl tbody tr:hover {
     max-height: none;
     position: static;
     border-inline-end: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--glass-border);
     padding: 8px 10px;
   }
   .brand {
@@ -335,6 +548,9 @@ table.tbl tbody tr:hover {
     min-width: 40px;
     justify-content: center;
   }
+  .navlink:hover {
+    transform: none;
+  }
   .kpi-row {
     grid-template-columns: 1fr 1fr;
   }
@@ -344,5 +560,16 @@ table.tbl tbody tr:hover {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* Accessibility: users who prefer reduced motion get an instant, static UI. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
