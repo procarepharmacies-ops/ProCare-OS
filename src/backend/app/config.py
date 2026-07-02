@@ -10,6 +10,7 @@ credential itself.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 # config.py -> app -> backend -> src -> <repo root>
@@ -157,6 +158,11 @@ class Settings:
     ai_provider: str = _detect_ai_provider()
     ai_model: str = _ai_model_for(ai_provider)
     ai_api_key_env: str = _ai_key_env_for(ai_provider)
+
+    # Login gate (CEO/manager/assistant roles). Opt-in via env so existing
+    # deployments and the test suite are unaffected until a pharmacy turns it
+    # on after setting up real employee accounts.
+    auth_enabled: bool = os.environ.get("AUTH_ENABLED", "").lower() in ("1", "true", "yes", "on")
 
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:

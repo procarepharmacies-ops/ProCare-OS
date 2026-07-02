@@ -75,10 +75,11 @@ CUSTOMER_NAMES = [
 ]
 VENDOR_NAMES = ["شركة المهن الطبية", "ابن سينا فارما", "يونايتد فارما", "مصر للأدوية", "فاركو"]
 EMPLOYEES = [
-    ("مدير النظام", "admin", "Admin", True),
-    ("أحمد الكاشير", "ahmed", "Cashier", False),
-    ("سارة الصيدلانية", "sara", "Pharmacist", False),
-    ("محمد فرع السنتا", "mohamed", "Cashier", False),
+    # (name_ar, username, job title, is_admin, login role)
+    ("مدير النظام", "admin", "Admin", True, "ceo"),
+    ("أحمد الكاشير", "ahmed", "Cashier", False, "assistant"),
+    ("سارة الصيدلانية", "sara", "Pharmacist", False, "manager"),
+    ("محمد فرع السنتا", "mohamed", "Cashier", False, "assistant"),
 ]
 
 
@@ -135,12 +136,13 @@ def _seed(s: Session) -> dict:
 
     # --- Employees (real permission flags) -----------------------------------
     employees = []
-    for i, (name_ar, username, role_en, is_admin) in enumerate(EMPLOYEES):
+    for i, (name_ar, username, role_en, is_admin, login_role) in enumerate(EMPLOYEES):
         emp = m.Employee(
             name_ar=name_ar,
             name_en=role_en,
             username=username,
             password_hash=_hash("procare123"),
+            role=login_role,
             job_id=jobs[0].job_id if is_admin else jobs[1].job_id,
             branch_id=elsanta.branch_id if "السنتا" in name_ar else main.branch_id,
             can_see_buy_price=is_admin,

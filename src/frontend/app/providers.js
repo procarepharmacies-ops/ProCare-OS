@@ -7,7 +7,8 @@ import {
   useEffect,
   useState,
 } from "react";
-import { api } from "./api";
+import { usePathname, useRouter } from "next/navigation";
+import { api, session as sessionStore } from "./api";
 
 const UIContext = createContext(null);
 
@@ -28,6 +29,10 @@ export default function Providers({ children }) {
   const [branch, setBranch] = useState(0); // 0 = all branches (consolidated)
   const [branches, setBranches] = useState([]);
   const [online, setOnline] = useState(null);
+  const [user, setUser] = useState(null); // { employee_id, name_ar, name_en, role, branch_id }
+  const [authChecked, setAuthChecked] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const l = localStorage.getItem(LANG_KEY);
@@ -36,7 +41,19 @@ export default function Providers({ children }) {
     if (l === "ar" || l === "en") setLang(l);
     if (t === "light" || t === "dark") setTheme(t);
     if (b != null) setBranch(Number(b) || 0);
+
+    const saved = sessionStore.get();
+    setUser(saved?.employee || null);
+    setAuthChecked(true);
   }, []);
+
+  // Client-side login gate: every page except /login requires a session.
+  useEffect(() => {
+    if (!authChecked) return;
+    if (!user && pathname !== "/login") {
+      router.replace("/login");
+    }
+  }, [authChecked, user, pathname, router]);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -54,8 +71,9 @@ export default function Providers({ children }) {
     localStorage.setItem(BRANCH_KEY, String(branch));
   }, [branch]);
 
-  // Load branches + liveness once.
+  // Load branches + liveness once a session exists (avoids noisy 401s pre-login).
   useEffect(() => {
+    if (!user) return;
     let alive = true;
     (async () => {
       try {
@@ -70,14 +88,38 @@ export default function Providers({ children }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [user]);
 
   const toggleLang = useCallback(() => setLang((p) => (p === "ar" ? "en" : "ar")), []);
   const toggleTheme = useCallback(() => setTheme((p) => (p === "light" ? "dark" : "light")), []);
 
+  const login = useCallback((token, employee) => {
+    sessionStore.set({ token, employee });
+    setUser(employee);
+  }, []);
+
+  const logout = useCallback(() => {
+    sessionStore.clear();
+    setUser(null);
+    router.replace("/login");
+  }, [router]);
+
   return (
     <UIContext.Provider
-      value={{ lang, theme, branch, branches, online, setBranch, toggleLang, toggleTheme }}
+      value={{
+        lang,
+        theme,
+        branch,
+        branches,
+        online,
+        user,
+        authChecked,
+        setBranch,
+        toggleLang,
+        toggleTheme,
+        login,
+        logout,
+      }}
     >
       {children}
     </UIContext.Provider>

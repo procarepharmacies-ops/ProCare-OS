@@ -232,6 +232,17 @@ export const dict = {
     days_90: "٩٠ يوم",
     days_365: "سنة",
     go_back: "رجوع",
+    // auth
+    login_title: "تسجيل الدخول",
+    welcome_back: "أهلاً بعودتك",
+    password: "كلمة المرور",
+    login_button: "دخول",
+    logging_in: "جارٍ التحقق…",
+    login_error: "اسم المستخدم أو كلمة المرور غير صحيحة",
+    logout: "تسجيل الخروج",
+    role_ceo: "الرئيس التنفيذي",
+    role_manager: "مدير",
+    role_assistant: "مساعد",
   },
   en: {
     app: "ProCare AI",
@@ -445,6 +456,17 @@ export const dict = {
     days_90: "90 days",
     days_365: "365 days",
     go_back: "Back",
+    // auth
+    login_title: "Sign in",
+    welcome_back: "Welcome back",
+    password: "Password",
+    login_button: "Sign in",
+    logging_in: "Verifying…",
+    login_error: "Incorrect username or password",
+    logout: "Log out",
+    role_ceo: "CEO",
+    role_manager: "Manager",
+    role_assistant: "Assistant",
   },
 };
 

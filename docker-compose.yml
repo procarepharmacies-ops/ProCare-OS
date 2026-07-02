@@ -66,6 +66,13 @@ services:
       AI_MODEL: "${AI_MODEL:-gemini-flash-latest}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # CEO/manager/assistant login gate on the financial + salary endpoints
+      # (accounting, employees). The frontend always requires login regardless
+      # of this flag; this is backend defense-in-depth. Set AUTH_SECRET in .env
+      # (never committed) — without it a dev-only fallback key is used, which
+      # is NOT safe for production.
+      AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      AUTH_SECRET: "${AUTH_SECRET:-}"
     depends_on:
       - sqlserver
     networks:

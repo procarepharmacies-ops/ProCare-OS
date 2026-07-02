@@ -163,6 +163,10 @@ class Employee(Base):
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     username: Mapped[str] = mapped_column(String(50), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Login role for the ProCare app itself (separate from eStock job titles):
+    # "ceo" (full access), "manager" (branch-scoped, no salaries), "assistant"
+    # (POS/inventory only). Defaults to the most restrictive tier.
+    role: Mapped[str] = mapped_column(String(20), default="assistant")
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.job_id"), nullable=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     basic_salary: Mapped[float] = mapped_column(Money, default=0)

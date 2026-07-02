@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, clinical, dashboard, employees, inventory, parties, purchasing, sales, transfers, vendors
+from app.api import accounting, ai, alerts, auth, clinical, dashboard, employees, inventory, parties, purchasing, sales, transfers, vendors
+from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
 from app.db.base import IS_SQLITE, get_session
@@ -48,6 +49,7 @@ def health(session: Session = Depends(get_session)):
             "configured": sync.is_configured(),
             "interval_seconds": sync.interval_seconds(),
         },
+        "auth": {"enabled": settings.auth_enabled},
         "ui_defaults": {"language": settings.default_language, "theme": settings.default_theme},
     }
 
@@ -108,6 +110,7 @@ def sync_preflight():
 
 
 # Feature routers, all under /api.
+router.include_router(auth.router)
 router.include_router(dashboard.router)
 router.include_router(inventory.router)
 router.include_router(parties.router)
@@ -116,7 +119,8 @@ router.include_router(alerts.router)
 router.include_router(clinical.router)
 router.include_router(ai.router)
 router.include_router(purchasing.router)
-router.include_router(accounting.router)
-router.include_router(employees.router)
+# Financial + salary data — CEO only once AUTH_ENABLED=true (no-op otherwise).
+router.include_router(accounting.router, dependencies=[Depends(auth_guard(("ceo",)))])
+router.include_router(employees.router, dependencies=[Depends(auth_guard(("ceo",)))])
 router.include_router(transfers.router)
 router.include_router(vendors.router)

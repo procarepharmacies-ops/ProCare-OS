@@ -110,6 +110,14 @@ const P = {
       <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9" />
     </>
   ),
+  // Door with an exit arrow — log out.
+  logout: (
+    <>
+      <path d="M14.5 4.5H7a1.5 1.5 0 00-1.5 1.5v12A1.5 1.5 0 007 19.5h7.5" />
+      <path d="M11 12h9.5" />
+      <path d="M17 8.5l3.5 3.5-3.5 3.5" />
+    </>
+  ),
   // Pharmacy cross — the brand mark.
   cross: (
     <>

@@ -6,9 +6,31 @@
 // address and there is no CORS hop. `??` (not `||`) so an explicit "" is kept.
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
+const SESSION_KEY = "procare.session";
+
+// Session (token + employee) persistence — read by every request so
+// authenticated calls carry the Bearer token automatically.
+export const session = {
+  get: () => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  set: (data) => localStorage.setItem(SESSION_KEY, JSON.stringify(data)),
+  clear: () => localStorage.removeItem(SESSION_KEY),
+};
+
 async function http(path, options) {
+  const token = session.get()?.token;
   const res = await fetch(`${API_BASE}/api${path}`, {
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     ...options,
   });
   if (!res.ok) {
@@ -47,6 +69,12 @@ export const api = {
   health: () => http("/health"),
   branches: () => http("/branches"),
   etlStatus: () => http("/etl/status"),
+
+  auth: {
+    login: (username, password) =>
+      http("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    me: () => http("/auth/me"),
+  },
 
   dashboardSummary: (branch) => http(`/dashboard/summary${bq(branch)}`),
   dailySales: (branch, days = 30) => http(`/dashboard/daily-sales${bq(branch, `days=${days}`)}`),
