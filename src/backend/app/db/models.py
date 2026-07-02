@@ -163,6 +163,10 @@ class Employee(Base):
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     username: Mapped[str] = mapped_column(String(50), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Login role for the ProCare app itself (separate from eStock job titles):
+    # "ceo" (full access), "manager" (branch-scoped, no salaries), "assistant"
+    # (POS/inventory only). Defaults to the most restrictive tier.
+    role: Mapped[str] = mapped_column(String(20), default="assistant")
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.job_id"), nullable=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     basic_salary: Mapped[float] = mapped_column(Money, default=0)
@@ -389,3 +393,47 @@ class PurchaseOrderDraft(Base):
     reason: Mapped[str] = mapped_column(String(40), default="below_min")
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/approved/rejected
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class EmployeeTask(Base):
+    """Daily task assignments. CEO/managers create and assign; staff mark done.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "employee_tasks"
+
+    task_id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/done
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','done')", name="CK_task_status"),
+        Index("IX_tasks_assignee_status", "assignee_id", "status"),
+        Index("IX_tasks_branch_due", "branch_id", "due_date"),
+    )
+
+
+class FootfallEvent(Base):
+    """One person crossing the door line, pushed by the NVR / camera counter
+    (``POST /api/footfall/event``). Powers visitors-vs-buyers conversion."""
+
+    __tablename__ = "footfall_events"
+
+    event_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    ts: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    direction: Mapped[str] = mapped_column(String(3), default="in")  # in/out
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)  # NVR channel etc.
+
+    __table_args__ = (
+        CheckConstraint("direction IN ('in','out')", name="CK_footfall_direction"),
+        Index("IX_footfall_branch_ts", "branch_id", "ts"),
+    )

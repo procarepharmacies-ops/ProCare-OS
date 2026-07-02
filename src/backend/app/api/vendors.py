@@ -18,6 +18,11 @@ def vendors_list(
     return {"vendors": vendors.list_vendors(session, limit)}
 
 
+@router.get("/summary")
+def vendor_summary(session: Session = Depends(get_session)):
+    return vendors.vendor_summary(session)
+
+
 @router.get("/{vendor_id}")
 def vendor_detail(
     vendor_id: int,
@@ -36,8 +41,3 @@ def vendor_purchases(
     session: Session = Depends(get_session),
 ):
     return {"purchases": vendors.vendor_purchases(session, vendor_id, limit)}
-
-
-@router.get("/summary")
-def vendor_summary(session: Session = Depends(get_session)):
-    return vendors.vendor_summary(session)

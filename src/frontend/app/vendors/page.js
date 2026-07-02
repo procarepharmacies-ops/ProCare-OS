@@ -20,8 +20,8 @@ export default function VendorsPage() {
       try {
         setLoading(true);
         const [vendorsRes, sumRes] = await Promise.all([
-          api.get("/api/vendors/list"),
-          api.get("/api/vendors/summary"),
+          api.get("/vendors/list"),
+          api.get("/vendors/summary"),
         ]);
         setVendors(vendorsRes.vendors || []);
         setSummary(sumRes);
@@ -37,8 +37,8 @@ export default function VendorsPage() {
   const viewVendorDetail = async (vendor) => {
     try {
       const [detailRes, purchasesRes] = await Promise.all([
-        api.get(`/api/vendors/${vendor.vendor_id}`),
-        api.get(`/api/vendors/${vendor.vendor_id}/purchases`),
+        api.get(`/vendors/${vendor.vendor_id}`),
+        api.get(`/vendors/${vendor.vendor_id}/purchases`),
       ]);
       setSelectedVendor(detailRes);
       setVendorPurchases(purchasesRes.purchases || []);
@@ -67,7 +67,7 @@ export default function VendorsPage() {
             <div className="kpi-label">{L("vendors_over_limit")}</div>
           </div>
           <div className="kpi-box">
-            <div className="kpi-value">{summary?.available_credit?.toLocaleString() || "0"}</div>
+            <div className="kpi-value">{summary?.available_credit?.toLocaleString("en-US") || "0"}</div>
             <div className="kpi-label">{L("available_credit")}</div>
           </div>
         </div>
@@ -80,27 +80,27 @@ export default function VendorsPage() {
               onClick={() => setSelectedVendor(null)}
               style={{ marginBottom: 12 }}
             >
-              ← Back
+              {L("go_back")}
             </button>
-            <h3>{selectedVendor.name_ar}</h3>
+            <h3>{lang === "ar" ? selectedVendor.name_ar : selectedVendor.name_en || selectedVendor.name_ar}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
               <div>
                 <strong>{L("telephone")}:</strong> {selectedVendor.tel || selectedVendor.mobile || "-"}
               </div>
               <div>
-                <strong>{L("credit_limit")}:</strong> {parseFloat(selectedVendor.credit_limit).toLocaleString()}
+                <strong>{L("credit_limit")}:</strong> {parseFloat(selectedVendor.credit_limit).toLocaleString("en-US")}
               </div>
               <div>
-                <strong>{L("current_balance")}:</strong> {parseFloat(selectedVendor.current_balance).toLocaleString()}
+                <strong>{L("current_balance")}:</strong> {parseFloat(selectedVendor.current_balance).toLocaleString("en-US")}
               </div>
               <div>
-                <strong>{L("available_credit")}:</strong> {parseFloat(selectedVendor.available_credit).toLocaleString()}
+                <strong>{L("available_credit")}:</strong> {parseFloat(selectedVendor.available_credit).toLocaleString("en-US")}
               </div>
               <div>
                 <strong>{L("purchase_count")}:</strong> {selectedVendor.purchase_count}
               </div>
               <div>
-                <strong>{L("total_spent")}:</strong> {parseFloat(selectedVendor.total_spent).toLocaleString()}
+                <strong>{L("total_spent")}:</strong> {parseFloat(selectedVendor.total_spent).toLocaleString("en-US")}
               </div>
             </div>
 
@@ -120,10 +120,10 @@ export default function VendorsPage() {
                   vendorPurchases.map((p) => (
                     <tr key={p.purchase_id}>
                       <td>{p.bill_number || "-"}</td>
-                      <td>{p.bill_date ? new Date(p.bill_date).toLocaleDateString() : "-"}</td>
-                      <td>{parseFloat(p.total_gross).toLocaleString()}</td>
-                      <td>{parseFloat(p.total_discount).toLocaleString()}</td>
-                      <td>{parseFloat(p.total_tax).toLocaleString()}</td>
+                      <td>{p.bill_date ? new Date(p.bill_date).toLocaleDateString("en-US") : "-"}</td>
+                      <td>{parseFloat(p.total_gross).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(p.total_discount).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(p.total_tax).toLocaleString("en-US")}</td>
                     </tr>
                   ))
                 ) : (
@@ -161,17 +161,17 @@ export default function VendorsPage() {
                     onClick={() => viewVendorDetail(v)}
                     style={{ cursor: "pointer" }}
                   >
-                    <td>{v.name_ar}</td>
+                    <td>{lang === "ar" ? v.name_ar : v.name_en || v.name_ar}</td>
                     <td>{v.tel || v.mobile || "-"}</td>
-                    <td>{parseFloat(v.credit_limit).toLocaleString()}</td>
-                    <td>{parseFloat(v.current_balance).toLocaleString()}</td>
+                    <td>{parseFloat(v.credit_limit).toLocaleString("en-US")}</td>
+                    <td>{parseFloat(v.current_balance).toLocaleString("en-US")}</td>
                     <td
                       style={{
                         color: v.available_credit < 0 ? "var(--danger)" : "var(--ok)",
                         fontWeight: v.available_credit < 0 ? "bold" : "normal",
                       }}
                     >
-                      {parseFloat(v.available_credit).toLocaleString()}
+                      {parseFloat(v.available_credit).toLocaleString("en-US")}
                     </td>
                     <td>{v.is_active ? "✓" : "✗"}</td>
                   </tr>

@@ -16,7 +16,6 @@ def list_ledger_entries(
     days: int = 30,
     limit: int = 500,
 ) -> list[dict]:
-    """Fetch recent ledger entries, optionally filtered by branch/account type/timeframe."""
     cutoff = datetime.now() - timedelta(days=days)
     q = select(m.LedgerEntry).where(m.LedgerEntry.entry_date >= cutoff).order_by(m.LedgerEntry.entry_date.desc())
 
@@ -45,7 +44,6 @@ def list_ledger_entries(
 
 
 def trial_balance(session: Session, branch_id: int | None = None) -> dict:
-    """Trial balance grouped by account type."""
     q = select(
         m.LedgerEntry.account_type,
         m.LedgerEntry.account_ref,
@@ -77,7 +75,6 @@ def trial_balance(session: Session, branch_id: int | None = None) -> dict:
 
 
 def account_balance(session: Session, account_type: str, account_ref: int | None = None) -> dict:
-    """Get the balance for a specific account (e.g., customer, vendor)."""
     q = select(
         func.sum(m.LedgerEntry.debit).label("total_debit"),
         func.sum(m.LedgerEntry.credit).label("total_credit"),
@@ -104,26 +101,34 @@ def account_balance(session: Session, account_type: str, account_ref: int | None
 
 
 def sales_summary(session: Session, branch_id: int | None = None, days: int = 30) -> dict:
-    """Sales summary: total sales, returns, net revenue, by time period."""
     cutoff = datetime.now() - timedelta(days=days)
 
-    q_sales = select(m.Sale).where(m.Sale.is_return == False).where(m.Sale.sale_date >= cutoff)
-    q_returns = select(m.Sale).where(m.Sale.is_return == True).where(m.Sale.sale_date >= cutoff)
+    base_sales = select(func.sum(m.Sale.total_net)).where(
+        m.Sale.is_return == False,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
+    base_returns = select(func.sum(m.Sale.total_net)).where(
+        m.Sale.is_return == True,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
+    base_count = select(func.count()).select_from(m.Sale).where(
+        m.Sale.is_return == False,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
 
     if branch_id:
-        q_sales = q_sales.where(m.Sale.branch_id == branch_id)
-        q_returns = q_returns.where(m.Sale.branch_id == branch_id)
+        base_sales = base_sales.where(m.Sale.branch_id == branch_id)
+        base_returns = base_returns.where(m.Sale.branch_id == branch_id)
+        base_count = base_count.where(m.Sale.branch_id == branch_id)
 
-    total_sales = session.scalar(select(func.sum(m.Sale.total_net)).where(m.Sale.is_return == False).where(m.Sale.sale_date >= cutoff) if not branch_id else select(func.sum(m.Sale.total_net)).where(m.Sale.branch_id == branch_id).where(m.Sale.is_return == False).where(m.Sale.sale_date >= cutoff)) or 0
-
-    total_returns = session.scalar(select(func.sum(m.Sale.total_net)).where(m.Sale.is_return == True).where(m.Sale.sale_date >= cutoff) if not branch_id else select(func.sum(m.Sale.total_net)).where(m.Sale.branch_id == branch_id).where(m.Sale.is_return == True).where(m.Sale.sale_date >= cutoff)) or 0
-
-    num_sales = session.scalar(select(func.count()).select_from(m.Sale).where(m.Sale.is_return == False).where(m.Sale.sale_date >= cutoff) if not branch_id else select(func.count()).select_from(m.Sale).where(m.Sale.branch_id == branch_id).where(m.Sale.is_return == False).where(m.Sale.sale_date >= cutoff)) or 0
+    total_sales = float(session.scalar(base_sales) or 0)
+    total_returns = float(session.scalar(base_returns) or 0)
+    num_sales = int(session.scalar(base_count) or 0)
 
     return {
         "period_days": days,
-        "total_sales_net": float(total_sales),
-        "total_returns_net": float(total_returns),
-        "num_sales": int(num_sales),
-        "net_revenue": float(total_sales) - float(total_returns),
+        "total_sales_net": total_sales,
+        "total_returns_net": total_returns,
+        "num_sales": num_sales,
+        "net_revenue": total_sales - total_returns,
     }

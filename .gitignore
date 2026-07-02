@@ -40,6 +40,8 @@ Thumbs.db
 *.exe
 *.pdf
 *.png
+!src/frontend/public/logo.png
+!src/frontend/app/icon.png
 data/
 exports/
 logs/

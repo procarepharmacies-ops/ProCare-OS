@@ -20,9 +20,9 @@ export default function PurchasingPage() {
       try {
         setLoading(true);
         const [purchasesRes, draftsRes, summaryRes] = await Promise.all([
-          api.get("/api/purchasing/purchases", { branch_id: branch || undefined }),
-          api.get("/api/purchasing/drafts", { branch_id: branch || undefined }),
-          api.get("/api/purchasing/summary", { branch_id: branch || undefined }),
+          api.get("/purchasing/purchases", { branch_id: branch || undefined }),
+          api.get("/purchasing/drafts", { branch_id: branch || undefined }),
+          api.get("/purchasing/summary", { branch_id: branch || undefined }),
         ]);
         setPurchases(purchasesRes.purchases || []);
         setDrafts(draftsRes.drafts || []);
@@ -44,8 +44,8 @@ export default function PurchasingPage() {
         {/* KPIs */}
         <div className="kpi-row">
           <div className="kpi-box">
-            <div className="kpi-value">{summary?.total_spent.toLocaleString() || "0"}</div>
-            <div className="kpi-label">{L("total_sales")} (EGP)</div>
+            <div className="kpi-value">{summary?.total_spent.toLocaleString("en-US") || "0"}</div>
+            <div className="kpi-label">{L("total_spent")} ({L("egp")})</div>
           </div>
           <div className="kpi-box">
             <div className="kpi-value">{summary?.pending_drafts || "0"}</div>
@@ -98,10 +98,10 @@ export default function PurchasingPage() {
                     <tr key={p.purchase_id}>
                       <td>{p.bill_number || "-"}</td>
                       <td>{p.vendor_name}</td>
-                      <td>{p.bill_date ? new Date(p.bill_date).toLocaleDateString() : "-"}</td>
-                      <td>{parseFloat(p.total_gross).toLocaleString()}</td>
-                      <td>{parseFloat(p.total_discount).toLocaleString()}</td>
-                      <td>{parseFloat(p.total_tax).toLocaleString()}</td>
+                      <td>{p.bill_date ? new Date(p.bill_date).toLocaleDateString("en-US") : "-"}</td>
+                      <td>{parseFloat(p.total_gross).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(p.total_discount).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(p.total_tax).toLocaleString("en-US")}</td>
                       <td>{p.is_return ? "✓" : "-"}</td>
                     </tr>
                   ))
@@ -135,8 +135,8 @@ export default function PurchasingPage() {
                     <tr key={d.draft_id}>
                       <td>{d.product_name}</td>
                       <td>{d.vendor_name || "-"}</td>
-                      <td>{parseFloat(d.on_hand).toLocaleString()}</td>
-                      <td>{parseFloat(d.suggested_qty).toLocaleString()}</td>
+                      <td>{parseFloat(d.on_hand).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(d.suggested_qty).toLocaleString("en-US")}</td>
                       <td>{d.reason}</td>
                       <td>{d.status}</td>
                     </tr>

@@ -1,13 +1,28 @@
 """Employee management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.base import get_session
 from app.services import employees
 
 router = APIRouter(prefix="/employees", tags=["employees"])
+
+
+class EmployeeIn(BaseModel):
+    name_ar: str
+    name_en: str | None = None
+    role: str | None = None  # ceo | manager | assistant — ignored when has_login is False
+    branch_id: int | None = None
+    job_id: int | None = None
+    basic_salary: float = 0
+    username: str | None = None
+    password: str | None = None
+    # False for staff who shouldn't sign into ProCare at all (e.g. cleaning
+    # staff) — still recorded as an employee, but with no usable login.
+    has_login: bool = True
 
 
 @router.get("/list")
@@ -17,17 +32,6 @@ def employee_list(
     session: Session = Depends(get_session),
 ):
     return {"employees": employees.list_employees(session, branch_id, limit)}
-
-
-@router.get("/{employee_id}")
-def employee_detail(
-    employee_id: int,
-    session: Session = Depends(get_session),
-):
-    result = employees.employee_detail(session, employee_id)
-    if not result:
-        return {"error": "Employee not found"}
-    return result
 
 
 @router.get("/jobs/list")
@@ -41,3 +45,33 @@ def employee_summary(
     session: Session = Depends(get_session),
 ):
     return employees.employee_summary(session, branch_id)
+
+
+@router.post("")
+def create_employee(payload: EmployeeIn, session: Session = Depends(get_session)):
+    try:
+        return employees.create_employee(
+            session,
+            name_ar=payload.name_ar,
+            name_en=payload.name_en,
+            role=payload.role,
+            branch_id=payload.branch_id,
+            job_id=payload.job_id,
+            basic_salary=payload.basic_salary,
+            username=payload.username,
+            password=payload.password,
+            has_login=payload.has_login,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/{employee_id}")
+def employee_detail(
+    employee_id: int,
+    session: Session = Depends(get_session),
+):
+    result = employees.employee_detail(session, employee_id)
+    if not result:
+        return {"error": "Employee not found"}
+    return result

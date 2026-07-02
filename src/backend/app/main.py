@@ -19,15 +19,27 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
+from app.db.base import SessionLocal, engine
+from app.db.migrate import bootstrap_ceo_if_configured, ensure_role_column, ensure_roster
 from app.db.seed import ensure_seeded
 from app.services import sync
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Patch pre-login-feature databases: adds employees.role if a pharmacy's
+    # table predates it (create_all only creates missing tables, never alters
+    # existing ones). Safe no-op on a fresh DB or one that already has it.
+    ensure_role_column(engine)
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
+    # eStock sync never mirrors employees, so a freshly-synced production DB
+    # has no login at all unless BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
+    with SessionLocal() as session:
+        bootstrap_ceo_if_configured(session)
+        # The pharmacy's real staff accounts (create-only, survives restarts).
+        ensure_roster(session)
     # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
     # read-only eStock source configured); otherwise it stays idle.
     sync.start()

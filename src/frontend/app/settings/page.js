@@ -89,7 +89,7 @@ export default function SettingsPage() {
               <div><strong>{L("sync_configured")}:</strong> {yn(syncStatus?.configured || health.databases_configured?.estock_source)}</div>
               <div><strong>{L("sync_interval")}:</strong> {syncStatus?.interval_seconds ?? "-"}</div>
               {syncStatus?.last_run_at && (
-                <div><strong>{L("entry_date")}:</strong> {new Date(syncStatus.last_run_at).toLocaleString()}</div>
+                <div><strong>{L("entry_date")}:</strong> {new Date(syncStatus.last_run_at).toLocaleString("en-US")}</div>
               )}
               {syncStatus?.last_status && (
                 <div><strong>{L("status")}:</strong> {syncStatus.last_status}</div>
