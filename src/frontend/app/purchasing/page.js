@@ -20,9 +20,9 @@ export default function PurchasingPage() {
       try {
         setLoading(true);
         const [purchasesRes, draftsRes, summaryRes] = await Promise.all([
-          api.get("/api/purchasing/purchases", { branch_id: branch || undefined }),
-          api.get("/api/purchasing/drafts", { branch_id: branch || undefined }),
-          api.get("/api/purchasing/summary", { branch_id: branch || undefined }),
+          api.get("/purchasing/purchases", { branch_id: branch || undefined }),
+          api.get("/purchasing/drafts", { branch_id: branch || undefined }),
+          api.get("/purchasing/summary", { branch_id: branch || undefined }),
         ]);
         setPurchases(purchasesRes.purchases || []);
         setDrafts(draftsRes.drafts || []);
@@ -45,7 +45,7 @@ export default function PurchasingPage() {
         <div className="kpi-row">
           <div className="kpi-box">
             <div className="kpi-value">{summary?.total_spent.toLocaleString() || "0"}</div>
-            <div className="kpi-label">{L("total_sales")} (EGP)</div>
+            <div className="kpi-label">{L("total_spent")} ({L("egp")})</div>
           </div>
           <div className="kpi-box">
             <div className="kpi-value">{summary?.pending_drafts || "0"}</div>

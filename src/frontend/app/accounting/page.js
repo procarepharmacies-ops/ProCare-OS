@@ -21,12 +21,12 @@ export default function AccountingPage() {
       try {
         setLoading(true);
         const [tbRes, ssRes, ledgerRes] = await Promise.all([
-          api.get("/api/accounting/trial-balance", { branch_id: branch || undefined }),
-          api.get("/api/accounting/sales-summary", {
+          api.get("/accounting/trial-balance", { branch_id: branch || undefined }),
+          api.get("/accounting/sales-summary", {
             branch_id: branch || undefined,
             days: daysFilter,
           }),
-          api.get("/api/accounting/ledger", {
+          api.get("/accounting/ledger", {
             branch_id: branch || undefined,
             days: daysFilter,
           }),
@@ -48,7 +48,6 @@ export default function AccountingPage() {
   return (
     <Shell titleKey="nav_accounting">
       <div className="page">
-        {/* KPIs */}
         <div className="kpi-row">
           <div className="kpi-box">
             <div className="kpi-value">{salesSummary?.total_sales_net?.toLocaleString() || "0"}</div>
@@ -64,36 +63,27 @@ export default function AccountingPage() {
           </div>
         </div>
 
-        {/* Filter */}
-        <div style={{ marginBottom: 16, padding: "8px 16px", background: "var(--surface)" }}>
+        <div style={{ marginBottom: 16, padding: "8px 16px", background: "var(--surface)", borderRadius: 8 }}>
           <label>
-            {L("days_left")}:
-            <select value={daysFilter} onChange={(e) => setDaysFilter(Number(e.target.value))}>
-              <option value={7}>7 days</option>
-              <option value={30}>30 days</option>
-              <option value={90}>90 days</option>
-              <option value={365}>365 days</option>
+            {L("period")}:{" "}
+            <select className="select" value={daysFilter} onChange={(e) => setDaysFilter(Number(e.target.value))}>
+              <option value={7}>{L("days_7")}</option>
+              <option value={30}>{L("days_30")}</option>
+              <option value={90}>{L("days_90")}</option>
+              <option value={365}>{L("days_365")}</option>
             </select>
           </label>
         </div>
 
-        {/* Tabs */}
         <div className="tabs">
-          <button
-            className={`tab ${activeTab === "trial" ? "active" : ""}`}
-            onClick={() => setActiveTab("trial")}
-          >
+          <button className={`tab ${activeTab === "trial" ? "active" : ""}`} onClick={() => setActiveTab("trial")}>
             {L("trial_balance")}
           </button>
-          <button
-            className={`tab ${activeTab === "ledger" ? "active" : ""}`}
-            onClick={() => setActiveTab("ledger")}
-          >
+          <button className={`tab ${activeTab === "ledger" ? "active" : ""}`} onClick={() => setActiveTab("ledger")}>
             {L("ledger")}
           </button>
         </div>
 
-        {/* Trial Balance */}
         {activeTab === "trial" && trialBalance && (
           <div className="table-wrapper">
             <table className="tbl">
@@ -125,24 +115,21 @@ export default function AccountingPage() {
           </div>
         )}
 
-        {/* Ledger */}
         {activeTab === "ledger" && (
           <div className="table-wrapper">
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Date</th>
+                  <th>{L("date")}</th>
                   <th>{L("account_type")}</th>
                   <th>{L("debit")}</th>
                   <th>{L("credit")}</th>
-                  <th>Note</th>
+                  <th>{L("note")}</th>
                 </tr>
               </thead>
               <tbody>
                 {ledger.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="empty">{L("none")}</td>
-                  </tr>
+                  <tr><td colSpan="5" className="empty">{L("none")}</td></tr>
                 ) : (
                   ledger.map((e) => (
                     <tr key={e.entry_id}>

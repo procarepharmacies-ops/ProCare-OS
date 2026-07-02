@@ -19,8 +19,8 @@ export default function EmployeesPage() {
       try {
         setLoading(true);
         const [empRes, sumRes] = await Promise.all([
-          api.get("/api/employees/list", { branch_id: branch || undefined }),
-          api.get("/api/employees/summary", { branch_id: branch || undefined }),
+          api.get("/employees/list", { branch_id: branch || undefined }),
+          api.get("/employees/summary", { branch_id: branch || undefined }),
         ]);
         setEmployees(empRes.employees || []);
         setSummary(sumRes);
@@ -58,9 +58,9 @@ export default function EmployeesPage() {
               onClick={() => setSelectedEmployee(null)}
               style={{ marginBottom: 12 }}
             >
-              ← Back
+              {L("go_back")}
             </button>
-            <h3>{selectedEmployee.name_ar}</h3>
+            <h3>{lang === "ar" ? selectedEmployee.name_ar : selectedEmployee.name_en || selectedEmployee.name_ar}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <strong>{L("username")}:</strong> {selectedEmployee.username}
@@ -111,7 +111,7 @@ export default function EmployeesPage() {
                     onClick={() => setSelectedEmployee(e)}
                     style={{ cursor: "pointer" }}
                   >
-                    <td>{e.name_ar}</td>
+                    <td>{lang === "ar" ? e.name_ar : e.name_en || e.name_ar}</td>
                     <td>{e.username}</td>
                     <td>{e.job_name || "-"}</td>
                     <td>{parseFloat(e.basic_salary).toLocaleString()}</td>

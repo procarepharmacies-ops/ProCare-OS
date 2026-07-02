@@ -20,11 +20,11 @@ export default function TransfersPage() {
       try {
         setLoading(true);
         const [transfersRes, sumRes] = await Promise.all([
-          api.get("/api/transfers/list", {
+          api.get("/transfers/list", {
             branch_id: branch || undefined,
             status: statusFilter || undefined,
           }),
-          api.get("/api/transfers/summary", { branch_id: branch || undefined }),
+          api.get("/transfers/summary", { branch_id: branch || undefined }),
         ]);
         setTransfers(transfersRes.transfers || []);
         setSummary(sumRes);
@@ -42,7 +42,6 @@ export default function TransfersPage() {
   return (
     <Shell titleKey="nav_transfers">
       <div className="page">
-        {/* KPIs */}
         <div className="kpi-row">
           <div className="kpi-box">
             <div className="kpi-value">{summary?.pending_transfers || "0"}</div>
@@ -58,55 +57,40 @@ export default function TransfersPage() {
           </div>
         </div>
 
-        {/* Status Filter */}
-        <div style={{ marginBottom: 16, padding: "8px 16px", background: "var(--surface)" }}>
+        <div style={{ marginBottom: 16, padding: "8px 16px", background: "var(--surface)", borderRadius: 8 }}>
           <label>
-            Status:
-            <select value={statusFilter || ""} onChange={(e) => setStatusFilter(e.target.value || null)}>
-              <option value="">All</option>
-              <option value="requested">Requested</option>
-              <option value="in_transit">In Transit</option>
-              <option value="received">Received</option>
-              <option value="cancelled">Cancelled</option>
+            {L("filter_status")}:{" "}
+            <select className="select" value={statusFilter || ""} onChange={(e) => setStatusFilter(e.target.value || null)}>
+              <option value="">{L("all")}</option>
+              <option value="requested">{L("status_requested")}</option>
+              <option value="in_transit">{L("status_in_transit")}</option>
+              <option value="received">{L("status_received")}</option>
+              <option value="cancelled">{L("status_cancelled")}</option>
             </select>
           </label>
         </div>
 
-        {/* Detail View */}
         {selectedTransfer && (
           <div className="card" style={{ marginBottom: 16 }}>
-            <button
-              className="btn"
-              onClick={() => setSelectedTransfer(null)}
-              style={{ marginBottom: 12 }}
-            >
-              ← Back
+            <button className="btn" onClick={() => setSelectedTransfer(null)} style={{ marginBottom: 12 }}>
+              {L("go_back")}
             </button>
-            <h3>Transfer #{selectedTransfer.transfer_id}</h3>
+            <h3>{L("transfer")} #{selectedTransfer.transfer_id}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-              <div>
-                <strong>{L("from_branch")}:</strong> {selectedTransfer.from_branch_name}
-              </div>
-              <div>
-                <strong>{L("to_branch")}:</strong> {selectedTransfer.to_branch_name}
-              </div>
-              <div>
-                <strong>Status:</strong> {selectedTransfer.status}
-              </div>
-              <div>
-                <strong>{L("requested_at")}:</strong>{" "}
-                {selectedTransfer.created_at ? new Date(selectedTransfer.created_at).toLocaleDateString() : "-"}
-              </div>
+              <div><strong>{L("from_branch")}:</strong> {selectedTransfer.from_branch_name}</div>
+              <div><strong>{L("to_branch")}:</strong> {selectedTransfer.to_branch_name}</div>
+              <div><strong>{L("status")}:</strong> {selectedTransfer.status}</div>
+              <div><strong>{L("requested_at")}:</strong> {selectedTransfer.created_at ? new Date(selectedTransfer.created_at).toLocaleDateString() : "-"}</div>
             </div>
 
-            <h4>{L("transfers")}</h4>
+            <h4>{L("product")}</h4>
             <table className="tbl" style={{ width: "100%" }}>
               <thead>
                 <tr>
                   <th>{L("product")}</th>
                   <th>{L("qty")}</th>
-                  <th>Buy Price</th>
-                  <th>Expiry</th>
+                  <th>{L("buy_price")}</th>
+                  <th>{L("expiry_date")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,16 +104,13 @@ export default function TransfersPage() {
                     </tr>
                   ))
                 ) : (
-                  <tr>
-                    <td colSpan="4" className="empty">{L("none")}</td>
-                  </tr>
+                  <tr><td colSpan="4" className="empty">{L("none")}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         )}
 
-        {/* Transfers Table */}
         <div className="table-wrapper">
           <table className="tbl">
             <thead>
@@ -137,24 +118,18 @@ export default function TransfersPage() {
                 <th>ID</th>
                 <th>{L("from_branch")}</th>
                 <th>{L("to_branch")}</th>
-                <th>Status</th>
-                <th>Requested</th>
-                <th>Shipped</th>
-                <th>Received</th>
+                <th>{L("status")}</th>
+                <th>{L("requested_at")}</th>
+                <th>{L("shipped_at")}</th>
+                <th>{L("received_at")}</th>
               </tr>
             </thead>
             <tbody>
               {transfers.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="empty">{L("none")}</td>
-                </tr>
+                <tr><td colSpan="7" className="empty">{L("none")}</td></tr>
               ) : (
                 transfers.map((tr) => (
-                  <tr
-                    key={tr.transfer_id}
-                    onClick={() => setSelectedTransfer(tr)}
-                    style={{ cursor: "pointer" }}
-                  >
+                  <tr key={tr.transfer_id} onClick={() => setSelectedTransfer(tr)} style={{ cursor: "pointer" }}>
                     <td>#{tr.transfer_id}</td>
                     <td>{tr.from_branch_name}</td>
                     <td>{tr.to_branch_name}</td>

@@ -20,8 +20,8 @@ export default function VendorsPage() {
       try {
         setLoading(true);
         const [vendorsRes, sumRes] = await Promise.all([
-          api.get("/api/vendors/list"),
-          api.get("/api/vendors/summary"),
+          api.get("/vendors/list"),
+          api.get("/vendors/summary"),
         ]);
         setVendors(vendorsRes.vendors || []);
         setSummary(sumRes);
@@ -37,8 +37,8 @@ export default function VendorsPage() {
   const viewVendorDetail = async (vendor) => {
     try {
       const [detailRes, purchasesRes] = await Promise.all([
-        api.get(`/api/vendors/${vendor.vendor_id}`),
-        api.get(`/api/vendors/${vendor.vendor_id}/purchases`),
+        api.get(`/vendors/${vendor.vendor_id}`),
+        api.get(`/vendors/${vendor.vendor_id}/purchases`),
       ]);
       setSelectedVendor(detailRes);
       setVendorPurchases(purchasesRes.purchases || []);
@@ -80,9 +80,9 @@ export default function VendorsPage() {
               onClick={() => setSelectedVendor(null)}
               style={{ marginBottom: 12 }}
             >
-              ← Back
+              {L("go_back")}
             </button>
-            <h3>{selectedVendor.name_ar}</h3>
+            <h3>{lang === "ar" ? selectedVendor.name_ar : selectedVendor.name_en || selectedVendor.name_ar}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
               <div>
                 <strong>{L("telephone")}:</strong> {selectedVendor.tel || selectedVendor.mobile || "-"}
@@ -161,7 +161,7 @@ export default function VendorsPage() {
                     onClick={() => viewVendorDetail(v)}
                     style={{ cursor: "pointer" }}
                   >
-                    <td>{v.name_ar}</td>
+                    <td>{lang === "ar" ? v.name_ar : v.name_en || v.name_ar}</td>
                     <td>{v.tel || v.mobile || "-"}</td>
                     <td>{parseFloat(v.credit_limit).toLocaleString()}</td>
                     <td>{parseFloat(v.current_balance).toLocaleString()}</td>
