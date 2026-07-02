@@ -50,15 +50,15 @@ export default function AccountingPage() {
       <div className="page">
         <div className="kpi-row">
           <div className="kpi-box">
-            <div className="kpi-value">{salesSummary?.total_sales_net?.toLocaleString() || "0"}</div>
+            <div className="kpi-value">{salesSummary?.total_sales_net?.toLocaleString("en-US") || "0"}</div>
             <div className="kpi-label">{L("total_sales")}</div>
           </div>
           <div className="kpi-box">
-            <div className="kpi-value">{salesSummary?.total_returns_net?.toLocaleString() || "0"}</div>
+            <div className="kpi-value">{salesSummary?.total_returns_net?.toLocaleString("en-US") || "0"}</div>
             <div className="kpi-label">{L("total_returns")}</div>
           </div>
           <div className="kpi-box">
-            <div className="kpi-value">{salesSummary?.net_revenue?.toLocaleString() || "0"}</div>
+            <div className="kpi-value">{salesSummary?.net_revenue?.toLocaleString("en-US") || "0"}</div>
             <div className="kpi-label">{L("net_revenue")}</div>
           </div>
         </div>
@@ -99,15 +99,15 @@ export default function AccountingPage() {
                 {Object.entries(trialBalance.accounts || {}).map(([key, acc]) => (
                   <tr key={key}>
                     <td>{acc.type}</td>
-                    <td>{parseFloat(acc.debit).toLocaleString()}</td>
-                    <td>{parseFloat(acc.credit).toLocaleString()}</td>
-                    <td>{parseFloat(acc.balance).toLocaleString()}</td>
+                    <td>{parseFloat(acc.debit).toLocaleString("en-US")}</td>
+                    <td>{parseFloat(acc.credit).toLocaleString("en-US")}</td>
+                    <td>{parseFloat(acc.balance).toLocaleString("en-US")}</td>
                   </tr>
                 ))}
                 <tr style={{ fontWeight: "bold", borderTop: "1px solid var(--border)" }}>
                   <td>{L("total")}</td>
-                  <td>{parseFloat(trialBalance.total_debit).toLocaleString()}</td>
-                  <td>{parseFloat(trialBalance.total_credit).toLocaleString()}</td>
+                  <td>{parseFloat(trialBalance.total_debit).toLocaleString("en-US")}</td>
+                  <td>{parseFloat(trialBalance.total_credit).toLocaleString("en-US")}</td>
                   <td>-</td>
                 </tr>
               </tbody>
@@ -133,10 +133,10 @@ export default function AccountingPage() {
                 ) : (
                   ledger.map((e) => (
                     <tr key={e.entry_id}>
-                      <td>{e.entry_date ? new Date(e.entry_date).toLocaleDateString() : "-"}</td>
+                      <td>{e.entry_date ? new Date(e.entry_date).toLocaleDateString("en-US") : "-"}</td>
                       <td>{e.account_type}</td>
-                      <td>{parseFloat(e.debit).toLocaleString()}</td>
-                      <td>{parseFloat(e.credit).toLocaleString()}</td>
+                      <td>{parseFloat(e.debit).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(e.credit).toLocaleString("en-US")}</td>
                       <td>{e.note || "-"}</td>
                     </tr>
                   ))

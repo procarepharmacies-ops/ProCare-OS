@@ -45,7 +45,7 @@ export default function ClinicalPage() {
     api.dose(selected.product_id, age, lang).then((r) => setDose(r.dose)).catch(() => setDose(null));
   }, [selected, age, lang]);
 
-  const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
   return (
     <Shell titleKey="nav_clinical">

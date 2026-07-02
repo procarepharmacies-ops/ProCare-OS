@@ -2,7 +2,7 @@
 // name_ar / name_en. Arabic is the default; English is an optional toggle.
 export const dict = {
   ar: {
-    app: "بروكير أو إس",
+    app: "ProCare AI",
     tagline: "نظام إدارة الصيدلية المستقل",
     branch: "الفرع",
     all_branches: "كل الفروع",
@@ -234,7 +234,7 @@ export const dict = {
     go_back: "رجوع",
   },
   en: {
-    app: "ProCare OS",
+    app: "ProCare AI",
     tagline: "Independent pharmacy operating system",
     branch: "Branch",
     all_branches: "All branches",

@@ -27,7 +27,7 @@ export default function CustomersPage() {
     };
   }, [debtorsOnly]);
 
-  const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
   return (
     <Shell titleKey="nav_customers">

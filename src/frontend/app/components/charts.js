@@ -37,7 +37,7 @@ export function BarChart({ data, height = 180, color = "var(--primary)", labelKe
               animation: `bar-grow 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) ${i * 25}ms both`,
             }}
           >
-            <title>{`${d[labelKey]}: ${Math.round(d[valueKey]).toLocaleString()}`}</title>
+            <title>{`${d[labelKey]}: ${Math.round(d[valueKey]).toLocaleString("en-US")}`}</title>
           </rect>
         );
       })}
@@ -90,5 +90,5 @@ export function CountUp({ value, duration = 900, format }) {
     return () => cancelAnimationFrame(rafRef.current);
   }, [target, duration]);
 
-  return <>{format ? format(display) : Math.round(display).toLocaleString()}</>;
+  return <>{format ? format(display) : Math.round(display).toLocaleString("en-US")}</>;
 }

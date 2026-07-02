@@ -62,7 +62,7 @@ export default function POSPage() {
 
   const sevClass = (s) => (s === "critical" || s === "major" ? "danger" : "warn");
 
-  const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
   function addToCart(p) {
     setResult(null);

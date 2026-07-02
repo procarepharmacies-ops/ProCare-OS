@@ -80,7 +80,7 @@ export default function TransfersPage() {
               <div><strong>{L("from_branch")}:</strong> {selectedTransfer.from_branch_name}</div>
               <div><strong>{L("to_branch")}:</strong> {selectedTransfer.to_branch_name}</div>
               <div><strong>{L("status")}:</strong> {selectedTransfer.status}</div>
-              <div><strong>{L("requested_at")}:</strong> {selectedTransfer.created_at ? new Date(selectedTransfer.created_at).toLocaleDateString() : "-"}</div>
+              <div><strong>{L("requested_at")}:</strong> {selectedTransfer.created_at ? new Date(selectedTransfer.created_at).toLocaleDateString("en-US") : "-"}</div>
             </div>
 
             <h4>{L("product")}</h4>
@@ -98,9 +98,9 @@ export default function TransfersPage() {
                   selectedTransfer.lines.map((line) => (
                     <tr key={line.line_id}>
                       <td>{line.product_name}</td>
-                      <td>{parseFloat(line.amount).toLocaleString()}</td>
-                      <td>{parseFloat(line.buy_price).toLocaleString()}</td>
-                      <td>{line.exp_date ? new Date(line.exp_date).toLocaleDateString() : "-"}</td>
+                      <td>{parseFloat(line.amount).toLocaleString("en-US")}</td>
+                      <td>{parseFloat(line.buy_price).toLocaleString("en-US")}</td>
+                      <td>{line.exp_date ? new Date(line.exp_date).toLocaleDateString("en-US") : "-"}</td>
                     </tr>
                   ))
                 ) : (
@@ -134,9 +134,9 @@ export default function TransfersPage() {
                     <td>{tr.from_branch_name}</td>
                     <td>{tr.to_branch_name}</td>
                     <td>{tr.status}</td>
-                    <td>{tr.created_at ? new Date(tr.created_at).toLocaleDateString() : "-"}</td>
-                    <td>{tr.shipped_at ? new Date(tr.shipped_at).toLocaleDateString() : "-"}</td>
-                    <td>{tr.received_at ? new Date(tr.received_at).toLocaleDateString() : "-"}</td>
+                    <td>{tr.created_at ? new Date(tr.created_at).toLocaleDateString("en-US") : "-"}</td>
+                    <td>{tr.shipped_at ? new Date(tr.shipped_at).toLocaleDateString("en-US") : "-"}</td>
+                    <td>{tr.received_at ? new Date(tr.received_at).toLocaleDateString("en-US") : "-"}</td>
                   </tr>
                 ))
               )}

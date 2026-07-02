@@ -69,7 +69,7 @@ export default function EmployeesPage() {
                 <strong>{L("job")}:</strong> {selectedEmployee.job_name || "-"}
               </div>
               <div>
-                <strong>{L("basic_salary")}:</strong> {parseFloat(selectedEmployee.basic_salary).toLocaleString()}
+                <strong>{L("basic_salary")}:</strong> {parseFloat(selectedEmployee.basic_salary).toLocaleString("en-US")}
               </div>
               <div>
                 <strong>{L("active")}:</strong> {selectedEmployee.is_active ? "✓" : "✗"}
@@ -114,7 +114,7 @@ export default function EmployeesPage() {
                     <td>{lang === "ar" ? e.name_ar : e.name_en || e.name_ar}</td>
                     <td>{e.username}</td>
                     <td>{e.job_name || "-"}</td>
-                    <td>{parseFloat(e.basic_salary).toLocaleString()}</td>
+                    <td>{parseFloat(e.basic_salary).toLocaleString("en-US")}</td>
                     <td>{e.is_active ? "✓" : "✗"}</td>
                   </tr>
                 ))

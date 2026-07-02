@@ -30,7 +30,7 @@ export default function AlertsPage() {
     };
   }, [branch]);
 
-  const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const name = (o) => (lang === "ar" ? o.name_ar : o.name_en || o.name_ar);
 
   return (

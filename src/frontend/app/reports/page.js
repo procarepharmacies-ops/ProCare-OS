@@ -15,7 +15,7 @@ export default function ReportsPage() {
   const [tab, setTab] = useState("sales");
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
-  const fmt = (n) => Number(n || 0).toLocaleString(lang === "ar" ? "ar-EG" : "en-US");
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
   useEffect(() => {
     let alive = true;

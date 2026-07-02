@@ -52,7 +52,7 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Segoe UI", Tahoma, "Cairo", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-cairo), "Segoe UI", Tahoma, system-ui, -apple-system, sans-serif;
   transition: background 0.25s ease, color 0.25s ease;
 }
 
