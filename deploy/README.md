@@ -8,6 +8,15 @@ The browser only ever talks to the frontend; Next.js proxies `/api/*` to the
 backend **server-side**, so there's no CORS to configure and you never need to
 know the host's IP for the app to work.
 
+**Windows pharmacy PC quick paths:**
+
+| Script / guide | What it does |
+|---|---|
+| `ProCare-Autostart-Install.bat` | Desktop icon + start on **login** (simple) |
+| `ProCare-Service-Install.bat` | Start on **Windows boot, before login** (Task Scheduler as SYSTEM) + optional **Cloudflare Tunnel as a Windows service** for a public https URL (phone access from anywhere) |
+| `SQL-SERVER-EXPRESS.md` | Move ProCare's database from SQLite to free **SQL Server Express** — config-only, step by step |
+| `../docs/08-google-cloud-300-plan.md` | Gemini API key setup + the plan for the $300 Google Cloud trial (off-site backups, free always-on VM, monitoring) |
+
 ---
 
 ## Option A — your Multipass VM "foo" (one command)
