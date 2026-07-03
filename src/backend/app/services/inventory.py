@@ -91,3 +91,38 @@ def product_batches(session: Session, product_id: int, branch_id: int | None = N
             }
         )
     return out
+
+
+def adjust_stock(
+    session: Session,
+    batch_id: int,
+    new_amount: float,
+    *,
+    reason: str = "adjust",
+    employee_id: int | None = None,
+) -> dict:
+    """Manual stock adjustment / stock-count correction (eStock's
+    Product_amount_update + Product_amount_reg_update): set a batch to the
+    physically-counted quantity and record the delta in the audit trail."""
+    from app.services.pos import POSError
+
+    batch = session.get(m.StockBatch, batch_id)
+    if batch is None:
+        raise POSError("batch_not_found", f"التشغيلة غير موجودة #{batch_id} / batch not found")
+    if new_amount < 0:
+        raise POSError("bad_quantity", "الكمية لا يمكن أن تكون سالبة / amount cannot be negative")
+    delta = round(float(new_amount) - float(batch.amount), 3)
+    if delta == 0:
+        return {"batch_id": batch_id, "amount": money(batch.amount), "delta": 0}
+    batch.amount = float(new_amount)
+    session.add(
+        m.StockMovement(
+            batch_id=batch.batch_id,
+            branch_id=batch.branch_id,
+            delta=delta,
+            reason="adjust" if reason not in ("adjust", "writeoff") else reason,
+            employee_id=employee_id,
+        )
+    )
+    session.commit()
+    return {"batch_id": batch_id, "amount": money(new_amount), "delta": money(delta)}

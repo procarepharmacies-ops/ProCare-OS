@@ -84,6 +84,66 @@ def transfer(payload: TransferIn, session: Session = Depends(get_session)):
     return {"transfer_id": t.transfer_id, "status": t.status, "lines": len(t.lines)}
 
 
+class ReturnLineIn(BaseModel):
+    product_id: int
+    amount: float = Field(gt=0)
+
+
+class ReturnIn(BaseModel):
+    lines: list[ReturnLineIn] | None = None  # None => full return of what remains
+    cashier_id: int | None = None
+
+
+@router.get("/{sale_id}/returnable")
+def returnable(sale_id: int, session: Session = Depends(get_session)):
+    """The invoice with, per product, how much can still be returned — feeds
+    the POS return picker (eStock flow: open old invoice -> mark return lines)."""
+    sale = session.get(m.Sale, sale_id)
+    if sale is None or sale.is_return:
+        raise HTTPException(status_code=404, detail="sale not found")
+    remaining = pos.returnable_quantities(session, sale)
+    lines = []
+    for ln in sale.lines:
+        lines.append(
+            {
+                "product_id": ln.product_id,
+                "name_ar": ln.product.name_ar,
+                "name_en": ln.product.name_en,
+                "sold": money(ln.amount),
+                "returnable": money(max(remaining.get(ln.product_id, 0.0), 0.0)),
+                "unit_net_price": money(float(ln.total_sell) / float(ln.amount)),
+            }
+        )
+    return {
+        "sale_id": sale.sale_id,
+        "branch_id": sale.branch_id,
+        "sale_date": sale.sale_date.isoformat(),
+        "total_net": money(sale.total_net),
+        "is_credit": sale.is_credit,
+        "customer": sale.customer.name_ar if sale.customer else None,
+        "lines": lines,
+    }
+
+
+@router.post("/{sale_id}/return")
+def return_sale(sale_id: int, payload: ReturnIn, session: Session = Depends(get_session)):
+    try:
+        ret = pos.return_sale(
+            session,
+            sale_id,
+            [pos.ReturnLineInput(l.product_id, l.amount) for l in payload.lines] if payload.lines else None,
+            cashier_id=payload.cashier_id,
+        )
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+    return {
+        "return_id": ret.sale_id,
+        "original_sale_id": ret.original_sale_id,
+        "total_refund": money(ret.total_net),
+        "lines": len(ret.lines),
+    }
+
+
 @router.get("/recent")
 def recent(branch_id: int | None = None, limit: int = 20, session: Session = Depends(get_session)):
     stmt = select(m.Sale).order_by(desc(m.Sale.sale_date)).limit(limit)

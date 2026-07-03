@@ -20,7 +20,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.db.base import SessionLocal, engine
-from app.db.migrate import bootstrap_ceo_if_configured, ensure_role_column, ensure_roster
+from app.db.migrate import (
+    bootstrap_ceo_if_configured,
+    ensure_original_sale_id_column,
+    ensure_role_column,
+    ensure_roster,
+)
 from app.db.seed import ensure_seeded
 from app.services import sync
 
@@ -31,6 +36,7 @@ async def lifespan(_app: FastAPI):
     # table predates it (create_all only creates missing tables, never alters
     # existing ones). Safe no-op on a fresh DB or one that already has it.
     ensure_role_column(engine)
+    ensure_original_sale_id_column(engine)
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()

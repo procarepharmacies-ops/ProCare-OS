@@ -1,11 +1,13 @@
-"""Inventory / catalogue endpoints (read-only)."""
+"""Inventory / catalogue endpoints (reads + stock adjustment write)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.base import get_session
 from app.services import inventory
+from app.services.pos import POSError
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -27,3 +29,25 @@ def batches(
     session: Session = Depends(get_session),
 ):
     return {"batches": inventory.product_batches(session, product_id, branch_id or None)}
+
+
+class AdjustIn(BaseModel):
+    batch_id: int
+    new_amount: float = Field(ge=0)
+    reason: str = "adjust"  # adjust | writeoff
+    employee_id: int | None = None
+
+
+@router.post("/adjust")
+def adjust(payload: AdjustIn, session: Session = Depends(get_session)):
+    """Stock adjustment / stock-count correction (eStock's Stock Adjustments)."""
+    try:
+        return inventory.adjust_stock(
+            session,
+            payload.batch_id,
+            payload.new_amount,
+            reason=payload.reason,
+            employee_id=payload.employee_id,
+        )
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})

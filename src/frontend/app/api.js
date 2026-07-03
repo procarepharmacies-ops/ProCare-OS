@@ -85,6 +85,7 @@ export const api = {
   products: (branch, search = "") =>
     http(`/inventory/products${bq(branch, search ? `search=${encodeURIComponent(search)}` : "")}`),
   customers: (debtors = false) => http(`/customers${debtors ? "?only_debtors=true" : ""}`),
+  customerStatement: (customerId) => http(`/customers/${customerId}/statement`),
   vendors: () => http("/vendors"),
 
   expiry: (branch, horizon = 90) => http(`/alerts/expiry${bq(branch, `horizon_days=${horizon}`)}`),
@@ -93,6 +94,10 @@ export const api = {
 
   recentSales: (branch) => http(`/sales/recent${bq(branch)}`),
   createSale: (payload) => http("/sales", { method: "POST", body: JSON.stringify(payload) }),
+  returnable: (saleId) => http(`/sales/${saleId}/returnable`),
+  returnSale: (saleId, payload = {}) =>
+    http(`/sales/${saleId}/return`, { method: "POST", body: JSON.stringify(payload) }),
+  profitLoss: (branch, days = 30) => http(`/accounting/profit-loss${bq(branch, `days=${days}`)}`),
 
   chat: (query, branch, lang) =>
     http("/ai/chat", { method: "POST", body: JSON.stringify({ query, branch_id: branch || null, lang }) }),

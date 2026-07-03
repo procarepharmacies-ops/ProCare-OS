@@ -7,7 +7,7 @@ import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
 
-const TABS = ["daily", "sales", "purchasing", "stock", "cashiers", "productivity"];
+const TABS = ["daily", "sales", "pl", "purchasing", "stock", "cashiers", "productivity"];
 
 export default function ReportsPage() {
   const { lang, branch } = useUI();
@@ -21,8 +21,9 @@ export default function ReportsPage() {
     let alive = true;
     (async () => {
       try {
-        const [salesSummary, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall] = await Promise.all([
+        const [salesSummary, profitLoss, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall] = await Promise.all([
           api.get("/accounting/sales-summary", { branch_id: branch || undefined, days }),
+          api.profitLoss(branch, days),
           api.dailySales(branch, days),
           api.topProducts(branch, days),
           api.cashiers(branch),
@@ -36,6 +37,7 @@ export default function ReportsPage() {
         if (alive) {
           setData({
             salesSummary,
+            profitLoss,
             daily: daily.series,
             top: top.products,
             cashiers: cashiers.cashiers,
@@ -234,6 +236,44 @@ export default function ReportsPage() {
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {data && !data.error && tab === "pl" && (
+          <>
+            <div className="kpi-row">
+              <div className="kpi-box">
+                <div className="kpi-value">{fmt(data.profitLoss.revenue)}</div>
+                <div className="kpi-label">{L("revenue")} ({L("egp")})</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{fmt(data.profitLoss.returns_refund)}</div>
+                <div className="kpi-label">{L("returns_refund")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{fmt(data.profitLoss.net_revenue)}</div>
+                <div className="kpi-label">{L("net_revenue")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{fmt(data.profitLoss.cogs)}</div>
+                <div className="kpi-label">{L("cogs")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value" style={{ color: data.profitLoss.gross_profit >= 0 ? "var(--ok)" : "var(--danger)" }}>
+                  {fmt(data.profitLoss.gross_profit)}
+                </div>
+                <div className="kpi-label">{L("gross_profit")}</div>
+              </div>
+              <div className="kpi-box">
+                <div className="kpi-value">{data.profitLoss.margin_pct}%</div>
+                <div className="kpi-label">{L("margin")}</div>
+              </div>
+            </div>
+            <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>
+              {lang === "ar"
+                ? "مجمل الربح = صافي الإيرادات − تكلفة البضاعة المباعة (التكلفة المسجلة وقت البيع)"
+                : "Gross profit = net revenue − cost of goods sold (cost captured at sale time)"}
+            </p>
           </>
         )}
 

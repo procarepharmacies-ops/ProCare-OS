@@ -18,6 +18,11 @@ export default function POSPage() {
   const [customerId, setCustomerId] = useState("");
   const [result, setResult] = useState(null);
   const [advisory, setAdvisory] = useState([]);
+  // Return mode (eStock: sale returns were used 4,359 times — a first-class flow).
+  const [mode, setMode] = useState("sale"); // "sale" | "return"
+  const [returnSaleId, setReturnSaleId] = useState("");
+  const [returnInvoice, setReturnInvoice] = useState(null);
+  const [returnQty, setReturnQty] = useState({}); // product_id -> qty
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
@@ -81,6 +86,36 @@ export default function POSPage() {
 
   const total = useMemo(() => cart.reduce((s, x) => s + x.sell_price * x.amount, 0), [cart]);
 
+  async function loadReturnInvoice() {
+    setResult(null);
+    setReturnInvoice(null);
+    try {
+      const inv = await api.returnable(Number(returnSaleId));
+      setReturnInvoice(inv);
+      const init = {};
+      for (const l of inv.lines) init[l.product_id] = l.returnable;
+      setReturnQty(init);
+    } catch (e) {
+      setResult({ ok: false, msg: e.message });
+    }
+  }
+
+  async function completeReturn() {
+    setResult(null);
+    try {
+      const lines = returnInvoice.lines
+        .filter((l) => Number(returnQty[l.product_id]) > 0)
+        .map((l) => ({ product_id: l.product_id, amount: Number(returnQty[l.product_id]) }));
+      const r = await api.returnSale(returnInvoice.sale_id, { lines, cashier_id: 1 });
+      setResult({ ok: true, msg: `${L("return_done")} ${r.return_id} · ${fmt(r.total_refund)} ${L("egp")}` });
+      setReturnInvoice(null);
+      setReturnSaleId("");
+      setReturnQty({});
+    } catch (e) {
+      setResult({ ok: false, msg: e.message });
+    }
+  }
+
   async function completeSale() {
     setResult(null);
     try {
@@ -115,6 +150,109 @@ export default function POSPage() {
           </select>
         </p>
       )}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <button className={`btn ${mode === "sale" ? "primary" : ""}`} onClick={() => { setMode("sale"); setResult(null); }}>
+          {L("new_sale")}
+        </button>
+        <button className={`btn ${mode === "return" ? "primary" : ""}`} onClick={() => { setMode("return"); setResult(null); }}>
+          {L("return_mode")}
+        </button>
+      </div>
+
+      {mode === "return" && (
+        <div className="card" style={{ maxWidth: 640 }}>
+          <h3 className="section-title">{L("sale_return")}</h3>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              placeholder={L("invoice_number")}
+              value={returnSaleId}
+              onChange={(e) => setReturnSaleId(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <button className="btn primary" disabled={!returnSaleId} onClick={loadReturnInvoice}>
+              {L("load_invoice")}
+            </button>
+          </div>
+
+          {returnInvoice && (
+            <>
+              <p className="muted" style={{ fontSize: 13 }}>
+                #{returnInvoice.sale_id} · {new Date(returnInvoice.sale_date).toLocaleDateString()} ·{" "}
+                {fmt(returnInvoice.total_net)} {L("egp")}
+                {returnInvoice.customer ? ` · ${returnInvoice.customer}` : ""}
+              </p>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>{L("add_item")}</th>
+                    <th className="num">{L("sold_qty")}</th>
+                    <th className="num">{L("returnable_qty")}</th>
+                    <th className="num">{L("return_qty")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnInvoice.lines.map((l) => (
+                    <tr key={l.product_id}>
+                      <td>{lang === "ar" ? l.name_ar : l.name_en || l.name_ar}</td>
+                      <td className="num muted">{fmt(l.sold)}</td>
+                      <td className="num">{fmt(l.returnable)}</td>
+                      <td className="num">
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={l.returnable}
+                          value={returnQty[l.product_id] ?? 0}
+                          onChange={(e) =>
+                            setReturnQty((q) => ({
+                              ...q,
+                              [l.product_id]: Math.min(Math.max(0, Number(e.target.value)), l.returnable),
+                            }))
+                          }
+                          style={{ width: 72 }}
+                          disabled={l.returnable <= 0}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+                <span style={{ fontWeight: 700 }}>
+                  {L("refund_total")}:{" "}
+                  <span className="num">
+                    {fmt(
+                      returnInvoice.lines.reduce(
+                        (s, l) => s + (Number(returnQty[l.product_id]) || 0) * l.unit_net_price,
+                        0
+                      ).toFixed(2)
+                    )}{" "}
+                    {L("egp")}
+                  </span>
+                </span>
+                <button
+                  className="btn primary"
+                  disabled={!returnInvoice.lines.some((l) => Number(returnQty[l.product_id]) > 0)}
+                  onClick={completeReturn}
+                >
+                  {L("complete_return")}
+                </button>
+              </div>
+            </>
+          )}
+
+          {result && (
+            <p className={`badge ${result.ok ? "ok" : "danger"}`} style={{ marginTop: 12, display: "block", padding: 10 }}>
+              {result.msg}
+            </p>
+          )}
+        </div>
+      )}
+
+      {mode === "sale" && (
       <div className="grid" style={{ gridTemplateColumns: "1.3fr 1fr" }}>
         {/* Product picker */}
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -241,6 +379,7 @@ export default function POSPage() {
           </div>
         </div>
       </div>
+      )}
     </Shell>
   );
 }
