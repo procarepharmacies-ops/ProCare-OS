@@ -17,6 +17,10 @@ export default function POSPage() {
   const [isCredit, setIsCredit] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [result, setResult] = useState(null);
+  // Loyalty + WhatsApp CRM state.
+  const [loyaltyInfo, setLoyaltyInfo] = useState(null);
+  const [redeemIn, setRedeemIn] = useState("");
+  const [waLink, setWaLink] = useState(null);
   const [advisory, setAdvisory] = useState([]);
   // Return mode (eStock: sale returns were used 4,359 times — a first-class flow).
   const [mode, setMode] = useState("sale"); // "sale" | "return"
@@ -52,6 +56,18 @@ export default function POSPage() {
   useEffect(() => {
     api.customers().then((r) => setCustomers(r.customers)).catch(() => {});
   }, []);
+
+  // Customer picked -> show their loyalty balance for redemption.
+  useEffect(() => {
+    setLoyaltyInfo(null);
+    setRedeemIn("");
+    if (!customerId) return;
+    let alive = true;
+    api.loyalty(Number(customerId)).then((r) => alive && setLoyaltyInfo(r)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [customerId]);
 
   // Advisory drug-interaction check on the basket — runs as items change, shown
   // to the pharmacist. Never blocks the sale (clinical guardrail).
@@ -154,19 +170,26 @@ export default function POSPage() {
 
   async function completeSale() {
     setResult(null);
+    setWaLink(null);
     try {
       const payload = {
         branch_id: posBranch,
         cashier_id: 1,
         is_credit: isCredit,
-        customer_id: isCredit ? Number(customerId) || null : customerId ? Number(customerId) : null,
+        customer_id: customerId ? Number(customerId) : null,
         lines: cart.map((x) => ({ product_id: x.product_id, amount: x.amount })),
+        redeem_points: Number(redeemIn) || 0,
       };
       const r = await api.createSale(payload);
-      setResult({ ok: true, msg: `${L("sale_done")} ${r.sale_id} · ${fmt(r.total_net)} ${L("egp")}` });
+      let msg = `${L("sale_done")} ${r.sale_id} · ${fmt(r.total_net)} ${L("egp")}`;
+      if (r.loyalty_points !== undefined) msg += ` · ${L("points_balance")}: ${fmt(r.loyalty_points)} ⭐`;
+      if (r.whatsapp_sent) msg += ` · ${L("wa_sent")} ✓`;
+      setResult({ ok: true, msg });
+      setWaLink(r.whatsapp_link || null);
       setCart([]);
       setIsCredit(false);
       setCustomerId("");
+      setRedeemIn("");
     } catch (e) {
       setResult({ ok: false, msg: e.message });
     }
@@ -410,16 +433,43 @@ export default function POSPage() {
               </button>
             </div>
 
-            {isCredit && (
-              <select className="select" value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ width: "100%", marginBottom: 12 }}>
-                <option value="">{L("select_customer")}</option>
-                {customers.map((c) => (
-                  <option key={c.customer_id} value={c.customer_id}>
-                    {(lang === "ar" ? c.name_ar : c.name_en || c.name_ar)}
-                    {c.over_limit ? " ⚠️" : ""}
-                  </option>
-                ))}
-              </select>
+            {/* Customer is optional on cash sales — attaching one earns loyalty
+                points and enables the WhatsApp invoice. Required for credit. */}
+            <select className="select" value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ width: "100%", marginBottom: 12 }}>
+              <option value="">{L("select_customer")}</option>
+              {customers.map((c) => (
+                <option key={c.customer_id} value={c.customer_id}>
+                  {(lang === "ar" ? c.name_ar : c.name_en || c.name_ar)}
+                  {c.over_limit ? " ⚠️" : ""}
+                </option>
+              ))}
+            </select>
+
+            {loyaltyInfo && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <span className="badge ok">
+                  ⭐ {fmt(loyaltyInfo.points)} {L("points")} ≈ {fmt(loyaltyInfo.value_egp)} {L("egp")}
+                </span>
+                {loyaltyInfo.points > 0 && (
+                  <>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={loyaltyInfo.points}
+                      placeholder={L("redeem_points")}
+                      value={redeemIn}
+                      onChange={(e) => setRedeemIn(e.target.value)}
+                      style={{ width: 120 }}
+                    />
+                    {Number(redeemIn) > 0 && (
+                      <span className="muted" style={{ fontSize: 13 }}>
+                        −{fmt(Math.min(Number(redeemIn) * loyaltyInfo.point_value_egp, total).toFixed(2))} {L("egp")}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
             )}
 
             <button
@@ -435,6 +485,12 @@ export default function POSPage() {
               <p className={`badge ${result.ok ? "ok" : "danger"}`} style={{ marginTop: 12, display: "block", padding: 10 }}>
                 {result.msg}
               </p>
+            )}
+            {waLink && (
+              <a className="btn" href={waLink} target="_blank" rel="noreferrer"
+                 style={{ marginTop: 8, width: "100%", display: "block", textAlign: "center" }}>
+                💬 {L("wa_send_invoice")}
+              </a>
             )}
           </div>
         </div>

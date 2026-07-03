@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
+from app.services import loyalty as loyalty_svc
 from app.services.common import TODAY, money
 
 
@@ -140,8 +141,12 @@ def create_sale(
     cash_paid: float | None = None,
     card_paid: float = 0.0,
     override_by: int | None = None,
+    redeem_points: float = 0.0,
 ) -> m.Sale:
-    """Create one atomic invoice. Commits on success; rolls back on any failure."""
+    """Create one atomic invoice. Commits on success; rolls back on any failure.
+
+    ``redeem_points`` spends that many loyalty points as an extra invoice
+    discount (requires a customer; capped at the invoice value)."""
     if not lines:
         raise POSError("empty_sale", "لا توجد أصناف في الفاتورة / no lines in sale")
 
@@ -166,6 +171,21 @@ def create_sale(
 
         net = round(gross - total_disc, 2)
 
+        # Loyalty redemption = extra discount, validated + deducted atomically
+        # with the sale.
+        redeem_value = 0.0
+        redeem_tx = None
+        if redeem_points and redeem_points > 0:
+            if customer_id is None:
+                raise POSError("redeem_needs_customer", "استبدال النقاط يتطلب عميلاً / redemption needs a customer")
+            try:
+                redeem_value, redeem_tx = loyalty_svc.redeem_on_sale(session, customer_id, redeem_points)
+            except loyalty_svc.LoyaltyError as e:
+                raise POSError(e.code, e.message)
+            redeem_value = min(redeem_value, net)  # discount can't exceed the invoice
+            total_disc = round(total_disc + redeem_value, 2)
+            net = round(net - redeem_value, 2)
+
         # Credit check BEFORE touching stock (fail fast, atomic intent).
         if is_credit:
             if customer_id is None:
@@ -186,6 +206,8 @@ def create_sale(
         )
         session.add(sale)
         session.flush()  # assign sale_id
+        if redeem_tx is not None:
+            redeem_tx.sale_id = sale.sale_id
 
         for product, ln, price, line_total in resolved:
             # FEFO deduction (skips expired => expired-only product is blocked).
@@ -237,6 +259,9 @@ def create_sale(
                     note="بيع نقدي / cash sale",
                 )
             )
+
+        # Loyalty: earn points on the final net (same transaction).
+        loyalty_svc.award_for_sale(session, sale)
 
         session.commit()
         session.refresh(sale)
@@ -403,6 +428,9 @@ def return_sale(
                     note="مرتجع بيع نقدي / cash sale return (refund)",
                 )
             )
+
+        # Loyalty: claw back the points the refunded amount had earned.
+        loyalty_svc.clawback_for_return(session, ret)
 
         session.commit()
         session.refresh(ret)

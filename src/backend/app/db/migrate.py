@@ -56,6 +56,19 @@ def ensure_shelf_location_column(engine) -> None:
         conn.execute(text("ALTER TABLE products ADD COLUMN shelf_location VARCHAR(80) NULL"))
 
 
+def ensure_loyalty_points_column(engine) -> None:
+    """Add ``customers.loyalty_points`` (loyalty programme balance) if the
+    table predates it. Existing customers start at 0 points."""
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    if "loyalty_points" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE customers ADD COLUMN loyalty_points NUMERIC(18,3) DEFAULT 0"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.

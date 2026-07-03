@@ -23,6 +23,7 @@ const NAV = [
   { href: "/alerts", key: "nav_alerts", ico: "bell", roles: null },
   { href: "/clinical", key: "nav_clinical", ico: "mortar", roles: null },
   { href: "/assistant", key: "nav_assistant", ico: "sparkle", roles: null },
+  { href: "/marketing", key: "nav_marketing", ico: "megaphone", roles: ["ceo", "manager"] },
   { href: "/reports", key: "nav_reports", ico: "chart", roles: ["ceo", "manager"] },
   { href: "/settings", key: "nav_settings", ico: "gear", roles: ["ceo", "manager"] },
 ];

@@ -164,6 +164,13 @@ class Settings:
     # on after setting up real employee accounts.
     auth_enabled: bool = os.environ.get("AUTH_ENABLED", "").lower() in ("1", "true", "yes", "on")
 
+    # Loyalty programme rates (overridable per pharmacy via env):
+    #   earn : every LOYALTY_EGP_PER_POINT EGP of net spend = 1 point;
+    #   spend: each point is worth LOYALTY_POINT_VALUE EGP at redemption.
+    # Defaults: 10 EGP -> 1 point, 1 point -> 0.25 EGP (2.5% back).
+    loyalty_egp_per_point: float = float(os.environ.get("LOYALTY_EGP_PER_POINT", "10") or 10)
+    loyalty_point_value: float = float(os.environ.get("LOYALTY_POINT_VALUE", "0.25") or 0.25)
+
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:
         """SQL Server URL for ProCare's own DB, or None to use SQLite dev DB."""

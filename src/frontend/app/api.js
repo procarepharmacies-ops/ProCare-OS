@@ -130,4 +130,15 @@ export const api = {
   substitutions: (productId, branch, lang) =>
     http(`/clinical/products/${productId}/substitutions${bq(branch, `lang=${lang}`)}`),
   dose: (productId, age, lang) => http(`/clinical/products/${productId}/dose?age=${age}&lang=${lang}`),
+
+  // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
+  crmStatus: () => http("/crm/status"),
+  loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),
+  adjustLoyalty: (customerId, payload) =>
+    http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
+  saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),
+  campaigns: () => http("/crm/campaigns"),
+  createCampaign: (payload) => http("/crm/campaigns", { method: "POST", body: JSON.stringify(payload) }),
+  sendCampaign: (campaignId) => http(`/crm/campaigns/${campaignId}/send`, { method: "POST" }),
+  campaignLinks: (campaignId) => http(`/crm/campaigns/${campaignId}/links`),
 };

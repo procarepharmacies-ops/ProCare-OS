@@ -35,6 +35,8 @@ class SaleIn(BaseModel):
     cash_paid: float | None = None
     card_paid: float = 0.0
     override_by: int | None = None
+    # Loyalty: spend this many points as an extra invoice discount.
+    redeem_points: float = 0.0
 
 
 class TransferIn(BaseModel):
@@ -57,16 +59,27 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
             cash_paid=payload.cash_paid,
             card_paid=payload.card_paid,
             override_by=payload.override_by,
+            redeem_points=payload.redeem_points,
         )
     except pos.POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
-    return {
+    out = {
         "sale_id": sale.sale_id,
         "branch_id": sale.branch_id,
         "total_net": money(sale.total_net),
         "is_credit": sale.is_credit,
         "sale_date": sale.sale_date.isoformat(),
     }
+    # CRM extras for the POS receipt screen: points balance + WhatsApp invoice.
+    if sale.customer_id:
+        from app.services import whatsapp as wa
+
+        customer = session.get(m.Customer, sale.customer_id)
+        out["loyalty_points"] = money(customer.loyalty_points or 0)
+        text = wa.invoice_message(session, sale)
+        out["whatsapp_link"] = wa.wa_link(customer.mobile, text)
+        out["whatsapp_sent"] = wa.send_text(customer.mobile, text) if wa.is_configured() else False
+    return out
 
 
 @router.post("/transfer")

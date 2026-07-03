@@ -104,6 +104,13 @@ const P = {
       <path d="M7.5 15.5l3.5-4.2 3 2.6 4.5-6" />
     </>
   ),
+  // Megaphone — marketing / campaigns.
+  megaphone: (
+    <>
+      <path d="M3 10.5v3a1.5 1.5 0 001.5 1.5H7l9 4.5v-15L7 9H4.5A1.5 1.5 0 003 10.5z" />
+      <path d="M16 9.5a3.5 3.5 0 010 5M7.5 15.2l1 4.3h2.6l-.8-4" />
+    </>
+  ),
   gear: (
     <>
       <circle cx="12" cy="12" r="3.2" />

@@ -18,9 +18,15 @@ ProCare OS is a full-stack pharmacy management system with its **own clean datab
 | **AI** | Arabic assistant (Claude or Gemini, offline keyword router fallback) |
 | **Tests** | 78 backend tests (`pytest`) |
 
-## Screens (18)
+## Screens (19)
 
-Dashboard · POS (sales **+ returns + cash-desk shifts**) · Inventory (batches, expiry, **shelf places**) · Purchasing (invoices, **receive goods**, AI reorder drafts) · Stock Transfers · Customers (**account statements**, credit control) · Vendors · Employees (**PMP / development plans**) · Tasks (**auto weekly ops checklist**) · Accounting (ledger, trial balance, **manual journal**) · Reports (daily, sales, **P&L**, **by customer**, by cashier, stock & expiry, productivity) · Alerts (expiry / low stock) · Clinical drug advisory · AI Assistant · Settings · Login
+Dashboard · POS (sales **+ returns + cash-desk shifts + loyalty redemption + WhatsApp invoice**) · Inventory (batches, expiry, **shelf places**) · Purchasing (invoices, **receive goods**, AI reorder drafts) · Stock Transfers · Customers (**account statements**, credit control, **loyalty points**) · Vendors · Employees (**PMP / development plans**) · Tasks (**auto weekly ops checklist**) · **Marketing (WhatsApp campaigns, audience targeting)** · Accounting (ledger, trial balance, **manual journal**) · Reports (daily, sales, **P&L**, **by customer**, by cashier, stock & expiry, productivity) · Alerts (expiry / low stock) · Clinical drug advisory · AI Assistant · Settings · Login
+
+### CRM & Loyalty
+
+- **Loyalty points** — customers earn 1 point per 10 EGP (configurable via `LOYALTY_EGP_PER_POINT` / `LOYALTY_POINT_VALUE`), redeem points as an instant POS discount; every movement is audited and returns claw points back automatically.
+- **WhatsApp invoice** — after every sale with a customer, a ready invoice message: sent automatically when the **WhatsApp Business Cloud API** is configured (`WHATSAPP_TOKEN` + `WHATSAPP_PHONE_ID` env vars), otherwise a one-click **wa.me** link for the cashier. Zero setup required for link mode.
+- **Marketing campaigns** — write one message, pick an audience (all / top spenders / debtors / inactive 60 days), send in bulk via the Cloud API or click through per-customer WhatsApp links.
 
 ## Quick start
 

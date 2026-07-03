@@ -63,6 +63,7 @@ DEFERRED_PLAN = [
 # Destination tables cleared (children first) before a full load. Branches and
 # the reference/lookup seeds are kept; the mirror fills operational data.
 _WIPE_ORDER = [
+    m.LoyaltyTransaction,  # references sales + customers — must go first
     m.SaleLine, m.Sale, m.PurchaseLine, m.Purchase, m.StockMovement,
     m.StockTransferLine, m.StockTransfer, m.CashTransfer if hasattr(m, "CashTransfer") else None,
     m.OpeningStockLine if hasattr(m, "OpeningStockLine") else None,
