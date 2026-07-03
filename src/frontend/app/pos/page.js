@@ -23,6 +23,11 @@ export default function POSPage() {
   const [returnSaleId, setReturnSaleId] = useState("");
   const [returnInvoice, setReturnInvoice] = useState(null);
   const [returnQty, setReturnQty] = useState({}); // product_id -> qty
+  // Cash desk shift (eStock's Cash Desk: open with float, close vs expected).
+  const [shift, setShift] = useState(null);
+  const [floatIn, setFloatIn] = useState("");
+  const [countedIn, setCountedIn] = useState("");
+  const [shiftMsg, setShiftMsg] = useState(null);
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
@@ -85,6 +90,37 @@ export default function POSPage() {
   }
 
   const total = useMemo(() => cart.reduce((s, x) => s + x.sell_price * x.amount, 0), [cart]);
+
+  useEffect(() => {
+    if (!posBranch) return;
+    api.cashShift(posBranch).then((r) => setShift(r.shift)).catch(() => {});
+  }, [posBranch]);
+
+  async function doOpenShift() {
+    setShiftMsg(null);
+    try {
+      const s = await api.openShift({ branch_id: posBranch, cashier_id: 1, opening_float: Number(floatIn) || 0 });
+      setShift(s);
+      setFloatIn("");
+    } catch (e) {
+      setShiftMsg({ ok: false, msg: e.message });
+    }
+  }
+
+  async function doCloseShift() {
+    setShiftMsg(null);
+    try {
+      const s = await api.closeShift({ branch_id: posBranch, counted_cash: Number(countedIn) || 0 });
+      setShift(null);
+      setCountedIn("");
+      setShiftMsg({
+        ok: true,
+        msg: `${L("expected_cash")}: ${fmt(s.expected_cash)} · ${L("variance")}: ${fmt(s.variance)} ${L("egp")}`,
+      });
+    } catch (e) {
+      setShiftMsg({ ok: false, msg: e.message });
+    }
+  }
 
   async function loadReturnInvoice() {
     setResult(null);
@@ -150,14 +186,38 @@ export default function POSPage() {
           </select>
         </p>
       )}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
         <button className={`btn ${mode === "sale" ? "primary" : ""}`} onClick={() => { setMode("sale"); setResult(null); }}>
           {L("new_sale")}
         </button>
         <button className={`btn ${mode === "return" ? "primary" : ""}`} onClick={() => { setMode("return"); setResult(null); }}>
           {L("return_mode")}
         </button>
+        {/* Cash desk shift control */}
+        <span style={{ marginInlineStart: "auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span className={`badge ${shift ? "ok" : ""}`}>
+            {shift ? `${L("shift_open")} · ${L("opening_float")} ${fmt(shift.opening_float)}` : L("shift_closed")}
+          </span>
+          {!shift ? (
+            <>
+              <input className="input" type="number" min={0} placeholder={L("opening_float")}
+                     value={floatIn} onChange={(e) => setFloatIn(e.target.value)} style={{ width: 110 }} />
+              <button className="btn" onClick={doOpenShift}>{L("open_shift")}</button>
+            </>
+          ) : (
+            <>
+              <input className="input" type="number" min={0} placeholder={L("counted_cash")}
+                     value={countedIn} onChange={(e) => setCountedIn(e.target.value)} style={{ width: 110 }} />
+              <button className="btn" onClick={doCloseShift} disabled={countedIn === ""}>{L("close_shift")}</button>
+            </>
+          )}
+        </span>
       </div>
+      {shiftMsg && (
+        <p className={`badge ${shiftMsg.ok ? "ok" : "danger"}`} style={{ marginBottom: 12, display: "inline-block", padding: 8 }}>
+          {shiftMsg.msg}
+        </p>
+      )}
 
       {mode === "return" && (
         <div className="card" style={{ maxWidth: 640 }}>

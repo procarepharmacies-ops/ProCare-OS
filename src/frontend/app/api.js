@@ -98,6 +98,15 @@ export const api = {
   returnSale: (saleId, payload = {}) =>
     http(`/sales/${saleId}/return`, { method: "POST", body: JSON.stringify(payload) }),
   profitLoss: (branch, days = 30) => http(`/accounting/profit-loss${bq(branch, `days=${days}`)}`),
+  salesByCustomer: (branch, days = 30) => http(`/accounting/sales-by-customer${bq(branch, `days=${days}`)}`),
+
+  cashShift: (branchId) => http(`/cashdesk/current?branch_id=${branchId}`),
+  openShift: (payload) => http("/cashdesk/open", { method: "POST", body: JSON.stringify(payload) }),
+  closeShift: (payload) => http("/cashdesk/close", { method: "POST", body: JSON.stringify(payload) }),
+
+  createPurchase: (payload) =>
+    http("/purchasing/purchases", { method: "POST", body: JSON.stringify(payload) }),
+  adjustStock: (payload) => http("/inventory/adjust", { method: "POST", body: JSON.stringify(payload) }),
 
   chat: (query, branch, lang) =>
     http("/ai/chat", { method: "POST", body: JSON.stringify({ query, branch_id: branch || null, lang }) }),
