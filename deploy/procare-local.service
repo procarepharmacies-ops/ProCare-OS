@@ -1,0 +1,27 @@
+# ProCare AI — systemd unit: server autostarts at boot and is ALWAYS ON
+# (auto-restarts if it ever crashes). For Ubuntu/Debian desktop or server.
+#
+# Install (once):
+#   sudo cp deploy/procare-local.service /etc/systemd/system/procare.service
+#   # edit User= and the two paths below if the repo is not /home/YOUR_USER/ProCare-OS
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now procare
+#
+# Check:   systemctl status procare      Logs:  journalctl -u procare -f
+# Stop:    sudo systemctl stop procare   Undo:  sudo systemctl disable procare
+[Unit]
+Description=ProCare AI pharmacy system (local, no Docker)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/ProCare-OS
+ExecStart=/home/YOUR_USER/ProCare-OS/deploy/procare-local.sh start
+ExecStop=/home/YOUR_USER/ProCare-OS/deploy/procare-local.sh stop
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

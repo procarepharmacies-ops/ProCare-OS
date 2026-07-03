@@ -28,8 +28,8 @@ Dashboard · POS (sales **+ returns + cash-desk shifts**) · Inventory (batches,
 
 Requires Python 3.11+ and Node.js 18+ installed once.
 
-- **Windows:** copy a shortcut of `deploy/ProCare-Local.bat` to the Desktop (icon: `src/frontend/public/procare.ico`), double-click.
-- **Linux / WSL / macOS:** `./deploy/procare-local.sh`
+- **Windows:** double-click `deploy/ProCare-Autostart-Install.bat` **once**. It puts a **ProCare AI icon on the Desktop** (one click opens the system) and makes the server **start automatically with Windows and stay always on**.
+- **Linux / WSL / macOS:** `./deploy/procare-local.sh` — for boot autostart install `deploy/procare-local.service` (instructions inside the file).
 
 First run installs dependencies and builds the UI, then every launch starts the backend + frontend and opens **http://localhost:3000**. Data lives in a local SQLite file until you point it at SQL Server.
 

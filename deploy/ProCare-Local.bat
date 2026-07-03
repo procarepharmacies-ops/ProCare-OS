@@ -1,23 +1,33 @@
 @echo off
-rem ProCare AI — LOCAL Windows launcher (no Docker, no WSL).
+rem ============================================================================
+rem  ProCare AI — ONE-CLICK launcher (no Docker, no WSL).
 rem
-rem Runs the system natively: FastAPI backend (SQLite) + Next.js frontend,
-rem then opens the browser. First run installs dependencies and builds the
-rem frontend (needs internet once); after that it works fully offline.
+rem  Double-click = if ProCare is already running it opens instantly;
+rem  otherwise it starts the servers first, waits until ready, then opens.
 rem
-rem REQUIREMENTS (one-time install): Python 3.11+ and Node.js 18+ from
-rem   https://www.python.org/downloads/   https://nodejs.org/
+rem  "ProCare-Local.bat serve"  = start the servers only (no browser window).
+rem                               Used by the autostart shortcut at Windows boot.
 rem
-rem SETUP: copy a SHORTCUT of this file to the Desktop. To give it the
-rem ProCare icon: right-click the shortcut > Properties > Change Icon >
-rem Browse to  src\frontend\public\procare.ico  in this folder.
+rem  REQUIREMENTS (install once): Python 3.11+  https://www.python.org/downloads/
+rem                               Node.js 18+   https://nodejs.org/
+rem  ONE-TIME SETUP: run deploy\ProCare-Autostart-Install.bat  — it puts the
+rem  ProCare icon on your Desktop and makes the server start with Windows.
 rem
-rem If the repo is not at %USERPROFILE%\ProCare-OS, edit the line below.
+rem  If the repo is not at %USERPROFILE%\ProCare-OS, edit the line below.
+rem ============================================================================
 set ROOT=%USERPROFILE%\ProCare-OS
+set MODE=%1
 
 title ProCare AI
-cd /d "%ROOT%" || (echo ProCare folder not found at %ROOT% & pause & exit /b 1)
 
+rem ---- Fast path: already running? just open it. ----------------------------
+powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:3000)|Out-Null;exit 0}catch{exit 1}" >nul 2>nul
+if %errorlevel%==0 (
+  if /i not "%MODE%"=="serve" start "" http://localhost:3000
+  exit /b 0
+)
+
+cd /d "%ROOT%" || (echo ProCare folder not found at %ROOT% & pause & exit /b 1)
 where python >nul 2>nul || (echo Python is not installed or not on PATH & pause & exit /b 1)
 where npm    >nul 2>nul || (echo Node.js is not installed or not on PATH & pause & exit /b 1)
 
@@ -36,7 +46,7 @@ if not exist "src\frontend\node_modules" (
 )
 
 if not exist ".local-run\.built" (
-  echo [setup] building the frontend - one time, please wait...
+  echo [setup] building the frontend - one time, please wait a few minutes...
   pushd src\frontend
   rem Both vars must be set at BUILD time - Next bakes the /api proxy rewrite
   rem into the production build manifest.
@@ -52,7 +62,17 @@ start "ProCare backend" /min cmd /c "cd /d %ROOT%\src\backend && set PROCARE_API
 echo [start] frontend on :3000
 start "ProCare frontend" /min cmd /c "cd /d %ROOT%\src\frontend && set BACKEND_INTERNAL=http://127.0.0.1:8000&& npx next start -p 3000 > %ROOT%\.local-run\frontend.log 2>&1"
 
+rem ---- Wait (up to ~60s) until the UI answers, then open -------------------
 echo Waiting for ProCare to come up...
-timeout /t 8 /nobreak >nul
-start "" http://localhost:3000
-exit
+for /l %%i in (1,1,30) do (
+  powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:3000)|Out-Null;exit 0}catch{exit 1}" >nul 2>nul
+  if not errorlevel 1 goto ready
+  timeout /t 2 /nobreak >nul
+)
+echo ProCare did not start in time — check .local-run\backend.log and frontend.log
+pause
+exit /b 1
+
+:ready
+if /i not "%MODE%"=="serve" start "" http://localhost:3000
+exit /b 0
