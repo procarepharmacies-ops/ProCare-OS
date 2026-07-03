@@ -58,6 +58,7 @@ def list_products(
                 "min_stock": money(p.min_stock),
                 "on_hand": on_hand_qty,
                 "is_controlled": p.is_controlled,
+                "shelf_location": p.shelf_location,
                 "low": on_hand_qty < float(p.min_stock or 0),
             }
         )
@@ -91,3 +92,50 @@ def product_batches(session: Session, product_id: int, branch_id: int | None = N
             }
         )
     return out
+
+
+def adjust_stock(
+    session: Session,
+    batch_id: int,
+    new_amount: float,
+    *,
+    reason: str = "adjust",
+    employee_id: int | None = None,
+) -> dict:
+    """Manual stock adjustment / stock-count correction (eStock's
+    Product_amount_update + Product_amount_reg_update): set a batch to the
+    physically-counted quantity and record the delta in the audit trail."""
+    from app.services.pos import POSError
+
+    batch = session.get(m.StockBatch, batch_id)
+    if batch is None:
+        raise POSError("batch_not_found", f"التشغيلة غير موجودة #{batch_id} / batch not found")
+    if new_amount < 0:
+        raise POSError("bad_quantity", "الكمية لا يمكن أن تكون سالبة / amount cannot be negative")
+    delta = round(float(new_amount) - float(batch.amount), 3)
+    if delta == 0:
+        return {"batch_id": batch_id, "amount": money(batch.amount), "delta": 0}
+    batch.amount = float(new_amount)
+    session.add(
+        m.StockMovement(
+            batch_id=batch.batch_id,
+            branch_id=batch.branch_id,
+            delta=delta,
+            reason="adjust" if reason not in ("adjust", "writeoff") else reason,
+            employee_id=employee_id,
+        )
+    )
+    session.commit()
+    return {"batch_id": batch_id, "amount": money(new_amount), "delta": money(delta)}
+
+
+def set_shelf_location(session: Session, product_id: int, shelf_location: str | None) -> dict:
+    """Merchandising: set/clear a product's physical shelf/place code."""
+    from app.services.pos import POSError
+
+    product = session.get(m.Product, product_id)
+    if product is None or product.is_deleted:
+        raise POSError("product_not_found", f"صنف غير موجود #{product_id} / product not found")
+    product.shelf_location = (shelf_location or "").strip() or None
+    session.commit()
+    return {"product_id": product_id, "shelf_location": product.shelf_location}

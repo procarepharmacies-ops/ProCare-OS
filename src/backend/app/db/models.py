@@ -101,6 +101,9 @@ class Product(Base):
     wholesale_price: Mapped[float | None] = mapped_column(Money, nullable=True)
 
     min_stock: Mapped[float] = mapped_column(Qty, default=0)
+    # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
+    # e.g. "A3", "رف الأطفال", "counter fridge".
+    shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -243,6 +246,9 @@ class Sale(Base):
     change_given: Mapped[float] = mapped_column(Money, default=0)
     is_return: Mapped[bool] = mapped_column(default=False)
     is_credit: Mapped[bool] = mapped_column(default=False)
+    # Return invoices point back at the sale they reverse (eStock's
+    # Back_sales_header -> Sales_header link).
+    original_sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     lines: Mapped[list["SaleLine"]] = relationship(back_populates="sale", cascade="all, delete-orphan")
@@ -436,4 +442,55 @@ class FootfallEvent(Base):
     __table_args__ = (
         CheckConstraint("direction IN ('in','out')", name="CK_footfall_direction"),
         Index("IX_footfall_branch_ts", "branch_id", "ts"),
+    )
+
+
+class CashShift(Base):
+    """Cashier shift (eStock's Cash_disk_close — 1,647 closures): opened with a
+    float, closed with a counted amount; expected cash is computed from the
+    cash sales minus cash refunds recorded during the shift."""
+
+    __tablename__ = "cash_shifts"
+
+    shift_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    cashier_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    opening_float: Mapped[float] = mapped_column(Money, default=0)
+    counted_cash: Mapped[float | None] = mapped_column(Money, nullable=True)
+    expected_cash: Mapped[float | None] = mapped_column(Money, nullable=True)
+    variance: Mapped[float | None] = mapped_column(Money, nullable=True)
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open/closed
+
+    __table_args__ = (
+        CheckConstraint("status IN ('open','closed')", name="CK_shift_status"),
+        Index("IX_shifts_branch_status", "branch_id", "status"),
+    )
+
+
+class EmployeeGoal(Base):
+    """PMP / development-plan item per employee: a performance or training
+    goal with a target date, tracked by the CEO/manager in reviews.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "employee_goals"
+
+    goal_id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    title: Mapped[str] = mapped_column(String(200))
+    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    category: Mapped[str] = mapped_column(String(20), default="performance")
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("category IN ('performance','training','behavior')", name="CK_goal_category"),
+        CheckConstraint("status IN ('active','achieved','dropped')", name="CK_goal_status"),
+        Index("IX_goals_employee_status", "employee_id", "status"),
     )

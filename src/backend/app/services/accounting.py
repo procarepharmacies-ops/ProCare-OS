@@ -100,6 +100,45 @@ def account_balance(session: Session, account_type: str, account_ref: int | None
     }
 
 
+def profit_loss(session: Session, branch_id: int | None = None, days: int = 30) -> dict:
+    """Gross P&L over a period — eStock's profit rule re-implemented cleanly:
+    gross_profit = Σ total_sell − Σ(amount × buy_price) at the LINE level
+    (cost captured at sale time, not current product cost), with return
+    invoices reversing both revenue and cost."""
+    cutoff = datetime.now() - timedelta(days=days)
+
+    def _lines_totals(is_return: bool) -> tuple[float, float]:
+        q = (
+            select(
+                func.coalesce(func.sum(m.SaleLine.total_sell), 0),
+                func.coalesce(func.sum(m.SaleLine.amount * m.SaleLine.buy_price), 0),
+            )
+            .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
+            .where(m.Sale.is_return == is_return, m.Sale.sale_date >= cutoff)
+        )
+        if branch_id:
+            q = q.where(m.Sale.branch_id == branch_id)
+        revenue, cogs = session.execute(q).one()
+        return float(revenue or 0), float(cogs or 0)
+
+    revenue, cogs = _lines_totals(is_return=False)
+    returns_refund, returns_cogs = _lines_totals(is_return=True)
+
+    net_revenue = round(revenue - returns_refund, 2)
+    net_cogs = round(cogs - returns_cogs, 2)
+    gross_profit = round(net_revenue - net_cogs, 2)
+    return {
+        "period_days": days,
+        "branch_id": branch_id,
+        "revenue": round(revenue, 2),
+        "returns_refund": round(returns_refund, 2),
+        "net_revenue": net_revenue,
+        "cogs": net_cogs,
+        "gross_profit": gross_profit,
+        "margin_pct": round(gross_profit / net_revenue * 100, 1) if net_revenue else 0.0,
+    }
+
+
 def sales_summary(session: Session, branch_id: int | None = None, days: int = 30) -> dict:
     cutoff = datetime.now() - timedelta(days=days)
 
@@ -132,3 +171,69 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         "num_sales": num_sales,
         "net_revenue": total_sales - total_returns,
     }
+
+
+def create_journal_entry(
+    session: Session,
+    branch_id: int,
+    account_type: str,
+    *,
+    debit: float = 0.0,
+    credit: float = 0.0,
+    account_ref: int | None = None,
+    note: str | None = None,
+) -> dict:
+    """Manual journal entry (eStock's Tuning_accounts — 293 manual
+    adjustments). One-sided by design, matching the source system."""
+    from app.services.pos import POSError
+
+    # Must match the CK_ledger_account check constraint on ledger_entries.
+    if account_type not in ("customer", "vendor", "cash", "bank", "branch", "general"):
+        raise POSError("bad_account_type", "نوع حساب غير صالح / invalid account type")
+    if (debit <= 0 and credit <= 0) or (debit > 0 and credit > 0):
+        raise POSError("bad_amounts", "أدخل مديناً أو دائناً (وليس كليهما) / enter debit OR credit")
+    entry = m.LedgerEntry(
+        branch_id=branch_id,
+        account_type=account_type,
+        account_ref=account_ref,
+        ref_type="manual",
+        debit=float(debit),
+        credit=float(credit),
+        note=note or "قيد يدوي / manual journal entry",
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return {"entry_id": entry.entry_id, "account_type": account_type, "debit": float(debit), "credit": float(credit)}
+
+
+def sales_by_customer(session: Session, branch_id: int | None = None, days: int = 30, limit: int = 20) -> list[dict]:
+    """Sales-by-customer report (an eStock report ProCare lacked): revenue and
+    invoice count per named customer over the period, returns excluded."""
+    cutoff = datetime.now() - timedelta(days=days)
+    q = (
+        select(
+            m.Customer.customer_id,
+            m.Customer.name_ar,
+            m.Customer.name_en,
+            func.count(m.Sale.sale_id),
+            func.coalesce(func.sum(m.Sale.total_net), 0),
+        )
+        .join(m.Sale, m.Sale.customer_id == m.Customer.customer_id)
+        .where(m.Sale.is_return == False, m.Sale.sale_date >= cutoff)  # noqa: E712
+        .group_by(m.Customer.customer_id, m.Customer.name_ar, m.Customer.name_en)
+        .order_by(func.coalesce(func.sum(m.Sale.total_net), 0).desc())
+        .limit(limit)
+    )
+    if branch_id:
+        q = q.where(m.Sale.branch_id == branch_id)
+    return [
+        {
+            "customer_id": cid,
+            "name_ar": name_ar,
+            "name_en": name_en,
+            "invoices": int(n),
+            "revenue": round(float(total or 0), 2),
+        }
+        for cid, name_ar, name_en, n, total in session.execute(q)
+    ]

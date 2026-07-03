@@ -30,6 +30,32 @@ def ensure_role_column(engine) -> None:
         conn.execute(text("ALTER TABLE employees ADD COLUMN role VARCHAR(20) DEFAULT 'assistant'"))
 
 
+def ensure_original_sale_id_column(engine) -> None:
+    """Add ``sales.original_sale_id`` (return -> original invoice link) if the
+    table predates the sale-returns feature. NULL for all existing rows."""
+    inspector = inspect(engine)
+    if "sales" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("sales")}
+    if "original_sale_id" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE sales ADD COLUMN original_sale_id INTEGER NULL"))
+
+
+def ensure_shelf_location_column(engine) -> None:
+    """Add ``products.shelf_location`` (merchandising place code) if the table
+    predates it."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    if "shelf_location" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE products ADD COLUMN shelf_location VARCHAR(80) NULL"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.

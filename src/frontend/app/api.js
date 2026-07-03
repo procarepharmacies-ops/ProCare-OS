@@ -4,7 +4,7 @@
 // containerized deployment, where Next.js proxies /api to the backend
 // server-side (see next.config.mjs), so the browser never needs the backend's
 // address and there is no CORS hop. `??` (not `||`) so an explicit "" is kept.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:7000";
 
 const SESSION_KEY = "procare.session";
 
@@ -85,6 +85,7 @@ export const api = {
   products: (branch, search = "") =>
     http(`/inventory/products${bq(branch, search ? `search=${encodeURIComponent(search)}` : "")}`),
   customers: (debtors = false) => http(`/customers${debtors ? "?only_debtors=true" : ""}`),
+  customerStatement: (customerId) => http(`/customers/${customerId}/statement`),
   vendors: () => http("/vendors"),
 
   expiry: (branch, horizon = 90) => http(`/alerts/expiry${bq(branch, `horizon_days=${horizon}`)}`),
@@ -93,6 +94,26 @@ export const api = {
 
   recentSales: (branch) => http(`/sales/recent${bq(branch)}`),
   createSale: (payload) => http("/sales", { method: "POST", body: JSON.stringify(payload) }),
+  returnable: (saleId) => http(`/sales/${saleId}/returnable`),
+  returnSale: (saleId, payload = {}) =>
+    http(`/sales/${saleId}/return`, { method: "POST", body: JSON.stringify(payload) }),
+  profitLoss: (branch, days = 30) => http(`/accounting/profit-loss${bq(branch, `days=${days}`)}`),
+  salesByCustomer: (branch, days = 30) => http(`/accounting/sales-by-customer${bq(branch, `days=${days}`)}`),
+
+  cashShift: (branchId) => http(`/cashdesk/current?branch_id=${branchId}`),
+  openShift: (payload) => http("/cashdesk/open", { method: "POST", body: JSON.stringify(payload) }),
+  closeShift: (payload) => http("/cashdesk/close", { method: "POST", body: JSON.stringify(payload) }),
+
+  createPurchase: (payload) =>
+    http("/purchasing/purchases", { method: "POST", body: JSON.stringify(payload) }),
+  adjustStock: (payload) => http("/inventory/adjust", { method: "POST", body: JSON.stringify(payload) }),
+  setLocation: (productId, shelf_location) =>
+    http(`/inventory/products/${productId}/location`, { method: "POST", body: JSON.stringify({ shelf_location }) }),
+  employeeGoals: (employeeId) => http(`/employees/${employeeId}/goals`),
+  createGoal: (employeeId, payload) =>
+    http(`/employees/${employeeId}/goals`, { method: "POST", body: JSON.stringify(payload) }),
+  setGoalStatus: (goalId, status) =>
+    http(`/employees/goals/${goalId}/status`, { method: "POST", body: JSON.stringify({ status }) }),
 
   chat: (query, branch, lang) =>
     http("/ai/chat", { method: "POST", body: JSON.stringify({ query, branch_id: branch || null, lang }) }),

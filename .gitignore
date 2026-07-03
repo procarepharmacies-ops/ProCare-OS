@@ -46,3 +46,8 @@ data/
 exports/
 logs/
 *.log
+
+# Local (no-Docker) launcher runtime state
+.local-run/
+*.log
+*.pid

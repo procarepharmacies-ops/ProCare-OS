@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ProCare AI — LOCAL launcher for Ubuntu desktops (no Docker).
+# Install:  cp deploy/procare-local.desktop ~/.local/share/applications/
+#           (edit the two paths below if the repo is not at ~/ProCare-OS)
+Type=Application
+Name=ProCare AI (Local)
+Name[ar]=بروكير — النظام المحلي
+Comment=Not just a pharmacy — a family for all your needs
+Comment[ar]=مش مجرد صيدلية… عيلة لكل احتياجاتك
+Path=/home/YOUR_USER/ProCare-OS
+Exec=bash -c './deploy/procare-local.sh open'
+Icon=/home/YOUR_USER/ProCare-OS/src/frontend/public/logo.png
+Terminal=false
+Categories=Office;

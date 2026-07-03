@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, auth, clinical, dashboard, employees, footfall, insights, inventory, parties, purchasing, sales, tasks, transfers, vendors
+from app.api import accounting, ai, alerts, auth, cashdesk, clinical, dashboard, employees, footfall, insights, inventory, parties, purchasing, sales, tasks, transfers, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -115,6 +115,7 @@ router.include_router(dashboard.router)
 router.include_router(inventory.router)
 router.include_router(parties.router)
 router.include_router(sales.router)
+router.include_router(cashdesk.router)
 router.include_router(alerts.router)
 router.include_router(clinical.router)
 router.include_router(ai.router)

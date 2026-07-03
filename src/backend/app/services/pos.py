@@ -246,6 +246,172 @@ def create_sale(
         raise
 
 
+# --- sp_return_sale ---------------------------------------------------------
+@dataclass
+class ReturnLineInput:
+    product_id: int
+    amount: float
+
+
+def returnable_quantities(session: Session, sale: m.Sale) -> dict[int, float]:
+    """Per product: quantity sold on this invoice minus quantity already
+    returned against it (across all prior return invoices)."""
+    sold: dict[int, float] = {}
+    for ln in sale.lines:
+        sold[ln.product_id] = sold.get(ln.product_id, 0.0) + float(ln.amount)
+    prior_returns = session.scalars(
+        select(m.Sale).where(m.Sale.original_sale_id == sale.sale_id, m.Sale.is_return == True)  # noqa: E712
+    ).all()
+    for ret in prior_returns:
+        for ln in ret.lines:
+            sold[ln.product_id] = sold.get(ln.product_id, 0.0) - float(ln.amount)
+    return sold
+
+
+def return_sale(
+    session: Session,
+    sale_id: int,
+    lines: list[ReturnLineInput] | None = None,
+    *,
+    cashier_id: int | None = None,
+) -> m.Sale:
+    """Create one atomic return invoice against an existing sale (eStock's
+    Back_sales_header/details, which it used 4,359 times).
+
+    * quantities are capped at (sold - already returned) per product;
+    * refund per unit is the NET price actually paid (after line discount);
+    * stock goes back to the original batch when it still exists, else a new
+      batch at the line's cost/sell price;
+    * cash refund is a ledger credit; a credit-sale return also reduces the
+      customer's outstanding balance.
+
+    ``lines=None`` returns everything still returnable on the invoice.
+    """
+    original = session.get(m.Sale, sale_id)
+    if original is None:
+        raise POSError("sale_not_found", f"الفاتورة غير موجودة #{sale_id} / sale not found")
+    if original.is_return:
+        raise POSError("cannot_return_return", "لا يمكن استرجاع فاتورة استرجاع / cannot return a return invoice")
+
+    remaining = returnable_quantities(session, original)
+    # Net unit price + costs come from the original lines (first line per product).
+    line_by_product: dict[int, m.SaleLine] = {}
+    for ln in original.lines:
+        line_by_product.setdefault(ln.product_id, ln)
+
+    if lines is None:
+        lines = [ReturnLineInput(pid, qty) for pid, qty in remaining.items() if qty > 0]
+    if not lines:
+        raise POSError("nothing_to_return", "لا يوجد ما يمكن استرجاعه / nothing left to return")
+
+    try:
+        total_refund = 0.0
+        resolved: list[tuple[m.SaleLine, float, float]] = []  # (orig line, qty, refund)
+        for rl in lines:
+            if rl.amount <= 0:
+                raise POSError("bad_quantity", "الكمية يجب أن تكون أكبر من صفر")
+            orig_line = line_by_product.get(rl.product_id)
+            if orig_line is None:
+                raise POSError("product_not_on_sale", f"الصنف #{rl.product_id} ليس على الفاتورة / not on this invoice")
+            if rl.amount > remaining.get(rl.product_id, 0.0) + 1e-9:
+                raise POSError(
+                    "return_exceeds_sold",
+                    f"كمية الاسترجاع أكبر من المتبقي ({money(remaining.get(rl.product_id, 0.0))}) "
+                    f"/ return exceeds returnable quantity",
+                )
+            unit_net = float(orig_line.total_sell) / float(orig_line.amount)
+            refund = round(unit_net * float(rl.amount), 2)
+            total_refund += refund
+            resolved.append((orig_line, float(rl.amount), refund))
+
+        total_refund = round(total_refund, 2)
+        ret = m.Sale(
+            branch_id=original.branch_id,
+            customer_id=original.customer_id,
+            cashier_id=cashier_id,
+            sale_date=datetime.now(),
+            total_gross=total_refund,
+            total_discount=0.0,
+            total_net=total_refund,
+            is_return=True,
+            is_credit=original.is_credit,
+            original_sale_id=original.sale_id,
+        )
+        session.add(ret)
+        session.flush()
+
+        for orig_line, qty, refund in resolved:
+            # Restock: back into the original batch if it still exists,
+            # otherwise a new batch carrying the line's cost/sell price.
+            batch = session.get(m.StockBatch, orig_line.batch_id) if orig_line.batch_id else None
+            if batch is None or batch.branch_id != original.branch_id:
+                batch = m.StockBatch(
+                    product_id=orig_line.product_id,
+                    branch_id=original.branch_id,
+                    amount=0,
+                    buy_price=orig_line.buy_price,
+                    sell_price=orig_line.sell_price,
+                )
+                session.add(batch)
+                session.flush()
+            batch.amount = float(batch.amount) + qty
+            session.add(
+                m.StockMovement(
+                    batch_id=batch.batch_id,
+                    branch_id=original.branch_id,
+                    delta=qty,
+                    reason="return",
+                    ref_id=ret.sale_id,
+                    employee_id=cashier_id,
+                )
+            )
+            session.add(
+                m.SaleLine(
+                    sale_id=ret.sale_id,
+                    product_id=orig_line.product_id,
+                    batch_id=batch.batch_id,
+                    amount=qty,
+                    sell_price=orig_line.sell_price,
+                    buy_price=orig_line.buy_price,
+                    total_sell=refund,
+                    is_return=True,
+                )
+            )
+
+        if original.is_credit and original.customer_id is not None:
+            customer = session.get(m.Customer, original.customer_id)
+            customer.current_balance = float(customer.current_balance or 0) - total_refund
+            session.add(
+                m.LedgerEntry(
+                    branch_id=original.branch_id,
+                    account_type="customer",
+                    account_ref=original.customer_id,
+                    ref_type="sale_return",
+                    ref_id=ret.sale_id,
+                    credit=total_refund,
+                    note="مرتجع بيع آجل / credit sale return",
+                )
+            )
+        else:
+            session.add(
+                m.LedgerEntry(
+                    branch_id=original.branch_id,
+                    account_type="cash",
+                    ref_type="sale_return",
+                    ref_id=ret.sale_id,
+                    credit=total_refund,
+                    note="مرتجع بيع نقدي / cash sale return (refund)",
+                )
+            )
+
+        session.commit()
+        session.refresh(ret)
+        return ret
+    except Exception:
+        session.rollback()
+        raise
+
+
 # --- sp_transfer_stock ------------------------------------------------------
 def transfer_stock(
     session: Session,

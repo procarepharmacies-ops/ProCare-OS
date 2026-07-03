@@ -145,3 +145,118 @@ def purchase_summary(session: Session, branch_id: int | None = None) -> dict:
         "pending_drafts": int(pending_drafts),
         "total_purchases": int(recent_count),
     }
+
+
+def create_purchase(
+    session: Session,
+    branch_id: int,
+    vendor_id: int,
+    lines: list[dict],
+    *,
+    bill_number: str | None = None,
+    total_discount: float = 0.0,
+    total_tax: float = 0.0,
+    is_credit: bool = True,
+) -> m.Purchase:
+    """Receive goods — eStock's New Purchase Invoice (685 used), atomically:
+    header + lines + a NEW stock batch per line (batch-level expiry/cost, so
+    FEFO keeps working) + vendor balance/ledger for on-account purchases.
+
+    Each line: {product_id, amount, buy_price, sell_price?, bonus?, exp_date?}.
+    Bonus (eStock's 'bouns') adds free units to the received batch quantity.
+    """
+    from app.services.pos import POSError  # shared business-error type
+
+    if not lines:
+        raise POSError("empty_purchase", "لا توجد أصناف في الفاتورة / no lines")
+    vendor = session.get(m.Vendor, vendor_id)
+    if vendor is None or not vendor.is_active:
+        raise POSError("vendor_not_found", "المورد غير موجود / vendor not found")
+
+    try:
+        gross = 0.0
+        resolved = []
+        for ln in lines:
+            product = session.get(m.Product, int(ln["product_id"]))
+            if product is None or product.is_deleted:
+                raise POSError("product_not_found", f"صنف غير موجود #{ln['product_id']}")
+            amount = float(ln["amount"])
+            if amount <= 0:
+                raise POSError("bad_quantity", "الكمية يجب أن تكون أكبر من صفر")
+            buy_price = float(ln["buy_price"])
+            if buy_price < 0:
+                raise POSError("bad_price", "سعر شراء غير صالح / invalid buy price")
+            sell_price = float(ln.get("sell_price") or product.sell_price)
+            bonus = float(ln.get("bonus") or 0)
+            exp_date = ln.get("exp_date")  # date | None (parsed by the API layer)
+            gross += round(amount * buy_price, 2)
+            resolved.append((product, amount, bonus, buy_price, sell_price, exp_date))
+
+        net = round(gross - float(total_discount) + float(total_tax), 2)
+        purchase = m.Purchase(
+            branch_id=branch_id,
+            vendor_id=vendor_id,
+            bill_date=datetime.now().date(),
+            bill_number=bill_number,
+            total_gross=round(gross, 2),
+            total_discount=float(total_discount),
+            total_tax=float(total_tax),
+        )
+        session.add(purchase)
+        session.flush()
+
+        for product, amount, bonus, buy_price, sell_price, exp_date in resolved:
+            batch = m.StockBatch(
+                product_id=product.product_id,
+                branch_id=branch_id,
+                amount=amount + bonus,  # bonus units are free stock
+                buy_price=buy_price,
+                sell_price=sell_price,
+                exp_date=exp_date,
+            )
+            session.add(batch)
+            session.flush()
+            session.add(
+                m.StockMovement(
+                    batch_id=batch.batch_id,
+                    branch_id=branch_id,
+                    delta=amount + bonus,
+                    reason="purchase",
+                    ref_id=purchase.purchase_id,
+                )
+            )
+            session.add(
+                m.PurchaseLine(
+                    purchase_id=purchase.purchase_id,
+                    product_id=product.product_id,
+                    batch_id=batch.batch_id,
+                    amount=amount,
+                    bonus=bonus,
+                    buy_price=buy_price,
+                    sell_price=sell_price,
+                    exp_date=exp_date,
+                )
+            )
+            # Keep the product's last cost current (eStock behaviour).
+            product.buy_price = buy_price
+
+        if is_credit:
+            vendor.current_balance = float(vendor.current_balance or 0) + net
+        session.add(
+            m.LedgerEntry(
+                branch_id=branch_id,
+                account_type="vendor" if is_credit else "cash",
+                account_ref=vendor_id if is_credit else None,
+                ref_type="purchase",
+                ref_id=purchase.purchase_id,
+                credit=net,
+                note="فاتورة شراء / purchase invoice",
+            )
+        )
+
+        session.commit()
+        session.refresh(purchase)
+        return purchase
+    except Exception:
+        session.rollback()
+        raise

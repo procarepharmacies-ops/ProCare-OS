@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: procare-backend
+    ports:
+      - "7000:8000"
+    environment:
+      PROCARE_DB_SERVER: "localhost"
+      PROCARE_DB_PORT: "1433"
+      PROCARE_DB_DATABASE: "procare_db"
+      PROCARE_DB_USER: "sa"
+      PROCARE_DB_PASSWORD: "ProCareAdmin#Strong2024"
+      ESTOCK_DB_SERVER: "196.202.93.37"
+      ESTOCK_DB_PORT: "1433"
+      ESTOCK_DB_DATABASE: "stock"
+      ESTOCK_DB_USER: "procare_reader"
+      ESTOCK_DB_PASSWORD: "ProCareReadOnly#2024"
+      SYNC_ENABLED: "true"
+      SYNC_INTERVAL_SECONDS: "300"
+      DEFAULT_LANGUAGE: "ar"
+      DEFAULT_THEME: "light"
+    network_mode: host
+    restart: always
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: procare-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE: "http://196.202.93.36:7000"
+      NODE_ENV: production
+    network_mode: host
+    restart: always
