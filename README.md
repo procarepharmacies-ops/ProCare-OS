@@ -1,159 +1,98 @@
-# ProCare OS
+# ProCare OS — نظام بروكير لإدارة الصيدليات
 
-**A new, fully independent pharmacy operating system with its own clean database — built for Procare Pharmacies. It first _mirrors_ the live eStock data (read-only), runs in _parallel_ for testing, then _completely replaces_ eStock — fused with the Titan / Drug-Eye clinical drug database and an AI + automation layer.**
+**The complete, independent operating system for Procare Pharmacies.**
+Arabic-first (RTL) · Multi-branch (Main + Elsanta) · POS · Inventory · Purchasing · Accounting · HR · AI assistant · Installable as an app.
 
-> Two branches: **MAIN (الرئيسي)** and **ELSANTA (السنتا)**. Both source systems run on the LAN host **`192.168.1.2`**.
-> UI is **Arabic by default (RTL)**; English and Dark mode are **optional, per-user toggles**.
+> مش مجرد صيدلية… عيلة لكل احتياجاتك
 
 ---
 
-## What this repository is
+## What it is
 
-This is the **design + foundation** repository for ProCare OS. It is the conclusion of a careful, end-to-end read of two source documents:
+ProCare OS is a full-stack pharmacy management system with its **own clean database** (real foreign keys, indexes, audited stock movements). It mirrors the legacy eStock system read-only during the transition, runs in parallel, then replaces it entirely — covering **100% of every eStock feature that was actually used**, plus a modern layer eStock never had: AI assistant, clinical drug advisory, smart reorder, analytics, and a glassmorphism Arabic-first UI.
 
-1. **eStock Database — Full Picture Report** — the live SQL Server database `stock` (version `stock_phy_ver1.8.0.0`), audited on 2026-06-23.
-2. **ProCare OS — AI & Automation feature spec** — the `PharmacyAI` / `PharmacyAutomation` vision.
+| | |
+|---|---|
+| **Backend** | Python · FastAPI · SQLAlchemy — SQLite in dev, SQL Server in production |
+| **Frontend** | Next.js (React) · RTL Arabic default, English toggle · light/dark themes · PWA |
+| **AI** | Arabic assistant (Claude or Gemini, offline keyword router fallback) |
+| **Tests** | 78 backend tests (`pytest`) |
 
-From those, plus the owner's direction, this repo defines **how to build a separate, independent system that owns its own clean database, mirrors eStock to validate, runs in parallel, then replaces eStock entirely** — without ever disrupting (or writing to) the live pharmacy operation.
+## Screens (18)
 
-> Owner's words: _"I need a separate system with their own database. Firstly I will depend on the original database for reading data and I will test a new system, then change the old one completely. I want to have my own software independently."_
+Dashboard · POS (sales **+ returns + cash-desk shifts**) · Inventory (batches, expiry, **shelf places**) · Purchasing (invoices, **receive goods**, AI reorder drafts) · Stock Transfers · Customers (**account statements**, credit control) · Vendors · Employees (**PMP / development plans**) · Tasks (**auto weekly ops checklist**) · Accounting (ledger, trial balance, **manual journal**) · Reports (daily, sales, **P&L**, **by customer**, by cashier, stock & expiry, productivity) · Alerts (expiry / low stock) · Clinical drug advisory · AI Assistant · Settings · Login
 
-Start here → **[`docs/00-CONCLUSION.md`](docs/00-CONCLUSION.md)** (the executive conclusion).
+## Quick start
 
-## The core decision
+### Option A — One click, no Docker (recommended for the pharmacy PC)
 
-ProCare OS is a **standalone system of record**, not a permanent read-only layer over eStock.
+Requires Python 3.11+ and Node.js 18+ installed once.
 
-- **Own clean database from day one** — real foreign keys, proper indexes, NON-NULL dates, no broken views. This directly fixes every data-quality problem found in eStock (which has **ZERO** stored procedures, **ZERO** functions, **NO** foreign keys, and **8 BROKEN** views).
-- **eStock is read-only, and temporary** — used only as the initial source of truth to mirror and validate against during the transition. ProCare **never writes to the eStock database** — read-only ETL only, via a dedicated read-only SQL login.
-- **Two branches, modeled cleanly** — MAIN and ELSANTA, with a `branch_id` on every operational row, replicating how eStock connects the branches (Module 7).
-- **Fuses clinical intelligence** — Titan / Drug-Eye (at path `D:\Labirdo`) supplies drug product names, substitution/alternatives, interactions, and dosing, surfaced at the counter as **advisory** guidance (never silently blocks a sale).
-- **Adds AI + automation** — Arabic assistant, smart reorder, expiry alerts, forecasting, WhatsApp/email reports.
+- **Windows:** copy a shortcut of `deploy/ProCare-Local.bat` to the Desktop (icon: `src/frontend/public/procare.ico`), double-click.
+- **Linux / WSL / macOS:** `./deploy/procare-local.sh`
 
-## Build strategy — mirror → parallel → cut over
+First run installs dependencies and builds the UI, then every launch starts the backend + frontend and opens **http://localhost:3000**. Data lives in a local SQLite file until you point it at SQL Server.
 
-| Phase | Goal | eStock relationship |
-|-------|------|---------------------|
-| **Phase 1 — Mirror** | Read from the original eStock DB to mirror data into ProCare's own DB and validate it; stand up the read-only dashboard + Arabic AI assistant. | Read-only ETL |
-| **Phase 2 — Parallel** | Run the new system in parallel on **one** branch to test in real use. **Elsanta is the recommended pilot branch.** | Read-only ETL continues |
-| **Phase 3 — Cut over** | Switch over **completely** and **retire eStock**. ProCare becomes the sole, independent system of record. | eStock retired |
+### Option B — Docker (full production stack with SQL Server)
 
-Full delivery plan: **[`docs/06-roadmap.md`](docs/06-roadmap.md)**.
+```bash
+docker compose up -d --build     # UI on :3000, API on :7000, SQL Server on :1433
+```
+
+`deploy/procare.sh` is the control center (start/stop/update/logs/health). Put a Cloudflare `TUNNEL_TOKEN` in `.env` to publish it on the internet.
+
+### Option C — Development
+
+```bash
+cd src/backend  && pip install -r requirements.txt && python run.py   # API :8000
+cd src/frontend && npm install && npm run dev                          # UI  :3000
+```
+
+## Logins
+
+Real staff accounts are created automatically at startup (initial password must be changed on first login — roster in `src/backend/app/db/migrate.py`):
+
+| Role | What they can do |
+|---|---|
+| **CEO** | Everything — accounting, employees, salaries, insights |
+| **Manager** | Branch-scoped operations + insights, no salaries |
+| **Assistant** | POS and inventory |
+
+A demo `admin` account is seeded for development — **disable it in production**.
+
+## Install as an app
+
+ProCare is a PWA: open it in Chrome/Edge (desktop or Android) or Safari (iOS) over HTTPS and choose **Install / Add to Home Screen**. It gets the ProCare icon, its own window, app shortcuts (POS / Inventory / Reports) and an offline shell. Live data is never cached.
+
+## Architecture
+
+```
+Browser ──► Next.js (UI, :3000) ──/api proxy──► FastAPI (:8000/:7000) ──► ProCare DB (SQL Server / SQLite)
+                                                      │  read-only ETL (Phase 1–2 only)
+                                                      └─► eStock `stock` DB  +  Titan/Drug-Eye (clinical)
+```
+
+- **eStock is never written to** — a read-only login mirrors it on a timer until cut-over (mirror → parallel → replace; see [`docs/06-roadmap.md`](docs/06-roadmap.md)).
+- Every hot path eStock kept locked in its `.exe` is re-implemented as tested, atomic service code: FEFO stock deduction, credit-limit checks, sale/return invoices, cash-desk shifts, transfers. Stock can never go negative, expired stock can't be sold, and every movement is audited.
+- Clinical / interaction output is **advisory** — shown to the pharmacist, never silently blocks a sale.
 
 ## Repository map
 
-| Path | What it holds |
-|------|---------------|
-| [`docs/00-CONCLUSION.md`](docs/00-CONCLUSION.md) | **The conclusion** — the independent-system decision, build strategy, the 3 phases |
-| [`docs/01-architecture.md`](docs/01-architecture.md) | Detailed architecture, data flow, tech stack, guardrails (non-negotiable) |
-| [`docs/02-eStock-database-reference.md`](docs/02-eStock-database-reference.md) | Full eStock schema reference — 8 modules, key tables, columns |
-| [`docs/03-titan-drugeye-integration.md`](docs/03-titan-drugeye-integration.md) | Titan / Drug-Eye (`D:\Labirdo`) integration plan + schema-discovery checklist (**TBD**) |
-| [`docs/04-ai-automation-spec.md`](docs/04-ai-automation-spec.md) | AI assistant + automation feature spec (Arabic-first) |
-| [`docs/05-data-quality-and-fixes.md`](docs/05-data-quality-and-fixes.md) | Known eStock data issues + the fixes ProCare OS bakes in |
-| [`docs/06-roadmap.md`](docs/06-roadmap.md) | Phase-by-phase delivery roadmap (mirror → parallel → cut over) |
-| [`docs/07-multi-branch.md`](docs/07-multi-branch.md) | Multi-branch model — Main + Elsanta, transfers, ledgers (eStock Module 7) |
-| [`sql/procare-schema.sql`](sql/procare-schema.sql) | ProCare's **own** clean SQL Server schema (FKs, indexes, NON-NULL dates) |
-| [`sql/procedures-and-views.sql`](sql/procedures-and-views.sql) | Hot-path stored procedures (`sp_create_sale`, FEFO `sp_deduct_stock`, `sp_check_credit`…) + the AI assistant's read-only whitelist views |
-| [`sql/dashboard-queries.sql`](sql/dashboard-queries.sql) | Ready-to-run, **read-only** KPI / dashboard queries against eStock |
-| [`config/connections.example.json`](config/connections.example.json) | Connection template (no secrets) — copy to `connections.json` |
-| [`.gitignore`](.gitignore) | Ensures `config/connections.json` (and other secrets) are never committed |
-| [`src/`](src/README.md) | Application source — **working full-stack app**: FastAPI backend + Next.js (Arabic/RTL) frontend |
+| Path | Contents |
+|---|---|
+| `src/backend/` | FastAPI app — API routes, services (POS, returns, cash desk, purchasing, accounting, tasks, PMP, AI, clinical, ETL/sync), models, 78 tests |
+| `src/frontend/` | Next.js app — 18 screens, bilingual i18n, PWA manifest + service worker |
+| `deploy/` | Local launchers (no Docker), Docker control center, Dockerfiles, Cloudflare Tunnel |
+| `docs/` | Architecture, eStock database reference, roadmap, data-quality rules, multi-branch model |
+| `sql/` | ProCare clean schema, stored procedures, ready dashboard queries |
+| `config/` | Connection template (`connections.example.json` — real credentials are git-ignored) |
 
-## The two source systems (on `192.168.1.2`)
+## Security
 
-| System | Role | Location / Database | Status |
-|--------|------|---------------------|--------|
-| **eStock** | Operations: POS, purchasing, inventory, customers, vendors, HR, accounts, ledger | SQL Server `stock` (`stock_phy_ver1.8.0.0`) | Live; mirror source for Phase 1, retired after Phase 3 |
-| **Titan / Drug-Eye** | Clinical drug intelligence: product names, substitution/alternatives, interactions, dosing | Path `D:\Labirdo`; DB schema **TBD** (not yet audited) — see [`docs/03`](docs/03-titan-drugeye-integration.md) | Live; schema discovery pending |
+- This repo is **private** — it documents internal topology and schema.
+- **No credentials are committed.** Copy `config/connections.example.json` → `config/connections.json` (git-ignored) and use a **dedicated read-only** SQL login for the eStock mirror.
+- Full non-negotiable guardrails: [`docs/01-architecture.md`](docs/01-architecture.md).
 
-### eStock at a glance (from the 2026-06-23 audit)
+## License & ownership
 
-- **~53,474 products** (`Products`, 61 columns: `product_name_ar`/`product_name_en`, `product_scientific_name`, `product_drug`, prices, 3 unit types, 14 barcode slots).
-- **95,088 sales invoices** (`Sales_header`) / **183,906 sale lines** (`Sales_details`); **4,359 / 4,212** return headers/lines (`Back_sales_header` / `Back_Sales_details`).
-- **1,197 customers** (`Customer`: `customer_max_money` credit limit, `customer_current_money` balance), **87 vendors** (`Vendor`), **1,210 companies** (`Companys`).
-- **2 branches** (`Branches`, 52 columns each) — Main + Elsanta. Per-branch stock in `Branches_Product_Amount` (121,625); inter-branch stock transfers in `Branch_order_header` (8,204) / `Branch_order_details` (61,872); inter-branch cash in `Branch_money_order` (1,102) / `Branch_money_convert` (1,098); branch ledger `Gedo_branches` (9,271).
-- Real-time inventory in `Product_Amount` (35,404 batch rows: `product_id` + `store_id` + `counter_id` + `exp_date` → `amount`).
-- General ledger `Gedo_Financial` (93,925); customer ledger `Gedo_customers` (88,359); vendor ledger `Gedo_Vendors` (2,878).
-
-ProCare OS mirrors all of this into its own clean schema, fixes the data-quality problems, then becomes the single system that finally lets operations and clinical drug data talk to each other.
-
-## Data-quality rules when reading eStock
-
-ProCare's ETL applies these rules; the clean ProCare schema makes them impossible going forward (see [`docs/05`](docs/05-data-quality-and-fixes.md)):
-
-- **`bill_date` is often NULL** on recent sales → always `COALESCE(bill_date, insert_date)`.
-- **Exclude returns** from sales metrics → `back IS NULL OR back <> 'Y'`.
-- **Available stock** = `amount > 0` **AND** not expired (`exp_date > GETDATE()` or `product_has_expire = 'N'`).
-- **FEFO** (First Expire First Out) = `ORDER BY exp_date ASC`.
-- **74 expired batches** still in stock; **61 customers** over their credit limit; **33,249 zero/negative** stock batches; **8 broken views** (`item_purchasing`, `store_item_qty`, etc. — querying them crashes).
-
-## Multi-branch — Main + Elsanta
-
-ProCare replicates eStock Module 7 with a clean model: a `branches` table, per-branch + per-batch stock, atomic audited `stock_transfers` (header + lines) between branches, `cash_transfers` between branches, and a unified ledger with a `branch_id` on every financial row. The dashboard/UI has a branch switcher (Main / Elsanta / All). Details: [`docs/07-multi-branch.md`](docs/07-multi-branch.md).
-
-## Tech stack
-
-- **Backend:** Python + FastAPI; `pyodbc` / SQLAlchemy for SQL Server; APScheduler for jobs; Prophet for forecasting.
-- **AI:** Claude API powers the Arabic assistant (`PharmacyAI.chat`), which translates natural language into **constrained, READ-ONLY SQL**.
-- **Frontend:** React / Next.js — RTL + i18n (Arabic default, English optional), Light default + Dark optional; both preferences persist per user. Product data stored bilingually (`name_ar` / `name_en`).
-- **Notifications:** WhatsApp Cloud API + SMTP.
-- **Automation:** hourly `auto_purchase_order`; daily 09:00 `expiry_alerts` (90/30/7 days + auto-lock expired); daily/weekly/monthly `auto_reports`; `send_whatsapp`.
-- **Optional later:** native .NET 8 POS.
-
-See [`docs/01-architecture.md`](docs/01-architecture.md) and [`docs/04-ai-automation-spec.md`](docs/04-ai-automation-spec.md).
-
-## Security note
-
-- This repo is **private** because it documents internal network topology and database schema.
-- **No credentials or connection strings are committed.** Copy [`config/connections.example.json`](config/connections.example.json) → `config/connections.json` (git-ignored via [`.gitignore`](.gitignore)) and fill in a **dedicated read-only** SQL login for the eStock mirror.
-- **ProCare NEVER writes to the eStock database** — read-only ETL only. This guardrail keeps the live pharmacy 100% safe throughout Phases 1–2.
-- **Clinical / interaction output is ADVISORY**, shown to a pharmacist — it never silently blocks a sale.
-- See the full guardrails in [`docs/01-architecture.md`](docs/01-architecture.md#guardrails-non-negotiable).
-
-## Status
-
-**Working application.** The full stack runs standalone on ProCare's own database
-(SQLite in dev — zero setup; SQL Server in production) seeded with realistic
-demo data, because the live eStock SQL Server and credentials are not reachable
-outside the pharmacy LAN. Built and runnable today:
-
-- **Backend (FastAPI):** clean schema as ORM; dashboard KPIs + charts; inventory
-  with FEFO batches; customers/vendors with the credit picture; **POS write-path**
-  (`sp_create_sale`, FEFO `sp_deduct_stock`, `sp_check_credit`, `sp_transfer_stock`)
-  with the eStock data-quality bugs fixed by design; expiry / low-stock /
-  transfer-aware reorder automation; the **clinical drug-advisory layer**
-  (interactions, in-stock alternatives, age-based dosing — advisory, never
-  blocks a sale; Titan/Drug-Eye ready); the **Arabic AI assistant** (constrained,
-  read-only); and the read-only **eStock mirror adapter** that activates the
-  moment real credentials are present. Tested with `pytest`.
-- **Frontend (Next.js, Arabic/RTL-first):** dashboard, inventory, POS (with a
-  live drug-interaction advisory banner), customers, alerts, a clinical drug-card
-  page, and the AI assistant — branch switcher + language + theme toggles, all
-  persisted per user.
-
-**See it live — one command** (full stack via Docker, boots on seeded data):
-
-```bash
-docker compose up -d --build      # UI http://localhost:3000 · API http://localhost:8080/docs
-```
-
-Run it on **SQL Server** (production engine) with a second SQL Server standing in
-for eStock, kept in sync continuously (near-real-time):
-
-```bash
-docker compose -f docker-compose.yml -f deploy/docker-compose.sqlserver.yml up -d --build
-# watch the mirror at  GET /api/sync/status
-```
-
-Deploying to a Multipass VM named `foo`? Run `./deploy/foo-up.sh` on the host —
-it provisions the VM, builds the stack, and prints the live URL. See
-[`deploy/README.md`](deploy/README.md). Or run the two services directly for dev:
-
-```bash
-cd src/backend && pip install -r requirements.txt && python run.py      # API :8000
-cd src/frontend && npm install && npm run dev                           # UI  :3000
-```
-
-**To go live against the real pharmacy:** fill `config/connections.json` with the
-read-only eStock login + the ProCare SQL Server DB, then run the Phase-1 mirror.
-See [`docs/06-roadmap.md`](docs/06-roadmap.md).
+Proprietary — built for **Procare Pharmacies** (Main الرئيسي + Elsanta السنتا). All rights reserved.
