@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, auth, cashdesk, clinical, dashboard, employees, footfall, insights, inventory, parties, purchasing, sales, tasks, transfers, vendors
+from app.api import accounting, ai, alerts, auth, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, purchasing, sales, tasks, transfers, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -120,6 +120,8 @@ router.include_router(alerts.router)
 router.include_router(clinical.router)
 router.include_router(ai.router)
 router.include_router(purchasing.router)
+# CRM: loyalty points, per-invoice WhatsApp, marketing campaigns.
+router.include_router(crm.router)
 # Financial + salary data — CEO only once AUTH_ENABLED=true (no-op otherwise).
 router.include_router(accounting.router, dependencies=[Depends(auth_guard(("ceo",)))])
 router.include_router(employees.router, dependencies=[Depends(auth_guard(("ceo",)))])

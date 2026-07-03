@@ -14,6 +14,9 @@ export default function CustomersPage() {
   // Account statement (eStock's Gedo_customers ledger) for the opened customer.
   const [statement, setStatement] = useState(null);
   const [statementFor, setStatementFor] = useState(null);
+  // Loyalty points panel for the opened customer.
+  const [loyaltyData, setLoyaltyData] = useState(null);
+  const [loyaltyFor, setLoyaltyFor] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -42,6 +45,21 @@ export default function CustomersPage() {
       setStatement(await api.customerStatement(customerId));
     } catch {
       setStatementFor(null);
+    }
+  }
+
+  async function openLoyalty(customerId) {
+    if (loyaltyFor === customerId) {
+      setLoyaltyFor(null);
+      setLoyaltyData(null);
+      return;
+    }
+    setLoyaltyFor(customerId);
+    setLoyaltyData(null);
+    try {
+      setLoyaltyData(await api.loyalty(customerId));
+    } catch {
+      setLoyaltyFor(null);
     }
   }
 
@@ -78,6 +96,9 @@ export default function CustomersPage() {
                 <td>
                   <button className="btn" onClick={() => openStatement(c.customer_id)}>
                     {L("statement")}
+                  </button>{" "}
+                  <button className="btn" onClick={() => openLoyalty(c.customer_id)}>
+                    ⭐ {L("loyalty_title")}
                   </button>
                 </td>
               </tr>
@@ -86,6 +107,48 @@ export default function CustomersPage() {
         </table>
         {!rows && <p className="muted" style={{ padding: 16 }}>{L("loading")}</p>}
       </div>
+
+      {loyaltyFor && (
+        <div className="card" style={{ marginTop: 16 }}>
+          {!loyaltyData && <p className="muted">{L("loading")}</p>}
+          {loyaltyData && (
+            <>
+              <h3 className="section-title">
+                ⭐ {L("loyalty_title")} — {loyaltyData.customer}
+              </h3>
+              <p style={{ fontSize: 18, fontWeight: 700 }}>
+                {fmt(loyaltyData.points)} {L("points")}{" "}
+                <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}>
+                  ≈ {fmt(loyaltyData.value_egp)} {L("egp")}
+                </span>
+              </p>
+              {loyaltyData.history.length === 0 && <p className="muted">{L("no_entries")}</p>}
+              {loyaltyData.history.length > 0 && (
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("date")}</th>
+                      <th>{L("note")}</th>
+                      <th className="num">{L("points")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyData.history.map((h) => (
+                      <tr key={h.id}>
+                        <td className="muted">{h.at ? new Date(h.at).toLocaleDateString() : "—"}</td>
+                        <td>{h.note || h.kind}</td>
+                        <td className="num" style={{ color: h.points >= 0 ? "var(--ok, green)" : "var(--danger, red)" }}>
+                          {h.points >= 0 ? "+" : ""}{fmt(h.points)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {statementFor && (
         <div className="card" style={{ marginTop: 16 }}>

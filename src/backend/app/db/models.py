@@ -129,6 +129,8 @@ class Customer(Base):
     credit_limit: Mapped[float] = mapped_column(Money, default=0)
     current_balance: Mapped[float] = mapped_column(Money, default=0)
     opening_balance: Mapped[float] = mapped_column(Money, default=0)
+    # Loyalty programme: whole points, earned on sales, spent via redemption.
+    loyalty_points: Mapped[float] = mapped_column(Qty, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -493,4 +495,56 @@ class EmployeeGoal(Base):
         CheckConstraint("category IN ('performance','training','behavior')", name="CK_goal_category"),
         CheckConstraint("status IN ('active','achieved','dropped')", name="CK_goal_status"),
         Index("IX_goals_employee_status", "employee_id", "status"),
+    )
+
+
+class LoyaltyTransaction(Base):
+    """One loyalty-points movement per customer: earned on a sale, clawed back
+    on a return, spent on redemption, or a manual adjustment. The customer's
+    ``loyalty_points`` column is the running balance; this is the audit trail.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "loyalty_transactions"
+
+    loyalty_tx_id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.customer_id"))
+    sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
+    points_delta: Mapped[float] = mapped_column(Qty)  # + earn, - redeem/clawback
+    kind: Mapped[str] = mapped_column(String(20))  # earn/redeem/clawback/adjust
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('earn','redeem','clawback','adjust')", name="CK_loyalty_kind"),
+        Index("IX_loyalty_customer", "customer_id", "created_at"),
+    )
+
+
+class Campaign(Base):
+    """A WhatsApp marketing campaign: one message sent to a filtered audience
+    of customers (all / debtors / top spenders / inactive). When the WhatsApp
+    Cloud API is configured the send is automatic; otherwise the campaign
+    yields per-customer click-to-chat links the staff work through.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "campaigns"
+
+    campaign_id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    message: Mapped[str] = mapped_column(String(2000))
+    audience: Mapped[str] = mapped_column(String(20), default="all")
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/sent
+    recipient_count: Mapped[int] = mapped_column(default=0)
+    sent_count: Mapped[int] = mapped_column(default=0)  # via Cloud API only
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("audience IN ('all','debtors','top','inactive')", name="CK_campaign_audience"),
+        CheckConstraint("status IN ('draft','sent')", name="CK_campaign_status"),
     )
