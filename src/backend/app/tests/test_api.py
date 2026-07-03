@@ -286,3 +286,65 @@ def test_sales_by_customer_report(client):
     assert isinstance(rows, list)
     if rows:
         assert rows[0]["revenue"] >= rows[-1]["revenue"]  # sorted desc
+
+
+# --- Weekly operations tasks (stocktake, merchandising, expiry, reorder) --------
+def test_weekly_ops_tasks_created_once(client, session):
+    from app.services import tasks as tasks_svc
+
+    created_first = tasks_svc.ensure_weekly_ops_tasks(session)
+    created_again = tasks_svc.ensure_weekly_ops_tasks(session)
+    assert created_again == 0  # idempotent within the same ISO week
+
+    r = client.get("/api/tasks")
+    titles = [t["title"] for t in r.json()["tasks"]]
+    assert any("جرد أسبوعي للمخزون" in t for t in titles)
+    assert any("ميرشندايزينج" in t for t in titles)
+
+
+# --- Merchandising shelf location -----------------------------------------------
+def test_set_and_list_shelf_location(client):
+    products = client.get("/api/inventory/products?branch_id=1").json()["products"]
+    pid = products[0]["product_id"]
+    r = client.post(f"/api/inventory/products/{pid}/location", json={"shelf_location": "A3 — رف الأطفال"})
+    assert r.status_code == 200, r.text
+    assert r.json()["shelf_location"] == "A3 — رف الأطفال"
+
+    listed = next(
+        p for p in client.get("/api/inventory/products?branch_id=1").json()["products"] if p["product_id"] == pid
+    )
+    assert listed["shelf_location"] == "A3 — رف الأطفال"
+
+    # Clearing works; unknown product 422s.
+    r = client.post(f"/api/inventory/products/{pid}/location", json={"shelf_location": "  "})
+    assert r.json()["shelf_location"] is None
+    assert client.post("/api/inventory/products/999999/location", json={"shelf_location": "X"}).status_code == 422
+
+
+# --- Employee PMP / development plan ----------------------------------------------
+def test_employee_goals_lifecycle(client):
+    emp = client.get("/api/employees/list").json()["employees"][0]
+    eid = emp["employee_id"]
+
+    r = client.post(
+        f"/api/employees/{eid}/goals",
+        json={"title": "رفع متوسط الفاتورة 10%", "category": "performance", "target_date": "2026-09-30"},
+    )
+    assert r.status_code == 200, r.text
+    goal_id = r.json()["goal_id"]
+
+    r = client.post(f"/api/employees/{eid}/goals", json={"title": "دورة خدمة عملاء", "category": "training"})
+    assert r.status_code == 200
+
+    goals = client.get(f"/api/employees/{eid}/goals").json()["goals"]
+    assert len(goals) >= 2
+
+    r = client.post(f"/api/employees/goals/{goal_id}/status", json={"status": "achieved"})
+    assert r.status_code == 200
+    achieved = next(g for g in client.get(f"/api/employees/{eid}/goals").json()["goals"] if g["goal_id"] == goal_id)
+    assert achieved["status"] == "achieved" and achieved["completed_at"]
+
+    # Bad category / status / employee are refused.
+    assert client.post(f"/api/employees/{eid}/goals", json={"title": "x y", "category": "weird"}).status_code == 422
+    assert client.post(f"/api/employees/goals/{goal_id}/status", json={"status": "weird"}).status_code == 422
+    assert client.post("/api/employees/999999/goals", json={"title": "x y"}).status_code == 422

@@ -104,3 +104,65 @@ def summary(session: Session, branch_id: int | None = None, assignee_id: int | N
         base.where(m.EmployeeTask.status == "done", m.EmployeeTask.completed_at >= start_of_today)
     ) or 0
     return {"pending": int(pending), "done_today": int(done_today)}
+
+
+# --- Recurring weekly operations tasks ---------------------------------------
+# The pharmacy's standing weekly routine (owner-defined operations checklist):
+# stocktake, merchandising/shelf-place check, expiry sweep, reorder review.
+# Title carries the ISO-week tag so creation is idempotent per week per branch.
+WEEKLY_OPS_TEMPLATES = [
+    (
+        "جرد أسبوعي للمخزون",
+        "عد فعلي للأصناف عالية الحركة ومطابقة الكميات مع النظام — أي فرق يُسجل من شاشة تسوية المخزون.",
+    ),
+    (
+        "مراجعة أماكن المنتجات والعرض (ميرشندايزينج)",
+        "مراجعة أماكن الأصناف على الأرفف حسب خانة (المكان) في شاشة المخزون، وإبراز العروض والأصناف الموسمية.",
+    ),
+    (
+        "مراجعة الصلاحيات القريبة",
+        "مراجعة تنبيهات الصلاحية (٩٠/٣٠/٧ يوم) وتقديم الأقرب انتهاءً للأمام (FEFO) أو عرضه بخصم.",
+    ),
+    (
+        "مراجعة النواقص وإعادة الطلب",
+        "مراجعة مسودات إعادة الطلب الذكية واعتماد أوامر الشراء للموردين.",
+    ),
+]
+
+
+def ensure_weekly_ops_tasks(session: Session) -> int:
+    """Create this ISO-week's standard operations tasks for every active
+    branch (once — safe to call at every startup). Returns how many were
+    created. Due date = end of the ISO week (Sunday)."""
+    from datetime import date, timedelta
+
+    today = date.today()
+    year, week, weekday = today.isocalendar()
+    tag = f"[أسبوع {week}/{year}]"
+    due = today + timedelta(days=7 - weekday)  # ISO Sunday
+
+    branches = session.scalars(select(m.Branch).where(m.Branch.is_active == True)).all()  # noqa: E712
+    created = 0
+    for branch in branches:
+        for title, details in WEEKLY_OPS_TEMPLATES:
+            full_title = f"{title} {tag}"
+            # One per (title, branch, week): the week tag is in the title.
+            if session.scalar(
+                select(func.count())
+                .select_from(m.EmployeeTask)
+                .where(m.EmployeeTask.title == full_title, m.EmployeeTask.branch_id == branch.branch_id)
+            ):
+                continue
+            session.add(
+                m.EmployeeTask(
+                    title=full_title,
+                    details=details,
+                    branch_id=branch.branch_id,
+                    due_date=due,
+                    status="pending",
+                )
+            )
+            created += 1
+    if created:
+        session.commit()
+    return created

@@ -11,6 +11,9 @@ export default function InventoryPage() {
   const L = (k) => t(lang, k);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState(null);
+  // Merchandising: inline shelf-location editing (eStock's Sites).
+  const [editingLoc, setEditingLoc] = useState(null); // product_id
+  const [locDraft, setLocDraft] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -27,6 +30,17 @@ export default function InventoryPage() {
       clearTimeout(id);
     };
   }, [branch, search]);
+
+  async function saveLocation(pid) {
+    try {
+      const r = await api.setLocation(pid, locDraft);
+      setRows((rs) => rs.map((p) => (p.product_id === pid ? { ...p, shelf_location: r.shelf_location } : p)));
+    } catch {
+      /* keep old value */
+    }
+    setEditingLoc(null);
+    setLocDraft("");
+  }
 
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
@@ -45,6 +59,7 @@ export default function InventoryPage() {
             <tr>
               <th>{L("product")}</th>
               <th>{L("scientific")}</th>
+              <th>{L("shelf_place")}</th>
               <th className="num">{L("price")}</th>
               <th className="num">{L("on_hand")}</th>
               <th className="num">{L("min")}</th>
@@ -56,6 +71,31 @@ export default function InventoryPage() {
               <tr key={p.product_id}>
                 <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}</td>
                 <td className="muted">{p.scientific_name || "—"}</td>
+                <td>
+                  {editingLoc === p.product_id ? (
+                    <input
+                      className="input"
+                      autoFocus
+                      value={locDraft}
+                      onChange={(e) => setLocDraft(e.target.value)}
+                      onBlur={() => saveLocation(p.product_id)}
+                      onKeyDown={(e) => e.key === "Enter" && saveLocation(p.product_id)}
+                      style={{ width: 130 }}
+                    />
+                  ) : (
+                    <span
+                      className={p.shelf_location ? "" : "muted"}
+                      style={{ cursor: "pointer" }}
+                      title={L("shelf_place_hint")}
+                      onClick={() => {
+                        setEditingLoc(p.product_id);
+                        setLocDraft(p.shelf_location || "");
+                      }}
+                    >
+                      {p.shelf_location || "＋"}
+                    </span>
+                  )}
+                </td>
                 <td className="num">{fmt(p.sell_price)}</td>
                 <td className="num">{fmt(p.on_hand)}</td>
                 <td className="num muted">{fmt(p.min_stock)}</td>

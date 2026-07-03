@@ -170,8 +170,123 @@ export default function EmployeesPage() {
             </tbody>
           </table>
         </div>
+
+        {selectedEmployee && (
+          <DevPlanPanel
+            L={L}
+            lang={lang}
+            employee={selectedEmployee}
+            onClose={() => setSelectedEmployee(null)}
+          />
+        )}
       </div>
     </Shell>
+  );
+}
+
+// PMP / development plan: goals per employee with category, target date, status.
+function DevPlanPanel({ L, lang, employee, onClose }) {
+  const [goals, setGoals] = useState(null);
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("performance");
+  const [targetDate, setTargetDate] = useState("");
+
+  const load = () =>
+    api.employeeGoals(employee.employee_id).then((r) => setGoals(r.goals)).catch(() => setGoals([]));
+  useEffect(() => {
+    setGoals(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.employee_id]);
+
+  async function addGoal() {
+    try {
+      await api.createGoal(employee.employee_id, {
+        title,
+        category,
+        target_date: targetDate || null,
+      });
+      setTitle("");
+      setTargetDate("");
+      load();
+    } catch {
+      /* keep form state */
+    }
+  }
+
+  async function setStatus(goalId, status) {
+    try {
+      await api.setGoalStatus(goalId, status);
+      load();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const badge = { active: "", achieved: "ok", dropped: "danger" };
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 className="section-title" style={{ margin: 0 }}>
+          {L("dev_plan")} — {lang === "ar" ? employee.name_ar : employee.name_en || employee.name_ar}
+        </h3>
+        <button className="btn icon" onClick={onClose}>✕</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+        <input className="input" placeholder={L("goal_title")} value={title}
+               onChange={(e) => setTitle(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+        <select className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="performance">{L("cat_performance")}</option>
+          <option value="training">{L("cat_training")}</option>
+          <option value="behavior">{L("cat_behavior")}</option>
+        </select>
+        <input className="input" type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
+        <button className="btn primary" disabled={title.trim().length < 2} onClick={addGoal}>
+          {L("add_goal")}
+        </button>
+      </div>
+
+      {!goals && <p className="muted">{L("loading")}</p>}
+      {goals && goals.length === 0 && <p className="muted">{L("no_goals")}</p>}
+      {goals && goals.length > 0 && (
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>{L("goal_title")}</th>
+              <th>{L("goal_category")}</th>
+              <th>{L("target_date")}</th>
+              <th>{L("status")}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {goals.map((g) => (
+              <tr key={g.goal_id}>
+                <td>{g.title}</td>
+                <td className="muted">{L(`cat_${g.category}`)}</td>
+                <td className="muted">{g.target_date || "—"}</td>
+                <td>
+                  <span className={`badge ${badge[g.status] || ""}`}>{L(`goal_${g.status}`)}</span>
+                </td>
+                <td>
+                  {g.status === "active" && (
+                    <span style={{ display: "flex", gap: 6 }}>
+                      <button className="btn" onClick={() => setStatus(g.goal_id, "achieved")}>
+                        {L("mark_achieved")}
+                      </button>
+                      <button className="btn icon" title={L("goal_dropped")}
+                              onClick={() => setStatus(g.goal_id, "dropped")}>✕</button>
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 

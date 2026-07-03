@@ -180,3 +180,73 @@ def create_employee(
         "has_login": has_login,
         "branch_id": emp.branch_id,
     }
+
+
+# --- PMP / development plans --------------------------------------------------
+def list_goals(session: Session, employee_id: int) -> list[dict]:
+    from sqlalchemy import select
+
+    goals = session.scalars(
+        select(m.EmployeeGoal)
+        .where(m.EmployeeGoal.employee_id == employee_id)
+        .order_by(m.EmployeeGoal.status.asc(), m.EmployeeGoal.created_at.desc())
+    ).all()
+    return [
+        {
+            "goal_id": g.goal_id,
+            "title": g.title,
+            "details": g.details,
+            "category": g.category,
+            "target_date": g.target_date.isoformat() if g.target_date else None,
+            "status": g.status,
+            "created_at": g.created_at.isoformat() if g.created_at else None,
+            "completed_at": g.completed_at.isoformat() if g.completed_at else None,
+        }
+        for g in goals
+    ]
+
+
+def create_goal(
+    session: Session,
+    employee_id: int,
+    title: str,
+    *,
+    details: str | None = None,
+    category: str = "performance",
+    target_date=None,
+    created_by: int | None = None,
+) -> dict:
+    from app.services.pos import POSError
+
+    if session.get(m.Employee, employee_id) is None:
+        raise POSError("employee_not_found", "الموظف غير موجود / employee not found")
+    if category not in ("performance", "training", "behavior"):
+        raise POSError("bad_category", "تصنيف غير صالح / invalid category")
+    goal = m.EmployeeGoal(
+        employee_id=employee_id,
+        title=title,
+        details=details,
+        category=category,
+        target_date=target_date,
+        created_by=created_by,
+    )
+    session.add(goal)
+    session.commit()
+    session.refresh(goal)
+    return {"goal_id": goal.goal_id, "status": goal.status}
+
+
+def set_goal_status(session: Session, goal_id: int, status: str) -> dict:
+    from datetime import datetime
+
+    from app.services.pos import POSError
+
+    if status not in ("active", "achieved", "dropped"):
+        raise POSError("bad_status", "حالة غير صالحة / invalid status")
+    goal = session.get(m.EmployeeGoal, goal_id)
+    if goal is None:
+        raise POSError("goal_not_found", "الهدف غير موجود / goal not found")
+    goal.status = status
+    goal.completed_at = datetime.now() if status == "achieved" else None
+    session.commit()
+    return {"goal_id": goal_id, "status": status}

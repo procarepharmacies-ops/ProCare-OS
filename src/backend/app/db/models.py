@@ -101,6 +101,9 @@ class Product(Base):
     wholesale_price: Mapped[float | None] = mapped_column(Money, nullable=True)
 
     min_stock: Mapped[float] = mapped_column(Qty, default=0)
+    # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
+    # e.g. "A3", "رف الأطفال", "counter fridge".
+    shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -463,4 +466,31 @@ class CashShift(Base):
     __table_args__ = (
         CheckConstraint("status IN ('open','closed')", name="CK_shift_status"),
         Index("IX_shifts_branch_status", "branch_id", "status"),
+    )
+
+
+class EmployeeGoal(Base):
+    """PMP / development-plan item per employee: a performance or training
+    goal with a target date, tracked by the CEO/manager in reviews.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "employee_goals"
+
+    goal_id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    title: Mapped[str] = mapped_column(String(200))
+    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    category: Mapped[str] = mapped_column(String(20), default="performance")
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("category IN ('performance','training','behavior')", name="CK_goal_category"),
+        CheckConstraint("status IN ('active','achieved','dropped')", name="CK_goal_status"),
+        Index("IX_goals_employee_status", "employee_id", "status"),
     )

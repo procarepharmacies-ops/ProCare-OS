@@ -51,3 +51,16 @@ def adjust(payload: AdjustIn, session: Session = Depends(get_session)):
         )
     except POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+class LocationIn(BaseModel):
+    shelf_location: str | None = Field(None, max_length=80)
+
+
+@router.post("/products/{product_id}/location")
+def set_location(product_id: int, payload: LocationIn, session: Session = Depends(get_session)):
+    """Merchandising: where this product lives on the shelves."""
+    try:
+        return inventory.set_shelf_location(session, product_id, payload.shelf_location)
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})

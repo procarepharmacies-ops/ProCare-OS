@@ -107,6 +107,13 @@ export const api = {
   createPurchase: (payload) =>
     http("/purchasing/purchases", { method: "POST", body: JSON.stringify(payload) }),
   adjustStock: (payload) => http("/inventory/adjust", { method: "POST", body: JSON.stringify(payload) }),
+  setLocation: (productId, shelf_location) =>
+    http(`/inventory/products/${productId}/location`, { method: "POST", body: JSON.stringify({ shelf_location }) }),
+  employeeGoals: (employeeId) => http(`/employees/${employeeId}/goals`),
+  createGoal: (employeeId, payload) =>
+    http(`/employees/${employeeId}/goals`, { method: "POST", body: JSON.stringify(payload) }),
+  setGoalStatus: (goalId, status) =>
+    http(`/employees/goals/${goalId}/status`, { method: "POST", body: JSON.stringify({ status }) }),
 
   chat: (query, branch, lang) =>
     http("/ai/chat", { method: "POST", body: JSON.stringify({ query, branch_id: branch || null, lang }) }),

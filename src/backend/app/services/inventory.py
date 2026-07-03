@@ -58,6 +58,7 @@ def list_products(
                 "min_stock": money(p.min_stock),
                 "on_hand": on_hand_qty,
                 "is_controlled": p.is_controlled,
+                "shelf_location": p.shelf_location,
                 "low": on_hand_qty < float(p.min_stock or 0),
             }
         )
@@ -126,3 +127,15 @@ def adjust_stock(
     )
     session.commit()
     return {"batch_id": batch_id, "amount": money(new_amount), "delta": money(delta)}
+
+
+def set_shelf_location(session: Session, product_id: int, shelf_location: str | None) -> dict:
+    """Merchandising: set/clear a product's physical shelf/place code."""
+    from app.services.pos import POSError
+
+    product = session.get(m.Product, product_id)
+    if product is None or product.is_deleted:
+        raise POSError("product_not_found", f"صنف غير موجود #{product_id} / product not found")
+    product.shelf_location = (shelf_location or "").strip() or None
+    session.commit()
+    return {"product_id": product_id, "shelf_location": product.shelf_location}
