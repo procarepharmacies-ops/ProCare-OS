@@ -32,7 +32,7 @@ starts the stack, and prints the live URL. When it finishes:
 
 ```
 UI:   http://<foo-ip>:3000
-API:  http://<foo-ip>:8080/docs
+API:  http://<foo-ip>:7000/docs
 ```
 
 `<foo-ip>` is shown by the script (also `multipass info foo`). Re-run the script
@@ -42,7 +42,7 @@ any time to redeploy.
 
 ```bash
 docker compose up -d --build
-# UI  http://localhost:3000   ·   API http://localhost:8080/docs
+# UI  http://localhost:3000   ·   API http://localhost:7000/docs
 ```
 
 ## Option B2 — SQL Server + live sync (production engine)
@@ -52,7 +52,7 @@ playing the role of **eStock**, kept in sync **continuously** (near-real-time):
 
 ```bash
 docker compose -f docker-compose.yml -f deploy/docker-compose.sqlserver.yml up -d --build
-# UI http://localhost:3000 · API http://localhost:8080/docs · sync GET /api/sync/status
+# UI http://localhost:3000 · API http://localhost:7000/docs · sync GET /api/sync/status
 ```
 
 What it does:
@@ -70,7 +70,7 @@ Use the dedicated overlay (no demo eStock containers — points at the live serv
 cp deploy/estock.env.example deploy/estock.env     # git-ignored; fill host/user/password
 docker compose --env-file deploy/estock.env \
   -f docker-compose.yml -f deploy/docker-compose.estock-live.yml up -d --build
-# UI http://localhost:3000 · sync GET http://localhost:8080/api/sync/status
+# UI http://localhost:3000 · sync GET http://localhost:7000/api/sync/status
 ```
 
 eStock is opened **read-only** (only SELECTs; ProCare never creates or writes
@@ -126,7 +126,7 @@ docker compose down             # stop & remove
 browser ──http──> frontend :3000 ──(/api/* proxied server-side)──> backend :8000 ──> ProCare DB (SQLite)
 ```
 
-- `docker-compose.yml` — the two services (repo root).
+- `docker-compose.yml` — the full stack (repo root): SQL Server, backend, frontend, plus the optional Cloudflare `tunnel` service (compose profile `tunnel`, enabled by `TUNNEL_TOKEN` in `.env`).
 - `deploy/Dockerfile.backend` — Python 3.11 + FastAPI (uvicorn on 0.0.0.0:8000).
 - `deploy/Dockerfile.frontend` — Node 22, `next build` with the `/api` proxy baked to `backend:8000`, `next start` on :3000.
 - `deploy/foo-up.sh` — the Multipass one-shot above.

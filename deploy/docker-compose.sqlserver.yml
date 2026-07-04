@@ -27,6 +27,8 @@ services:
       MSSQL_PID: "Developer"
     volumes:
       - procare_mssql:/var/opt/mssql
+    networks:
+      - procare-net
     restart: unless-stopped
 
   estock-db:
@@ -37,6 +39,8 @@ services:
       MSSQL_PID: "Developer"
     volumes:
       - estock_mssql:/var/opt/mssql
+    networks:
+      - procare-net
     restart: unless-stopped
 
   # One-shot: create + fill the eStock-shaped source database, then exit.
@@ -53,6 +57,8 @@ services:
       ESTOCK_ENSURE_DB: "1"   # throwaway demo source — OK to create its DB
     depends_on:
       - estock-db
+    networks:
+      - procare-net
     restart: "no"
 
   backend:
