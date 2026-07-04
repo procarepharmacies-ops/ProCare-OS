@@ -92,3 +92,66 @@ def create_purchase(payload: PurchaseIn, session: Session = Depends(get_session)
         "total_gross": float(p.total_gross),
         "lines": len(p.lines),
     }
+
+
+class PurchaseReturnLineIn(BaseModel):
+    product_id: int
+    amount: float = Field(gt=0)
+
+
+class PurchaseReturnIn(BaseModel):
+    lines: list[PurchaseReturnLineIn] | None = None  # None => everything returnable
+    is_credit: bool = True
+
+
+@router.post("/purchases/{purchase_id}/return")
+def return_purchase(purchase_id: int, payload: PurchaseReturnIn, session: Session = Depends(get_session)):
+    from app.services.pos import POSError
+
+    try:
+        ret = purchasing.create_purchase_return(
+            session,
+            purchase_id,
+            [l.model_dump() for l in payload.lines] if payload.lines else None,
+            is_credit=payload.is_credit,
+        )
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+    return {
+        "return_id": ret.purchase_id,
+        "original_purchase_id": purchase_id,
+        "total_returned": float(ret.total_gross),
+        "lines": len(ret.lines),
+    }
+
+
+@router.get("/budget")
+def budget(branch_id: int | None = Query(None), session: Session = Depends(get_session)):
+    """Today's purchasing budget: 80% (PURCHASE_BUDGET_PCT) of avg daily sales."""
+    from app.services import autopurchase
+
+    return autopurchase.daily_budget(session, branch_id or None)
+
+
+@router.get("/auto-proposal")
+def auto_proposal(
+    branch_id: int | None = Query(None),
+    cover_days: int = Query(14, ge=3, le=90),
+    session: Session = Depends(get_session),
+):
+    """Preview the predictive, budget-capped purchase proposal (no writes)."""
+    from app.services import autopurchase
+
+    return autopurchase.propose(session, branch_id or None, cover_days=cover_days)
+
+
+@router.post("/auto-generate")
+def auto_generate(
+    branch_id: int = Query(...),
+    cover_days: int = Query(14, ge=3, le=90),
+    session: Session = Depends(get_session),
+):
+    """Write the predictive proposal as approvable PurchaseOrderDraft rows."""
+    from app.services import autopurchase
+
+    return autopurchase.generate_drafts(session, branch_id, cover_days=cover_days)
