@@ -6,6 +6,7 @@ import Icon from "../components/icons";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
+import { printReceipt } from "../lib/print";
 
 export default function POSPage() {
   const { lang, branch, branches, setBranch } = useUI();
@@ -22,6 +23,12 @@ export default function POSPage() {
   const [redeemIn, setRedeemIn] = useState("");
   const [waLink, setWaLink] = useState(null);
   const [advisory, setAdvisory] = useState([]);
+  // Substitution panel: same-active-ingredient alternatives with per-branch
+  // stock + nearest expiry (drug substitution during sales).
+  const [subsFor, setSubsFor] = useState(null); // {product_id, name}
+  const [subs, setSubs] = useState(null);
+  // Last completed sale id — enables the branded receipt print.
+  const [lastSaleId, setLastSaleId] = useState(null);
   // Return mode (eStock: sale returns were used 4,359 times — a first-class flow).
   const [mode, setMode] = useState("sale"); // "sale" | "return"
   const [returnSaleId, setReturnSaleId] = useState("");
@@ -168,9 +175,44 @@ export default function POSPage() {
     }
   }
 
+  async function showSubs(item) {
+    setSubsFor({ product_id: item.product_id, name: item.name });
+    setSubs(null);
+    try {
+      const r = await api.substitutions(item.product_id, posBranch, lang);
+      setSubs(r.substitutions || r.alternatives || []);
+    } catch {
+      setSubs([]);
+    }
+  }
+
+  function swapToSub(s) {
+    // Replace the original cart line with the chosen alternative.
+    setCart((c) =>
+      c.map((x) =>
+        x.product_id === subsFor.product_id
+          ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
+          : x
+      )
+    );
+    setSubsFor(null);
+    setSubs(null);
+  }
+
+  async function doPrintReceipt() {
+    if (!lastSaleId) return;
+    try {
+      const sale = await api.saleDetail(lastSaleId);
+      printReceipt(sale, { lang });
+    } catch {
+      /* receipt is best-effort */
+    }
+  }
+
   async function completeSale() {
     setResult(null);
     setWaLink(null);
+    setLastSaleId(null);
     try {
       const payload = {
         branch_id: posBranch,
@@ -186,6 +228,7 @@ export default function POSPage() {
       if (r.whatsapp_sent) msg += ` · ${L("wa_sent")} ✓`;
       setResult({ ok: true, msg });
       setWaLink(r.whatsapp_link || null);
+      setLastSaleId(r.sale_id);
       setCart([]);
       setIsCredit(false);
       setCustomerId("");
@@ -377,6 +420,9 @@ export default function POSPage() {
           {cart.map((x) => (
             <div key={x.product_id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ flex: 1 }}>{x.name}</span>
+              <button className="btn icon" onClick={() => showSubs(x)} title={L("alternatives")}>
+                ⇄
+              </button>
               <input
                 className="input"
                 type="number"
@@ -393,6 +439,43 @@ export default function POSPage() {
               </button>
             </div>
           ))}
+
+          {/* Substitution recommendations: same active ingredient, price, stock
+              per branch with the nearest expiry. Click to swap into the cart. */}
+          {subsFor && (
+            <div className="card" style={{ margin: "10px 0", padding: 10, background: "var(--bg)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <strong style={{ fontSize: 13 }}>
+                  ⇄ {L("alt_for")}: {subsFor.name}
+                </strong>
+                <button className="btn icon" onClick={() => { setSubsFor(null); setSubs(null); }}>✕</button>
+              </div>
+              {subs === null && <p className="muted" style={{ fontSize: 13 }}>{L("loading")}</p>}
+              {subs && subs.length === 0 && <p className="muted" style={{ fontSize: 13 }}>{L("no_alternatives")}</p>}
+              {subs?.map((s) => (
+                <div key={s.product_id} style={{ borderTop: "1px solid var(--border)", padding: "6px 0", fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span>
+                      <strong>{s.name}</strong>
+                      <span className="muted"> · {s.scientific_name}</span>
+                    </span>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span className="num">{fmt(s.sell_price)} {L("egp")}</span>
+                      <button className="btn" onClick={() => swapToSub(s)}>⇄</button>
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                    {(s.branches || []).map((b) => (
+                      <span key={b.branch_id} className="badge" style={{ fontSize: 11 }}>
+                        {b.branch_name}: {fmt(b.qty)}
+                        {b.nearest_expiry ? ` · ${L("expiry_lbl")} ${b.nearest_expiry}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={{ borderTop: "1px solid var(--border)", marginTop: 10, paddingTop: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 20, fontWeight: 700 }}>
@@ -491,6 +574,12 @@ export default function POSPage() {
                  style={{ marginTop: 8, width: "100%", display: "block", textAlign: "center" }}>
                 💬 {L("wa_send_invoice")}
               </a>
+            )}
+            {lastSaleId && (
+              <button className="btn" onClick={doPrintReceipt}
+                      style={{ marginTop: 8, width: "100%" }}>
+                {L("print_receipt")}
+              </button>
             )}
           </div>
         </div>

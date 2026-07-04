@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Shell from "./components/Shell";
 import { BarChart, HBar, CountUp } from "./components/charts";
 import Icon from "./components/icons";
@@ -11,27 +12,38 @@ import { api } from "./api";
 export default function DashboardPage() {
   const { lang, branch } = useUI();
   const L = (k) => t(lang, k);
+  const router = useRouter();
   const [data, setData] = useState(null);
+  // View: last-30-days (default) / month series / custom date range.
+  const [view, setView] = useState("days");
+  const [months, setMonths] = useState([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [rangeData, setRangeData] = useState(null);
+  const [branchCmp, setBranchCmp] = useState([]);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [summary, daily, top, cashiers] = await Promise.all([
+        const [summary, daily, top, cashiers, cmp] = await Promise.all([
           api.dashboardSummary(branch),
           api.dailySales(branch, 30),
           api.topProducts(branch, 30),
           api.cashiers(branch),
+          api.byBranch().catch(() => ({ branches: [] })),
         ]);
         // Defensive defaults: a stale/mismatched backend must degrade to empty
         // charts, never crash the whole dashboard.
-        if (alive)
+        if (alive) {
           setData({
             summary: summary ?? {},
             daily: daily?.series ?? [],
             top: top?.products ?? [],
             cashiers: cashiers?.cashiers ?? [],
           });
+          setBranchCmp(cmp?.branches ?? []);
+        }
       } catch {
         if (alive) setData({ error: true });
       }
@@ -41,6 +53,24 @@ export default function DashboardPage() {
     };
   }, [branch]);
 
+  useEffect(() => {
+    if (view !== "month") return;
+    let alive = true;
+    api.monthlySales(branch, 12).then((r) => alive && setMonths(r?.months ?? [])).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [view, branch]);
+
+  async function loadRange() {
+    if (!fromDate || !toDate) return;
+    try {
+      setRangeData(await api.rangeSummary(branch, fromDate, toDate));
+    } catch {
+      setRangeData(null);
+    }
+  }
+
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
   return (
@@ -49,25 +79,118 @@ export default function DashboardPage() {
       {data?.error && <p className="badge danger">{L("offline")}</p>}
       {data && !data.error && (
         <>
-          <KPIs k={data.summary.kpis} L={L} fmt={fmt} />
+          <KPIs k={data.summary.kpis} L={L} fmt={fmt} go={(href) => router.push(href)} />
 
-          <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
-            <div className="card">
-              <h3 className="section-title">{L("daily_sales")}</h3>
-              <BarChart data={data.daily} valueKey="revenue" labelKey="date" />
-            </div>
-            <div className="card">
-              <h3 className="section-title">{L("top_products")}</h3>
-              <Ranked
-                rows={data.top.map((p) => ({
-                  name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
-                  value: p.revenue,
-                }))}
-                fmt={fmt}
-                unit={L("egp")}
-              />
-            </div>
+          {/* View switcher: 30 days / month view / custom range */}
+          <div style={{ display: "flex", gap: 8, marginTop: 16, alignItems: "center", flexWrap: "wrap" }}>
+            <button className={`btn ${view === "days" ? "primary" : ""}`} onClick={() => setView("days")}>
+              {L("view_days")}
+            </button>
+            <button className={`btn ${view === "month" ? "primary" : ""}`} onClick={() => setView("month")}>
+              {L("view_month")}
+            </button>
+            <button className={`btn ${view === "range" ? "primary" : ""}`} onClick={() => setView("range")}>
+              {L("view_range")}
+            </button>
+            {view === "range" && (
+              <>
+                <input className="input" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} title={L("from_date")} />
+                <input className="input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} title={L("to_date")} />
+                <button className="btn primary" disabled={!fromDate || !toDate} onClick={loadRange}>
+                  {L("apply")}
+                </button>
+              </>
+            )}
           </div>
+
+          {view === "range" && rangeData && (
+            <div className="kpi-row" style={{ marginTop: 12 }}>
+              <div className="kpi-box"><div className="kpi-value num">{fmt(rangeData.revenue)}</div><div className="kpi-label">{L("revenue")} ({L("egp")})</div></div>
+              <div className="kpi-box"><div className="kpi-value num">{fmt(rangeData.bills)}</div><div className="kpi-label">{L("bills")}</div></div>
+              <div className="kpi-box"><div className="kpi-value num">{fmt(rangeData.discount)}</div><div className="kpi-label">{L("discount_lbl")}</div></div>
+              <div className="kpi-box"><div className="kpi-value num">{fmt(rangeData.profit)}</div><div className="kpi-label">{L("profit_lbl")}</div></div>
+            </div>
+          )}
+
+          {view === "month" ? (
+            <div className="card" style={{ marginTop: 16 }}>
+              <h3 className="section-title">{L("view_month")}</h3>
+              <BarChart data={months} valueKey="revenue" labelKey="month" />
+              <div className="table-wrapper" style={{ marginTop: 12 }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("month_lbl")}</th>
+                      <th className="num">{L("bills")}</th>
+                      <th className="num">{L("revenue")}</th>
+                      <th className="num">{L("discount_lbl")}</th>
+                      <th className="num">{L("profit_lbl")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {months.map((mo) => (
+                      <tr key={mo.month}>
+                        <td>{mo.month}</td>
+                        <td className="num">{fmt(mo.bills)}</td>
+                        <td className="num">{fmt(mo.revenue)}</td>
+                        <td className="num">{fmt(mo.discount)}</td>
+                        <td className="num">{fmt(mo.profit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
+              <div className="card">
+                <h3 className="section-title">{L("daily_sales")}</h3>
+                <BarChart data={data.daily} valueKey="revenue" labelKey="date" />
+              </div>
+              <div className="card">
+                <h3 className="section-title">{L("top_products")}</h3>
+                <Ranked
+                  rows={data.top.map((p) => ({
+                    name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
+                    value: p.revenue,
+                  }))}
+                  fmt={fmt}
+                  unit={L("egp")}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* All-branches comparison (this month) */}
+          {branchCmp.length > 1 && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <h3 className="section-title">{L("by_branch_cmp")}</h3>
+              <div className="table-wrapper">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("branch")}</th>
+                      <th className="num">{L("bills")}</th>
+                      <th className="num">{L("revenue")} ({L("egp")})</th>
+                      <th className="num">{L("discount_lbl")}</th>
+                      <th className="num">{L("profit_lbl")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branchCmp.map((b) => (
+                      <tr key={b.branch_id}>
+                        <td>{lang === "ar" ? b.name_ar : b.name_en || b.name_ar}</td>
+                        <td className="num">{fmt(b.bills)}</td>
+                        <td className="num">{fmt(b.revenue)}</td>
+                        <td className="num">{fmt(b.discount)}</td>
+                        <td className="num" style={{ color: b.profit >= 0 ? "var(--ok)" : "var(--danger)" }}>{fmt(b.profit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="card" style={{ marginTop: 16 }}>
             <h3 className="section-title">{L("cashier_perf")}</h3>
@@ -84,19 +207,27 @@ export default function DashboardPage() {
   );
 }
 
-function KPIs({ k, L, fmt }) {
+function KPIs({ k, L, fmt, go }) {
+  // Every number links to its detail screen (owner: "link any dashboard
+  // number to see more details").
   const cards = [
-    { label: L("sales_today"), value: k.sales_today, sub: `${k.bills_today} ${L("bills")}`, ico: "receipt" },
-    { label: L("sales_month"), value: k.sales_month, sub: L("egp"), ico: "coins" },
-    { label: L("profit_month"), value: k.profit_month, sub: L("egp"), ico: "chart" },
-    { label: L("low_stock"), value: k.low_stock, sub: "", ico: "pill" },
-    { label: L("expiring_30"), value: k.expiring_30, sub: "", ico: "bell" },
-    { label: L("debtors"), value: k.debtors, sub: "", ico: "customers" },
+    { label: L("sales_today"), value: k.sales_today, sub: `${k.bills_today} ${L("bills")}`, ico: "receipt", href: "/reports" },
+    { label: L("sales_month"), value: k.sales_month, sub: L("egp"), ico: "coins", href: "/reports" },
+    { label: L("profit_month"), value: k.profit_month, sub: L("egp"), ico: "chart", href: "/reports" },
+    { label: L("low_stock"), value: k.low_stock, sub: "", ico: "pill", href: "/alerts" },
+    { label: L("expiring_30"), value: k.expiring_30, sub: "", ico: "bell", href: "/alerts" },
+    { label: L("debtors"), value: k.debtors, sub: "", ico: "customers", href: "/customers" },
   ];
   return (
     <div className="grid kpis">
       {cards.map((c) => (
-        <div className="card" key={c.label}>
+        <div
+          className="card"
+          key={c.label}
+          onClick={() => go(c.href)}
+          style={{ cursor: "pointer" }}
+          title={L("view_details")}
+        >
           <span className="kpi-ico">
             <Icon name={c.ico} size={19} />
           </span>
@@ -104,7 +235,7 @@ function KPIs({ k, L, fmt }) {
           <div className="kpi-value num">
             <CountUp value={c.value} format={(n) => fmt(Math.round(n))} />
           </div>
-          <div className="kpi-sub">{c.sub}</div>
+          <div className="kpi-sub">{c.sub || L("view_details")}</div>
         </div>
       ))}
     </div>

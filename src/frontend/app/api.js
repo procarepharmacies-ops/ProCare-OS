@@ -131,6 +131,51 @@ export const api = {
     http(`/clinical/products/${productId}/substitutions${bq(branch, `lang=${lang}`)}`),
   dose: (productId, age, lang) => http(`/clinical/products/${productId}/dose?age=${age}&lang=${lang}`),
 
+  // Dashboard views: month series, branch comparison, custom date range.
+  monthlySales: (branch, months = 12) => http(`/dashboard/monthly${bq(branch, `months=${months}`)}`),
+  byBranch: (dateFrom, dateTo) =>
+    http(`/dashboard/by-branch${dateFrom && dateTo ? `?date_from=${dateFrom}&date_to=${dateTo}` : ""}`),
+  rangeSummary: (branch, dateFrom, dateTo) =>
+    http(`/dashboard/range${bq(branch, `date_from=${dateFrom}&date_to=${dateTo}`)}`),
+  saleDetail: (saleId) => http(`/sales/${saleId}`),
+
+  // Treasury: vouchers, branch money transfers, balances.
+  treasuryBalances: () => http("/treasury/balances"),
+  treasuryMovements: (branch) => http(`/treasury/movements${bq(branch)}`),
+  treasuryTransfers: (branch) => http(`/treasury/transfers${bq(branch)}`),
+  treasuryReceive: (payload) => http("/treasury/receive", { method: "POST", body: JSON.stringify(payload) }),
+  treasuryPay: (payload) => http("/treasury/pay", { method: "POST", body: JSON.stringify(payload) }),
+  treasuryTransfer: (payload) => http("/treasury/transfer", { method: "POST", body: JSON.stringify(payload) }),
+  treasuryAdjust: (payload) => http("/treasury/adjust", { method: "POST", body: JSON.stringify(payload) }),
+
+  // Prescription reader + doctor habits.
+  rxStatus: () => http("/prescriptions/status"),
+  rxAnalyze: (payload) => http("/prescriptions/analyze", { method: "POST", body: JSON.stringify(payload) }),
+  rxCreate: (payload) => http("/prescriptions", { method: "POST", body: JSON.stringify(payload) }),
+  rxList: (branch) => http(`/prescriptions${bq(branch)}`),
+  rxHabits: (branch, days = 180) => http(`/prescriptions/doctor-habits${bq(branch, `days=${days}`)}`),
+
+  // Shortage sheet.
+  shortages: (branch, status) =>
+    http(`/shortages${bq(branch, status ? `status=${status}` : "")}`),
+  createShortage: (payload) => http("/shortages", { method: "POST", body: JSON.stringify(payload) }),
+  setShortageStatus: (id, status) =>
+    http(`/shortages/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+
+  // Predictive purchasing + returns.
+  purchaseBudget: (branch) => http(`/purchasing/budget${bq(branch)}`),
+  autoProposal: (branch) => http(`/purchasing/auto-proposal${bq(branch)}`),
+  autoGenerate: (branchId) => http(`/purchasing/auto-generate?branch_id=${branchId}`, { method: "POST" }),
+  purchaseDetail: (purchaseId) => http(`/purchasing/purchases/${purchaseId}`),
+  returnPurchase: (purchaseId, payload = {}) =>
+    http(`/purchasing/purchases/${purchaseId}/return`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Stock reports (JSON; append ?format=csv server-side for raw export).
+  stockReport: (branch) => http(`/reports/stock${bq(branch)}`),
+  stockBatches: (branch) => http(`/reports/stock/batches${bq(branch)}`),
+  stockMovements: (branch, days = 30) => http(`/reports/stock/movements${bq(branch, `days=${days}`)}`),
+  stockValuation: () => http("/reports/stock/valuation"),
+
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),
