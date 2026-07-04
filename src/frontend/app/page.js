@@ -23,7 +23,15 @@ export default function DashboardPage() {
           api.topProducts(branch, 30),
           api.cashiers(branch),
         ]);
-        if (alive) setData({ summary, daily: daily.series, top: top.products, cashiers: cashiers.cashiers });
+        // Defensive defaults: a stale/mismatched backend must degrade to empty
+        // charts, never crash the whole dashboard.
+        if (alive)
+          setData({
+            summary: summary ?? {},
+            daily: daily?.series ?? [],
+            top: top?.products ?? [],
+            cashiers: cashiers?.cashiers ?? [],
+          });
       } catch {
         if (alive) setData({ error: true });
       }
