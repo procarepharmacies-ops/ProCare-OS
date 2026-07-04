@@ -12,7 +12,8 @@ know the host's IP for the app to work.
 
 | Script / guide | What it does |
 |---|---|
-| `ProCare-Autostart-Install.bat` | Desktop icon + start on **login** (simple) |
+| `ProCare-OneClick-Setup.bat` | **Fresh PC, one file**: installs Git/Python/Node (winget), downloads ProCare, creates the Desktop icon + autostart, builds and starts it |
+| `ProCare-Autostart-Install.bat` | Desktop icon + start on **login** (repo already on the PC) |
 | `ProCare-Service-Install.bat` | Start on **Windows boot, before login** (Task Scheduler as SYSTEM) + optional **Cloudflare Tunnel as a Windows service** for a public https URL (phone access from anywhere) |
 | `SQL-SERVER-EXPRESS.md` | Move ProCare's database from SQLite to free **SQL Server Express** — config-only, step by step |
 | `../docs/08-google-cloud-300-plan.md` | Gemini API key setup + the plan for the $300 Google Cloud trial (off-site backups, free always-on VM, monitoring) |
