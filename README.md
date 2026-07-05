@@ -16,7 +16,7 @@ ProCare OS is a full-stack pharmacy management system with its **own clean datab
 | **Backend** | Python · FastAPI · SQLAlchemy — SQLite in dev, SQL Server in production |
 | **Frontend** | Next.js (React) · RTL Arabic default, English toggle · light/dark themes · PWA |
 | **AI** | Arabic assistant (Claude or Gemini, offline keyword router fallback) |
-| **Tests** | 78 backend tests (`pytest`) |
+| **Tests** | 89 backend tests (`pytest`) |
 
 ## Screens (19)
 
@@ -86,7 +86,7 @@ Browser ──► Next.js (UI, :3000) ──/api proxy──► FastAPI (:8000/:
 
 | Path | Contents |
 |---|---|
-| `src/backend/` | FastAPI app — API routes, services (POS, returns, cash desk, purchasing, accounting, tasks, PMP, AI, clinical, ETL/sync), models, 78 tests |
+| `src/backend/` | FastAPI app — API routes, services (POS, returns, cash desk, purchasing, accounting, tasks, PMP, AI, clinical, ETL/sync), models, 89 tests |
 | `src/frontend/` | Next.js app — 18 screens, bilingual i18n, PWA manifest + service worker |
 | `deploy/` | Local launchers (no Docker), Docker control center, Dockerfiles, Cloudflare Tunnel |
 | `docs/` | Architecture, eStock database reference, roadmap, data-quality rules, multi-branch model |

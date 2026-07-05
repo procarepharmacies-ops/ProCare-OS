@@ -11,7 +11,7 @@
 #   3) docker compose --env-file deploy/estock.env \
 #        -f docker-compose.yml -f deploy/docker-compose.estock-live.yml up -d --build
 #
-#   open http://localhost:3000   ·   sync status: GET http://localhost:8080/api/sync/status
+#   open http://localhost:3000   ·   sync status: GET http://localhost:7000/api/sync/status
 #
 # GUARDRAIL: eStock is opened READ-ONLY (only SELECTs; ESTOCK_ENSURE_DB is NOT
 # set, so ProCare never tries to create/write anything on the eStock server).
