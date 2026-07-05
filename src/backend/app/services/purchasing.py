@@ -260,3 +260,135 @@ def create_purchase(
     except Exception:
         session.rollback()
         raise
+
+
+def create_purchase_return(
+    session: Session,
+    purchase_id: int,
+    lines: list[dict] | None = None,
+    *,
+    is_credit: bool = True,
+) -> m.Purchase:
+    """Return goods to the vendor against a purchase invoice (eStock's
+    Back_purchase_header/details), atomically:
+
+    * quantities capped at (received − already returned) per product;
+    * stock leaves the batch the purchase created (never below zero);
+    * vendor balance/ledger reversed at the line's buy price.
+
+    Each line: {product_id, amount}. ``lines=None`` returns everything still
+    returnable.
+    """
+    from app.services.pos import POSError
+
+    original = session.scalar(select(m.Purchase).where(m.Purchase.purchase_id == purchase_id))
+    if original is None:
+        raise POSError("purchase_not_found", f"فاتورة الشراء غير موجودة #{purchase_id} / purchase not found")
+    if original.is_return:
+        raise POSError("cannot_return_return", "لا يمكن استرجاع فاتورة مرتجع / cannot return a return invoice")
+
+    # Received minus already returned, per product.
+    received: dict[int, float] = {}
+    line_by_product: dict[int, m.PurchaseLine] = {}
+    for ln in original.lines:
+        received[ln.product_id] = received.get(ln.product_id, 0.0) + float(ln.amount)
+        line_by_product.setdefault(ln.product_id, ln)
+    prior = session.scalars(
+        select(m.Purchase).where(
+            m.Purchase.bill_number == f"RET-{purchase_id}", m.Purchase.is_return == True  # noqa: E712
+        )
+    ).all()
+    for ret in prior:
+        for ln in ret.lines:
+            received[ln.product_id] = received.get(ln.product_id, 0.0) - float(ln.amount)
+
+    if lines is None:
+        lines = [{"product_id": pid, "amount": qty} for pid, qty in received.items() if qty > 0]
+    if not lines:
+        raise POSError("nothing_to_return", "لا يوجد ما يمكن إرجاعه / nothing left to return")
+
+    try:
+        vendor = session.get(m.Vendor, original.vendor_id)
+        total = 0.0
+        resolved: list[tuple[m.PurchaseLine, float, float]] = []
+        for rl in lines:
+            pid = int(rl["product_id"])
+            qty = float(rl["amount"])
+            if qty <= 0:
+                raise POSError("bad_quantity", "الكمية يجب أن تكون أكبر من صفر")
+            orig_line = line_by_product.get(pid)
+            if orig_line is None:
+                raise POSError("product_not_on_purchase", f"الصنف #{pid} ليس على الفاتورة / not on this invoice")
+            if qty > received.get(pid, 0.0) + 1e-9:
+                raise POSError(
+                    "return_exceeds_received",
+                    f"كمية الإرجاع أكبر من المتبقي ({received.get(pid, 0.0)}) / return exceeds received quantity",
+                )
+            # Stock must still be there to give back.
+            batch = session.get(m.StockBatch, orig_line.batch_id) if orig_line.batch_id else None
+            available = float(batch.amount) if batch else 0.0
+            if available + 1e-9 < qty:
+                raise POSError(
+                    "insufficient_stock",
+                    f"المخزون الحالي ({available}) أقل من كمية الإرجاع / stock already sold — cannot return to vendor",
+                )
+            value = round(qty * float(orig_line.buy_price), 2)
+            total += value
+            resolved.append((orig_line, qty, value))
+
+        total = round(total, 2)
+        ret = m.Purchase(
+            branch_id=original.branch_id,
+            vendor_id=original.vendor_id,
+            bill_date=datetime.now().date(),
+            bill_number=f"RET-{purchase_id}",
+            total_gross=total,
+            is_return=True,
+        )
+        session.add(ret)
+        session.flush()
+
+        for orig_line, qty, value in resolved:
+            batch = session.get(m.StockBatch, orig_line.batch_id)
+            batch.amount = float(batch.amount) - qty
+            session.add(
+                m.StockMovement(
+                    batch_id=batch.batch_id,
+                    branch_id=original.branch_id,
+                    delta=-qty,
+                    reason="return",
+                    ref_id=ret.purchase_id,
+                )
+            )
+            session.add(
+                m.PurchaseLine(
+                    purchase_id=ret.purchase_id,
+                    product_id=orig_line.product_id,
+                    batch_id=batch.batch_id,
+                    amount=qty,
+                    buy_price=orig_line.buy_price,
+                    sell_price=orig_line.sell_price,
+                    exp_date=orig_line.exp_date,
+                )
+            )
+
+        if is_credit and vendor is not None:
+            vendor.current_balance = float(vendor.current_balance or 0) - total
+        session.add(
+            m.LedgerEntry(
+                branch_id=original.branch_id,
+                account_type="vendor" if is_credit else "cash",
+                account_ref=original.vendor_id if is_credit else None,
+                ref_type="purchase_return",
+                ref_id=ret.purchase_id,
+                debit=total,
+                note="مرتجع شراء / purchase return",
+            )
+        )
+
+        session.commit()
+        session.refresh(ret)
+        return ret
+    except Exception:
+        session.rollback()
+        raise

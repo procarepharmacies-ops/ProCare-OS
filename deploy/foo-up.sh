@@ -53,7 +53,7 @@ multipass exec "$VM" -- bash -lc "cd '$REMOTE_DIR' && sudo docker compose up -d 
 IP="$(multipass info "$VM" --format csv | awk -F, 'NR==2 {print $3}')"
 say "ProCare OS is live on '$VM'"
 echo "   UI:   http://$IP:3000"
-echo "   API:  http://$IP:8080/docs"
+echo "   API:  http://$IP:7000/docs"
 echo
 echo "Logs:  multipass exec $VM -- sudo docker compose -f $REMOTE_DIR/docker-compose.yml logs -f"
 echo "Stop:  multipass exec $VM -- sudo docker compose -f $REMOTE_DIR/docker-compose.yml down"

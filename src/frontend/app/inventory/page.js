@@ -5,6 +5,7 @@ import Shell from "../components/Shell";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
+import { printLabels } from "../lib/print";
 
 export default function InventoryPage() {
   const { lang, branch } = useUI();
@@ -99,7 +100,30 @@ export default function InventoryPage() {
                 <td className="num">{fmt(p.sell_price)}</td>
                 <td className="num">{fmt(p.on_hand)}</td>
                 <td className="num muted">{fmt(p.min_stock)}</td>
-                <td>{p.low && <span className="badge warn">{L("low_badge")}</span>}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {p.low && <span className="badge warn">{L("low_badge")}</span>}{" "}
+                  <button
+                    className="btn icon"
+                    title={L("print_labels")}
+                    onClick={() =>
+                      printLabels(
+                        [
+                          {
+                            // Internal coding: fall back to a PC-prefixed id when
+                            // the product has no barcode yet.
+                            code: p.code || `PC${String(p.product_id).padStart(6, "0")}`,
+                            name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
+                            price: p.sell_price,
+                            count: 3,
+                          },
+                        ],
+                        { lang }
+                      )
+                    }
+                  >
+                    🏷
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

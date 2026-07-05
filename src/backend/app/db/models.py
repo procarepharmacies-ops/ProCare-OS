@@ -522,6 +522,88 @@ class LoyaltyTransaction(Base):
     )
 
 
+class Prescription(Base):
+    """One captured doctor's prescription (photo taken on a phone at the
+    counter). Gemini vision extracts the doctor + drug lines when a key is
+    configured; otherwise staff type them in. Powers the doctor-prescribing-
+    habits report for the pharmacy's area.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "prescriptions"
+
+    prescription_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
+    doctor_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    doctor_specialty: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    clinic: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # JSON array of {name, dose, frequency, duration} the reader extracted.
+    drugs_json: Mapped[str] = mapped_column(String(4000), default="[]")
+    raw_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="manual")  # gemini/manual
+    captured_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("source IN ('gemini','manual')", name="CK_rx_source"),
+        Index("IX_rx_doctor", "doctor_name"),
+        Index("IX_rx_created", "created_at"),
+    )
+
+
+class ShortageItem(Base):
+    """The stock-shortage sheet (eStock's Shortcoming — 5,754 rows): staff add
+    what a customer asked for and we didn't have; purchasing works the list.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "shortage_items"
+
+    shortage_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.product_id"), nullable=True)
+    # Free-text when the product isn't in the catalogue yet.
+    product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    qty_requested: Mapped[float] = mapped_column(Qty, default=1)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open/ordered/received/cancelled
+    reported_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('open','ordered','received','cancelled')", name="CK_shortage_status"),
+        Index("IX_shortage_branch_status", "branch_id", "status"),
+    )
+
+
+class TreasuryTransfer(Base):
+    """Cash moved between branch treasuries (eStock's Branch_money_order /
+    Branch_money_convert — 1,102/1,098 rows). The ledger carries the two
+    balanced cash entries; this row is the transfer document.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "treasury_transfers"
+
+    transfer_id: Mapped[int] = mapped_column(primary_key=True)
+    from_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    to_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    amount: Mapped[float] = mapped_column(Money)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_ttransfer_amount"),
+        CheckConstraint("from_branch_id <> to_branch_id", name="CK_ttransfer_branches"),
+    )
+
+
 class Campaign(Base):
     """A WhatsApp marketing campaign: one message sent to a filtered audience
     of customers (all / debtors / top spenders / inactive). When the WhatsApp

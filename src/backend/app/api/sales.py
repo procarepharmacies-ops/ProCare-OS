@@ -164,12 +164,17 @@ def recent(branch_id: int | None = None, limit: int = 20, session: Session = Dep
         stmt = stmt.where(m.Sale.branch_id == branch_id)
     out = []
     for s in session.scalars(stmt):
+        # Owner rule: every invoice carries its discount AND its profit, so
+        # management can see what there is room to change.
+        profit = sum(float(l.total_sell) - float(l.amount) * float(l.buy_price) for l in s.lines)
         out.append(
             {
                 "sale_id": s.sale_id,
                 "branch_id": s.branch_id,
                 "sale_date": s.sale_date.isoformat(),
                 "total_net": money(s.total_net),
+                "total_discount": money(s.total_discount),
+                "profit": money(-profit if s.is_return else profit),
                 "is_credit": s.is_credit,
                 "is_return": s.is_return,
                 "customer": s.customer.name_ar if s.customer else None,
@@ -177,3 +182,52 @@ def recent(branch_id: int | None = None, limit: int = 20, session: Session = Dep
             }
         )
     return {"sales": out}
+
+
+@router.get("/{sale_id}")
+def sale_detail(sale_id: int, session: Session = Depends(get_session)):
+    """Full invoice — header, lines, discount and profit per line and overall.
+    Feeds the invoice drill-down and the printable receipt."""
+    s = session.get(m.Sale, sale_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="sale not found")
+    branch = session.get(m.Branch, s.branch_id)
+    cashier = session.get(m.Employee, s.cashier_id) if s.cashier_id else None
+    lines = []
+    total_profit = 0.0
+    for ln in s.lines:
+        line_profit = float(ln.total_sell) - float(ln.amount) * float(ln.buy_price)
+        total_profit += line_profit
+        lines.append(
+            {
+                "product_id": ln.product_id,
+                "name_ar": ln.product.name_ar,
+                "name_en": ln.product.name_en,
+                "code": ln.product.code,
+                "amount": money(ln.amount),
+                "sell_price": money(ln.sell_price),
+                "disc_money": money(ln.disc_money),
+                "total_sell": money(ln.total_sell),
+                "profit": money(line_profit),
+            }
+        )
+    return {
+        "sale_id": s.sale_id,
+        "branch_id": s.branch_id,
+        "branch_name_ar": branch.name_ar if branch else None,
+        "branch_name_en": branch.name_en if branch else None,
+        "sale_date": s.sale_date.isoformat(),
+        "customer": s.customer.name_ar if s.customer else None,
+        "customer_id": s.customer_id,
+        "cashier": cashier.name_ar if cashier else None,
+        "is_credit": s.is_credit,
+        "is_return": s.is_return,
+        "original_sale_id": s.original_sale_id,
+        "total_gross": money(s.total_gross),
+        "total_discount": money(s.total_discount),
+        "total_net": money(s.total_net),
+        "cash_paid": money(s.cash_paid),
+        "card_paid": money(s.card_paid),
+        "profit": money(-total_profit if s.is_return else total_profit),
+        "lines": lines,
+    }

@@ -6,8 +6,21 @@ import { BarChart, HBar } from "../components/charts";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
+import { downloadCSV, downloadExcel, printReport } from "../lib/print";
 
 const TABS = ["daily", "performance", "sales", "pl", "purchasing", "stock", "cashiers", "productivity"];
+
+// Export toolbar: CSV / Excel (data only) + ProCare-branded print → PDF.
+function ExportBar({ L, lang, title, columns, rows }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <span style={{ display: "inline-flex", gap: 6, marginInlineStart: "auto" }}>
+      <button className="btn" onClick={() => downloadCSV(title, columns, rows)}>{L("export_csv")}</button>
+      <button className="btn" onClick={() => downloadExcel(title, columns, rows)}>{L("export_excel")}</button>
+      <button className="btn" onClick={() => printReport(title, columns, rows, { lang })}>{L("print_branded")}</button>
+    </span>
+  );
+}
 
 export default function ReportsPage() {
   const { lang, branch } = useUI();
@@ -21,7 +34,7 @@ export default function ReportsPage() {
     let alive = true;
     (async () => {
       try {
-        const [salesSummary, profitLoss, byCustomer, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall, perfOverview, perfAudit, perfVendor] = await Promise.all([
+        const [salesSummary, profitLoss, byCustomer, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall, perfOverview, perfAudit, perfVendor, stockRep, valuation, movements] = await Promise.all([
           api.get("/accounting/sales-summary", { branch_id: branch || undefined, days }),
           api.profitLoss(branch, days),
           api.salesByCustomer(branch, days),
@@ -37,6 +50,9 @@ export default function ReportsPage() {
           api.perfOverview(branch, 5),
           api.perfAudit(branch),
           api.perfVendor(branch, "pharmaoverseas", 5),
+          api.stockReport(branch).catch(() => ({ products: [] })),
+          api.stockValuation().catch(() => ({ branches: [] })),
+          api.stockMovements(branch, Math.min(days, 90)).catch(() => ({ movements: [] })),
         ]);
         if (alive) {
           setData({
@@ -55,6 +71,9 @@ export default function ReportsPage() {
             perfOverview,
             perfAudit,
             perfVendor,
+            stockRep: stockRep.products ?? [],
+            valuation: valuation.branches ?? [],
+            movements: movements.movements ?? [],
           });
         }
       } catch {
@@ -464,7 +483,20 @@ export default function ReportsPage() {
             </div>
             {data.byCustomer.length > 0 && (
               <div className="card" style={{ marginTop: 16 }}>
-                <h3 className="section-title">{L("sales_by_customer")}</h3>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+                  <h3 className="section-title" style={{ margin: 0 }}>{L("sales_by_customer")}</h3>
+                  <ExportBar
+                    L={L}
+                    lang={lang}
+                    title={lang === "ar" ? "مبيعات العملاء" : "Sales by customer"}
+                    columns={[
+                      { key: "name_ar", label: L("customer") },
+                      { key: "invoices", label: L("invoices_count") },
+                      { key: "revenue", label: L("revenue") },
+                    ]}
+                    rows={data.byCustomer}
+                  />
+                </div>
                 <table className="tbl">
                   <thead>
                     <tr>
@@ -566,6 +598,103 @@ export default function ReportsPage() {
                 <div className="kpi-value">{data.lowStock?.length ?? 0}</div>
                 <div className="kpi-label">{L("low_stock")}</div>
               </div>
+              {data.valuation.map((v) => (
+                <div className="kpi-box" key={v.branch_id}>
+                  <div className="kpi-value">{fmt(v.cost_value)}</div>
+                  <div className="kpi-label">{L("cost_value")} — {lang === "ar" ? v.name_ar : v.name_en}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Full stock-on-hand report with exports */}
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+                <h3 className="section-title" style={{ margin: 0 }}>{L("on_hand")}</h3>
+                <ExportBar
+                  L={L}
+                  lang={lang}
+                  title={lang === "ar" ? "تقرير المخزون" : "Stock report"}
+                  columns={[
+                    { key: "name_ar", label: L("product") },
+                    { key: "code", label: "code" },
+                    { key: "shelf_location", label: L("shelf_place") },
+                    { key: "qty", label: L("on_hand") },
+                    { key: "cost_value", label: L("cost_value") },
+                    { key: "sell_value", label: L("sell_value") },
+                    { key: "potential_profit", label: L("potential_profit") },
+                    { key: "nearest_expiry", label: L("nearest_expiry") },
+                  ]}
+                  rows={data.stockRep}
+                />
+              </div>
+              <div className="table-wrapper" style={{ maxHeight: 340, overflowY: "auto" }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("product")}</th>
+                      <th className="num">{L("on_hand")}</th>
+                      <th className="num">{L("cost_value")}</th>
+                      <th className="num">{L("sell_value")}</th>
+                      <th className="num">{L("potential_profit")}</th>
+                      <th>{L("nearest_expiry")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.stockRep.slice(0, 100).map((p) => (
+                      <tr key={p.product_id}>
+                        <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}{p.below_min ? " ⚠️" : ""}</td>
+                        <td className="num">{fmt(p.qty)}</td>
+                        <td className="num">{fmt(p.cost_value)}</td>
+                        <td className="num">{fmt(p.sell_value)}</td>
+                        <td className="num">{fmt(p.potential_profit)}</td>
+                        <td className="muted">{p.nearest_expiry || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Stock movements audit trail with exports */}
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+                <h3 className="section-title" style={{ margin: 0 }}>{L("stock_movements_lbl")}</h3>
+                <ExportBar
+                  L={L}
+                  lang={lang}
+                  title={lang === "ar" ? "حركة المخزون" : "Stock movements"}
+                  columns={[
+                    { key: "created_at", label: L("bill_date") },
+                    { key: "branch", label: L("branch") },
+                    { key: "name_ar", label: L("product") },
+                    { key: "delta", label: "Δ" },
+                    { key: "reason", label: L("movement_reason") },
+                  ]}
+                  rows={data.movements}
+                />
+              </div>
+              <div className="table-wrapper" style={{ maxHeight: 280, overflowY: "auto" }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("bill_date")}</th>
+                      <th>{L("product")}</th>
+                      <th className="num">Δ</th>
+                      <th>{L("movement_reason")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.movements.slice(0, 100).map((mv) => (
+                      <tr key={mv.movement_id}>
+                        <td className="muted">{mv.created_at ? new Date(mv.created_at).toLocaleString() : "—"}</td>
+                        <td>{mv.name_ar}</td>
+                        <td className="num" style={{ color: mv.delta >= 0 ? "var(--ok)" : "var(--danger)" }}>{fmt(mv.delta)}</td>
+                        <td className="muted">{mv.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div className="table-wrapper" style={{ marginTop: 16 }}>
               <table className="tbl">
@@ -603,6 +732,19 @@ export default function ReportsPage() {
 
         {data && !data.error && tab === "cashiers" && (
           <div className="table-wrapper">
+            <div style={{ display: "flex", marginBottom: 8 }}>
+              <ExportBar
+                L={L}
+                lang={lang}
+                title={lang === "ar" ? "أداء الكاشير" : "Cashier performance"}
+                columns={[
+                  { key: "cashier", label: L("cashier") },
+                  { key: "bills", label: L("bills_count") },
+                  { key: "revenue", label: L("revenue") },
+                ]}
+                rows={data.cashiers}
+              />
+            </div>
             <table className="tbl">
               <thead>
                 <tr>

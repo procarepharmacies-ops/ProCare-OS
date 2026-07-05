@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, auth, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, purchasing, sales, tasks, transfers, vendors
+from app.api import accounting, ai, alerts, auth, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -136,3 +136,11 @@ router.include_router(footfall.router)
 router.include_router(insights.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # Performance-over-time, audit report + supplier purchasing — management only.
 router.include_router(performance.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+# Prescription reader (phone camera → Gemini) + doctor-habits analytics.
+router.include_router(prescriptions.router)
+# Stock-shortage sheet — any logged-in employee can add to it.
+router.include_router(shortages.router)
+# Branch treasuries: vouchers, money transfers, balances — management only.
+router.include_router(treasury.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+# Stock report suite with CSV export.
+router.include_router(reports.router)

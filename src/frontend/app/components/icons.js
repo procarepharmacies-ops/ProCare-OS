@@ -139,6 +139,32 @@ const P = {
       <path d="M9.3 3.8h5.4v5.5h5.5v5.4h-5.5v5.5H9.3v-5.5H3.8V9.3h5.5z" />
     </>
   ),
+  // Camera — prescription reader.
+  camera: (
+    <>
+      <path d="M4 8.5A2 2 0 016 6.5h2l1.4-2h5.2l1.4 2h2a2 2 0 012 2V18a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
+      <circle cx="12" cy="13" r="3.4" />
+    </>
+  ),
+  // Safe / vault — treasury.
+  safe: (
+    <>
+      <rect x="3.5" y="4" width="17" height="15" rx="2" />
+      <circle cx="12" cy="11.5" r="3.4" />
+      <path d="M12 8.1v1.4M12 13.5v1.4M8.6 11.5H10M14 11.5h1.4" />
+      <path d="M6.5 19v1.8M17.5 19v1.8" />
+    </>
+  ),
+  // Sheet with lines — shortage sheet.
+  sheet: (
+    <>
+      <path d="M6 3.5h9l3.5 3.5v13.5H6z" />
+      <path d="M15 3.5V7h3.5" />
+      <line x1="8.5" y1="11" x2="15.5" y2="11" />
+      <line x1="8.5" y1="14.5" x2="15.5" y2="14.5" />
+      <line x1="8.5" y1="18" x2="12.5" y2="18" />
+    </>
+  ),
   moon: <path d="M20 14.5A8 8 0 119.5 4a6.5 6.5 0 0010.5 10.5z" />,
   sun: (
     <>

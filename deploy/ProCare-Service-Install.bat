@@ -41,7 +41,7 @@ if not exist "%ProgramFiles%\cloudflared\cloudflared.exe" (
   echo   downloading cloudflared...
   mkdir "%ProgramFiles%\cloudflared" 2>nul
   powershell -NoProfile -Command ^
-    "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '$env:ProgramFiles\cloudflared\cloudflared.exe'" ^
+    "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%ProgramFiles%\cloudflared\cloudflared.exe'" ^
     || (echo   download failed — install cloudflared manually and re-run. & pause & exit /b 1)
 )
 "%ProgramFiles%\cloudflared\cloudflared.exe" service install %TUNNEL_TOKEN% ^
