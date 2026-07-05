@@ -1,6 +1,8 @@
 """Dashboard / KPI endpoints (read-only)."""
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -50,3 +52,35 @@ def cashiers(
     session: Session = Depends(get_session),
 ):
     return {"cashiers": dashboard.cashier_performance(session, _branch(branch_id), days)}
+
+
+@router.get("/monthly")
+def monthly(
+    branch_id: int | None = Query(None),
+    months: int = Query(12, ge=1, le=36),
+    session: Session = Depends(get_session),
+):
+    """Month-view series: revenue, bills, discount and profit per month."""
+    return {"months": dashboard.monthly_sales(session, _branch(branch_id), months)}
+
+
+@router.get("/by-branch")
+def branch_comparison(
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Per-branch revenue/bills/discount/profit over a date range
+    (defaults to the current month)."""
+    return {"branches": dashboard.by_branch(session, date_from, date_to)}
+
+
+@router.get("/range")
+def range_summary(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """KPIs for an arbitrary date range — the choose-your-dates view."""
+    return dashboard.range_summary(session, _branch(branch_id), date_from, date_to)

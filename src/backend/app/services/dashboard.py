@@ -200,6 +200,136 @@ def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:
     ]
 
 
+def monthly_sales(session: Session, branch_id: int | None = None, months: int = 12) -> list[dict]:
+    """Revenue + bills + profit per calendar month — the dashboard month view.
+    Bucketed in Python so SQLite dev and SQL Server prod behave identically."""
+    start = (TODAY.replace(day=1) - timedelta(days=31 * (months - 1))).replace(day=1)
+    rows = session.execute(
+        select(
+            m.Sale.sale_date,
+            m.Sale.total_net,
+            m.Sale.total_discount,
+            m.Sale.sale_id,
+        ).where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            func.date(m.Sale.sale_date) >= start,
+        )
+    ).all()
+    profit_rows = session.execute(
+        select(
+            m.Sale.sale_date,
+            func.coalesce(func.sum(m.SaleLine.total_sell - m.SaleLine.amount * m.SaleLine.buy_price), 0),
+        )
+        .join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            func.date(m.Sale.sale_date) >= start,
+        )
+        .group_by(m.Sale.sale_id, m.Sale.sale_date)
+    ).all()
+
+    buckets: dict[str, dict] = {}
+    for ts, net, disc, _sid in rows:
+        key = f"{ts.year:04d}-{ts.month:02d}"
+        b = buckets.setdefault(key, {"month": key, "bills": 0, "revenue": 0.0, "discount": 0.0, "profit": 0.0})
+        b["bills"] += 1
+        b["revenue"] += float(net or 0)
+        b["discount"] += float(disc or 0)
+    for ts, profit in profit_rows:
+        key = f"{ts.year:04d}-{ts.month:02d}"
+        if key in buckets:
+            buckets[key]["profit"] += float(profit or 0)
+    out = [
+        {**b, "revenue": money(b["revenue"]), "discount": money(b["discount"]), "profit": money(b["profit"])}
+        for b in buckets.values()
+    ]
+    out.sort(key=lambda r: r["month"])
+    return out[-months:]
+
+
+def by_branch(session: Session, date_from=None, date_to=None) -> list[dict]:
+    """Side-by-side branch comparison over a date range (defaults: this month).
+    Revenue, bills, discount, profit per branch — the all-branches dashboard."""
+    start = date_from or TODAY.replace(day=1)
+    end = date_to or TODAY
+    branches = session.scalars(select(m.Branch).order_by(m.Branch.branch_id)).all()
+
+    sales_rows = session.execute(
+        select(
+            m.Sale.branch_id,
+            func.count(),
+            func.coalesce(func.sum(m.Sale.total_net), 0),
+            func.coalesce(func.sum(m.Sale.total_discount), 0),
+        )
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            func.date(m.Sale.sale_date) >= start,
+            func.date(m.Sale.sale_date) <= end,
+        )
+        .group_by(m.Sale.branch_id)
+    ).all()
+    by_id = {bid: (bills, float(rev), float(disc)) for bid, bills, rev, disc in sales_rows}
+
+    profit_rows = session.execute(
+        select(
+            m.Sale.branch_id,
+            func.coalesce(func.sum(m.SaleLine.total_sell - m.SaleLine.amount * m.SaleLine.buy_price), 0),
+        )
+        .join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            func.date(m.Sale.sale_date) >= start,
+            func.date(m.Sale.sale_date) <= end,
+        )
+        .group_by(m.Sale.branch_id)
+    ).all()
+    profit_by_id = {bid: float(p) for bid, p in profit_rows}
+
+    out = []
+    for b in branches:
+        bills, revenue, discount = by_id.get(b.branch_id, (0, 0.0, 0.0))
+        out.append(
+            {
+                "branch_id": b.branch_id,
+                "name_ar": b.name_ar,
+                "name_en": b.name_en,
+                "bills": bills,
+                "revenue": money(revenue),
+                "discount": money(discount),
+                "profit": money(profit_by_id.get(b.branch_id, 0.0)),
+            }
+        )
+    return out
+
+
+def range_summary(session: Session, branch_id: int | None, date_from, date_to) -> dict:
+    """KPIs for an arbitrary [date_from, date_to] window — powers the
+    choose-your-dates dashboard view."""
+    rev, cnt, disc = session.execute(
+        select(
+            func.coalesce(func.sum(m.Sale.total_net), 0),
+            func.count(),
+            func.coalesce(func.sum(m.Sale.total_discount), 0),
+        ).where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            func.date(m.Sale.sale_date) >= date_from,
+            func.date(m.Sale.sale_date) <= date_to,
+        )
+    ).one()
+    return {
+        "date_from": str(date_from),
+        "date_to": str(date_to),
+        "branch_id": branch_id or 0,
+        "revenue": money(rev),
+        "bills": cnt,
+        "discount": money(disc),
+        "profit": _profit(session, branch_id, date_from, date_to),
+    }
+
+
 def cashier_performance(session: Session, branch_id: int | None = None, days: int = 30) -> list[dict]:
     start = TODAY - timedelta(days=days - 1)
     stmt = (

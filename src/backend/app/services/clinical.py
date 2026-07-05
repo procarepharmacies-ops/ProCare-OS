@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import models as m
-from app.services.common import available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, money
 
 # --- severity model (docs/03 §5) --------------------------------------------
 SEVERITY_RANK = {"minor": 0, "moderate": 1, "major": 2, "critical": 3}
@@ -343,9 +343,11 @@ def substitutions(session: Session, product_id: int, branch_id: int | None = Non
     """Therapeutic alternatives for a drug that are ACTUALLY IN STOCK now.
 
     Alternatives are other products sharing the same active ingredient(s) —
-    generic/brand equivalents — filtered to sellable stock at ``branch_id``
-    (``amount > 0``, not expired) via ProCare's own ``stock_batches``. Ordered
-    cheapest first. Advisory.
+    generic/brand equivalents — with sellable stock (``amount > 0``, not
+    expired) at ANY branch, so the counter can offer "available at the other
+    branch" with the expiry detail. ``available_qty`` is the consolidated
+    total; the ``branches`` breakdown carries per-branch qty + soonest expiry.
+    Ordered cheapest first. Advisory.
     """
     ar = lang != "en"
     target = _product(session, product_id)
@@ -360,7 +362,7 @@ def substitutions(session: Session, product_id: int, branch_id: int | None = Non
             m.StockBatch.product_id.label("pid"),
             func.sum(m.StockBatch.amount).label("qty"),
         )
-        .where(available_stock_filter(), branch_filter(m.StockBatch, branch_id))
+        .where(available_stock_filter())
         .group_by(m.StockBatch.product_id)
         .subquery()
     )
@@ -376,19 +378,45 @@ def substitutions(session: Session, product_id: int, branch_id: int | None = Non
         .order_by(m.Product.sell_price.asc())
     ).all()
 
-    out = []
-    for p, qty in rows:
-        if ingredients_of(p.scientific_name) & ings:
-            out.append(
-                {
-                    "product_id": p.product_id,
-                    "name": _name(p, ar),
-                    "scientific_name": p.scientific_name,
-                    "sell_price": money(p.sell_price),
-                    "available_qty": money(qty),
-                    "advisory": True,
-                }
+    matches = [(p, qty) for p, qty in rows if ingredients_of(p.scientific_name) & ings]
+
+    # Per-branch availability + soonest expiry for each alternative, so the
+    # POS can say "متوفر في السنطة، ينتهي 2026-11" and offer a transfer.
+    branch_names = {b.branch_id: b.name_ar for b in session.scalars(select(m.Branch)).all()}
+    detail: dict[int, dict[int, dict]] = {}
+    if matches:
+        pids = [p.product_id for p, _ in matches]
+        batch_rows = session.execute(
+            select(
+                m.StockBatch.product_id,
+                m.StockBatch.branch_id,
+                func.sum(m.StockBatch.amount),
+                func.min(m.StockBatch.exp_date),
             )
+            .where(available_stock_filter(), m.StockBatch.product_id.in_(pids))
+            .group_by(m.StockBatch.product_id, m.StockBatch.branch_id)
+        ).all()
+        for pid, bid, qty, exp in batch_rows:
+            detail.setdefault(pid, {})[bid] = {
+                "branch_id": bid,
+                "branch_name": branch_names.get(bid, str(bid)),
+                "qty": money(qty),
+                "nearest_expiry": exp.isoformat() if exp else None,
+            }
+
+    out = []
+    for p, qty in matches:
+        out.append(
+            {
+                "product_id": p.product_id,
+                "name": _name(p, ar),
+                "scientific_name": p.scientific_name,
+                "sell_price": money(p.sell_price),
+                "available_qty": money(qty),
+                "branches": sorted(detail.get(p.product_id, {}).values(), key=lambda r: r["branch_id"]),
+                "advisory": True,
+            }
+        )
     return out
 
 

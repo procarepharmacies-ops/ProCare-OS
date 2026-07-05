@@ -22,6 +22,15 @@ export default function PurchasingPage() {
   const [prodResults, setProdResults] = useState([]);
   const [lines, setLines] = useState([]);
   const [saveMsg, setSaveMsg] = useState(null);
+  // Owner rule: purchasing budget = 80% of average daily sales.
+  const [budget, setBudget] = useState(null);
+  const [autoMsg, setAutoMsg] = useState(null);
+  const [autoBusy, setAutoBusy] = useState(false);
+  // Purchase-return flow (eStock Back_purchase).
+  const [retId, setRetId] = useState("");
+  const [retPurchase, setRetPurchase] = useState(null);
+  const [retQty, setRetQty] = useState({});
+  const [retMsg, setRetMsg] = useState(null);
   const recvBranch = branch || branches[0]?.branch_id;
 
   useEffect(() => {
@@ -48,6 +57,59 @@ export default function PurchasingPage() {
   useEffect(() => {
     api.vendors().then((r) => setVendors(r.vendors)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    api.purchaseBudget(branch).then(setBudget).catch(() => {});
+  }, [branch]);
+
+  async function runAutoGenerate() {
+    setAutoMsg(null);
+    setAutoBusy(true);
+    try {
+      const r = await api.autoGenerate(recvBranch);
+      setAutoMsg({
+        ok: true,
+        msg: `${L("auto_generated")}: ${r.drafts_created} · ${Number(r.proposed_cost).toLocaleString("en-US")} ${L("egp")}`,
+      });
+      const draftsRes = await api.get("/purchasing/drafts", { branch_id: branch || undefined });
+      setDrafts(draftsRes.drafts || []);
+      setActiveTab("drafts");
+    } catch (e) {
+      setAutoMsg({ ok: false, msg: e.message });
+    } finally {
+      setAutoBusy(false);
+    }
+  }
+
+  async function loadReturnPurchase() {
+    setRetMsg(null);
+    setRetPurchase(null);
+    try {
+      const p = await api.purchaseDetail(Number(retId));
+      if (p.error) throw new Error(p.error);
+      setRetPurchase(p);
+      const init = {};
+      for (const l of p.lines) init[l.product_id] = 0;
+      setRetQty(init);
+    } catch (e) {
+      setRetMsg({ ok: false, msg: e.message });
+    }
+  }
+
+  async function completePurchaseReturn() {
+    setRetMsg(null);
+    try {
+      const lines = retPurchase.lines
+        .filter((l) => Number(retQty[l.product_id]) > 0)
+        .map((l) => ({ product_id: l.product_id, amount: Number(retQty[l.product_id]) }));
+      const r = await api.returnPurchase(retPurchase.purchase_id, { lines });
+      setRetMsg({ ok: true, msg: `✓ ${r.return_id} · ${Number(r.total_returned).toLocaleString("en-US")} ${L("egp")}` });
+      setRetPurchase(null);
+      setRetId("");
+    } catch (e) {
+      setRetMsg({ ok: false, msg: e.message });
+    }
+  }
 
   // Debounced product search for the receive form.
   useEffect(() => {
@@ -128,6 +190,27 @@ export default function PurchasingPage() {
           </div>
         </div>
 
+        {/* Purchasing budget (80% of avg daily sales) + predictive proposal */}
+        {budget && (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <strong>{L("budget_title")}</strong>
+              <span className="badge">{L("avg_daily_sales")}: {Number(budget.avg_daily_sales).toLocaleString("en-US")}</span>
+              <span className="badge ok">{L("daily_budget")}: {Number(budget.daily_budget).toLocaleString("en-US")}</span>
+              <span className="badge warn">{L("spent_today")}: {Number(budget.spent_today).toLocaleString("en-US")}</span>
+              <span className="badge">{L("remaining_today")}: {Number(budget.remaining_today).toLocaleString("en-US")}</span>
+              <button className="btn primary" style={{ marginInlineStart: "auto" }} disabled={autoBusy} onClick={runAutoGenerate}>
+                {autoBusy ? L("loading") : L("auto_generate")}
+              </button>
+            </div>
+            {autoMsg && (
+              <p className={`badge ${autoMsg.ok ? "ok" : "danger"}`} style={{ marginTop: 8, display: "inline-block", padding: 8 }}>
+                {autoMsg.msg}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="tabs">
           <button
@@ -148,7 +231,67 @@ export default function PurchasingPage() {
           >
             {L("receive_goods")}
           </button>
+          <button
+            className={`tab ${activeTab === "return" ? "active" : ""}`}
+            onClick={() => setActiveTab("return")}
+          >
+            {L("purchase_return_mode")}
+          </button>
         </div>
+
+        {/* Purchase return */}
+        {activeTab === "return" && (
+          <div className="card" style={{ maxWidth: 720 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <input className="input" type="number" min={1} placeholder={L("purchase_id_lbl")} value={retId}
+                     onChange={(e) => setRetId(e.target.value)} style={{ flex: 1 }} />
+              <button className="btn primary" disabled={!retId} onClick={loadReturnPurchase}>
+                {L("load_invoice")}
+              </button>
+            </div>
+            {retPurchase && (
+              <>
+                <p className="muted" style={{ fontSize: 13 }}>
+                  #{retPurchase.purchase_id} · {retPurchase.vendor_name} ·{" "}
+                  {Number(retPurchase.total_gross).toLocaleString("en-US")} {L("egp")}
+                </p>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("product")}</th>
+                      <th className="num">{L("received_qty")}</th>
+                      <th className="num">{L("return_qty")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {retPurchase.lines.map((l) => (
+                      <tr key={l.line_id}>
+                        <td>{l.product_name}</td>
+                        <td className="num muted">{Number(l.amount).toLocaleString("en-US")}</td>
+                        <td className="num">
+                          <input className="input" type="number" min={0} max={l.amount}
+                                 value={retQty[l.product_id] ?? 0}
+                                 onChange={(e) => setRetQty((q) => ({ ...q, [l.product_id]: Math.min(Math.max(0, Number(e.target.value)), l.amount) }))}
+                                 style={{ width: 80 }} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button className="btn primary" style={{ marginTop: 12 }}
+                        disabled={!retPurchase.lines.some((l) => Number(retQty[l.product_id]) > 0)}
+                        onClick={completePurchaseReturn}>
+                  {L("purchase_return_mode")}
+                </button>
+              </>
+            )}
+            {retMsg && (
+              <p className={`badge ${retMsg.ok ? "ok" : "danger"}`} style={{ marginTop: 12, display: "inline-block", padding: 8 }}>
+                {retMsg.msg}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Receive goods (new purchase invoice) */}
         {activeTab === "receive" && (
