@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, auth, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, purchasing, sales, tasks, transfers, vendors
+from app.api import accounting, ai, alerts, auth, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, purchasing, sales, tasks, transfers, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -134,3 +134,5 @@ router.include_router(tasks.router)
 router.include_router(footfall.router)
 # Owner intelligence: daily report + staff productivity — management only.
 router.include_router(insights.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+# Performance-over-time, audit report + supplier purchasing — management only.
+router.include_router(performance.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
