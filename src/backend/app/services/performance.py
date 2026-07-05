@@ -39,6 +39,49 @@ def _pct(numerator: float, denominator: float) -> float | None:
 
 # --- 5-year performance overview -------------------------------------------
 def overview(session: Session, years: int = 5, branch_id: int | None = None) -> dict:
+    """Per-year and per-month pharmacy performance for the last ``years`` years.
+
+    When run consolidated (``branch_id`` is None) the result also carries a
+    ``by_branch`` comparison so the owner can see each branch (Main vs Elsanta)
+    side by side; when scoped to one branch it's that branch only.
+    """
+    result = _overview_core(session, years=years, branch_id=branch_id)
+    if not branch_id:
+        branches = session.scalars(
+            select(m.Branch).where(m.Branch.is_active == True).order_by(m.Branch.branch_id)  # noqa: E712
+        ).all()
+        result["by_branch"] = [_branch_summary(session, years, b) for b in branches]
+    return result
+
+
+def _branch_summary(session: Session, years: int, branch: m.Branch) -> dict:
+    """Compact per-branch slice of the overview (for the by-branch comparison)."""
+    core = _overview_core(session, years=years, branch_id=branch.branch_id)
+    snap = core["snapshot"]
+    return {
+        "branch_id": branch.branch_id,
+        "code": branch.code,
+        "name_ar": branch.name_ar,
+        "name_en": branch.name_en,
+        "totals": core["totals"],
+        "snapshot": {
+            "stock_on_hand_units": snap["stock_on_hand_units"],
+            "stock_value_at_cost": snap["stock_value_at_cost"],
+            "expired_in_stock_value": snap["expired_in_stock_value"],
+            "low_stock_products": snap["low_stock_products"],
+        },
+        "yearly": [
+            {
+                "year": y["year"], "revenue": y["revenue"], "gross_profit": y["gross_profit"],
+                "invoices": y["invoices"], "active_customers": y["active_customers"],
+                "purchases_spend": y["purchases_spend"],
+            }
+            for y in core["yearly"]
+        ],
+    }
+
+
+def _overview_core(session: Session, years: int = 5, branch_id: int | None = None) -> dict:
     """Per-year and per-month pharmacy performance for the last ``years`` years."""
     years = max(1, min(int(years), 15))
     year_list = list(range(TODAY.year - years + 1, TODAY.year + 1))
@@ -477,10 +520,32 @@ def vendor_purchasing(session: Session, query: str | int = "pharmaoverseas",
     ).all()
 
     vendor_spend = sum(y["spend"] for y in yearly)
+
+    # Spend from this supplier split by branch (Main vs Elsanta).
+    branch_names = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_ar)).all())
+    branch_names_en = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_en)).all())
+    by_branch = [
+        {
+            "branch_id": bid, "name_ar": branch_names.get(bid), "name_en": branch_names_en.get(bid),
+            "orders": int(cnt), "spend": money(spend),
+        }
+        for bid, cnt, spend in session.execute(
+            select(
+                m.Purchase.branch_id, func.count(),
+                func.coalesce(func.sum(m.Purchase.total_gross - m.Purchase.total_discount), 0),
+            ).where(
+                m.Purchase.vendor_id == vendor.vendor_id, m.Purchase.is_return == False,  # noqa: E712
+                branch_filter(m.Purchase, branch_id), m.Purchase.bill_date >= window_start,
+            ).group_by(m.Purchase.branch_id)
+        ).all()
+    ]
+    by_branch.sort(key=lambda r: -r["spend"])
+
     return {
         "as_of": TODAY.isoformat(),
         "query": str(query),
         "found": True,
+        "by_branch": by_branch,
         "vendor": {
             "vendor_id": vendor.vendor_id, "name_ar": vendor.name_ar, "name_en": vendor.name_en,
             "current_payable": money(vendor.current_balance), "credit_limit": money(vendor.credit_limit),

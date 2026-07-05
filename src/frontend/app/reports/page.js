@@ -217,6 +217,40 @@ export default function ReportsPage() {
                 </table>
               </div>
 
+              {/* By-branch comparison (consolidated view only) */}
+              {ov.by_branch && ov.by_branch.length > 0 && (
+                <div className="table-wrapper" style={{ marginTop: 16 }}>
+                  <h3 className="section-title">{L("perf_by_branch")}</h3>
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>{L("branch")}</th>
+                        <th className="num">{L("perf_revenue")}</th>
+                        <th className="num">{L("perf_gross_profit")}</th>
+                        <th className="num">{L("perf_invoices")}</th>
+                        <th className="num">{L("perf_purchases")}</th>
+                        <th className="num">{L("perf_stock_value")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ov.by_branch.map((b) => (
+                        <tr key={b.branch_id}>
+                          <td>{lang === "ar" ? b.name_ar : b.name_en || b.name_ar}</td>
+                          <td className="num">{fmt(b.totals.revenue)}</td>
+                          <td className="num">{fmt(b.totals.gross_profit)}</td>
+                          <td className="num">{fmt(b.totals.invoices)}</td>
+                          <td className="num">{fmt(b.totals.purchases_spend)}</td>
+                          <td className="num">{fmt(b.snapshot.stock_value_at_cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                    {lang === "ar" ? "إجماليات ٥ سنوات لكل فرع" : "5-year totals per branch"}
+                  </p>
+                </div>
+              )}
+
               {/* Post-sync audit */}
               <div className="card" style={{ marginTop: 16 }}>
                 <h3 className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -282,6 +316,30 @@ export default function ReportsPage() {
                       </div>
                     ))}
                   </div>
+
+                  {vp.by_branch && vp.by_branch.length > 0 && (
+                    <div className="table-wrapper" style={{ marginTop: 16 }}>
+                      <h3 className="section-title">{L("perf_supplier_title")} — {L("perf_by_branch")}</h3>
+                      <table className="tbl">
+                        <thead>
+                          <tr>
+                            <th>{L("branch")}</th>
+                            <th className="num">{L("perf_orders")}</th>
+                            <th className="num">{L("perf_supplier_spend")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vp.by_branch.map((b) => (
+                            <tr key={b.branch_id}>
+                              <td>{lang === "ar" ? b.name_ar : b.name_en || b.name_ar}</td>
+                              <td className="num">{fmt(b.orders)}</td>
+                              <td className="num">{fmt(b.spend)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {vp.top_products.length > 0 && (
                     <div className="table-wrapper" style={{ marginTop: 16 }}>

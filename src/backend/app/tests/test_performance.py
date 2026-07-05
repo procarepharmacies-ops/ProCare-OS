@@ -42,6 +42,19 @@ def test_overview_branch_scoped_is_subset(session):
     b2 = perf.overview(session, branch_id=2)["totals"]["invoices"]
     assert b1 > 0 and b2 > 0
     assert b1 + b2 == total  # every sale belongs to exactly one branch
+    # A branch-scoped overview carries no by_branch comparison; consolidated does.
+    assert "by_branch" not in perf.overview(session, branch_id=1)
+
+
+def test_overview_by_branch_reconciles(session):
+    ov = perf.overview(session)
+    assert len(ov["by_branch"]) == 2  # Main + Elsanta
+    # Per-branch invoices sum to the consolidated total.
+    assert sum(b["totals"]["invoices"] for b in ov["by_branch"]) == ov["totals"]["invoices"]
+    for b in ov["by_branch"]:
+        assert b["code"] in ("MAIN", "ELSANTA")
+        assert b["totals"]["revenue"] > 0
+        assert len(b["yearly"]) == 5
 
 
 # --- service: audit ---------------------------------------------------------
@@ -69,6 +82,9 @@ def test_vendor_purchasing_pharmaoverseas(session):
     # Yearly breakdown + a non-empty vendor ranking led by the queried supplier.
     assert len(vp["yearly"]) == 5
     assert vp["vendor_ranking"][0]["name_en"] == "PharmaOverseas"
+    # Spend is broken down by branch and reconciles to the total.
+    assert len(vp["by_branch"]) >= 1
+    assert abs(sum(b["spend"] for b in vp["by_branch"]) - vp["total_spend"]) < 1.0
     # Shares across all vendors sum to ~100%.
     assert abs(sum(r["share_pct"] for r in vp["vendor_ranking"]) - 100) < 1.0
 

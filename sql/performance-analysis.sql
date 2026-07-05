@@ -89,6 +89,23 @@ LEFT   JOIN purch_y   p  ON p.yr  = s.yr
 ORDER  BY s.yr;
 
 /* ---------------------------------------------------------------------------
+   A2. SAME, BY BRANCH — revenue, gross profit & invoices per branch per year
+   (Main vs Elsanta). Drop the JOIN's year filter for an all-time comparison.
+   --------------------------------------------------------------------------- */
+SELECT b.name_ar AS branch, YEAR(s.sale_date) AS [year],
+       COUNT(*)         AS invoices,
+       SUM(s.total_net) AS revenue,
+       SUM(s.total_net)
+         - ISNULL((SELECT SUM(sl.amount * sl.buy_price)
+                   FROM sale_lines sl JOIN sales s2 ON s2.sale_id = sl.sale_id
+                   WHERE s2.is_return = 0 AND s2.branch_id = s.branch_id
+                     AND YEAR(s2.sale_date) = YEAR(s.sale_date)), 0) AS gross_profit
+FROM   sales s JOIN branches b ON b.branch_id = s.branch_id
+WHERE  s.is_return = 0 AND s.sale_date >= @from
+GROUP  BY b.name_ar, s.branch_id, YEAR(s.sale_date)
+ORDER  BY branch, [year];
+
+/* ---------------------------------------------------------------------------
    B. MONTHLY TREND (for the chart) — revenue, invoices, gross profit per month
    --------------------------------------------------------------------------- */
 SELECT FORMAT(s.sale_date, 'yyyy-MM')          AS [month],
@@ -164,6 +181,15 @@ FROM   purchases p
 JOIN   vendors   v ON v.vendor_id = p.vendor_id
 WHERE  p.is_return = 0 AND p.bill_date >= @from
 GROUP  BY v.vendor_id, v.name_ar, v.name_en, v.current_balance
+ORDER  BY spend DESC;
+
+-- D4. This supplier's spend split by branch (Main vs Elsanta).
+SELECT b.name_ar AS branch,
+       COUNT(DISTINCT p.purchase_id)         AS orders,
+       SUM(p.total_gross - p.total_discount) AS spend
+FROM   purchases p JOIN branches b ON b.branch_id = p.branch_id
+WHERE  p.vendor_id = @vendor_id AND p.is_return = 0 AND p.bill_date >= @from
+GROUP  BY b.name_ar
 ORDER  BY spend DESC;
 
 /* ---------------------------------------------------------------------------
