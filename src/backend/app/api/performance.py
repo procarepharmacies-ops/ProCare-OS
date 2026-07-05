@@ -10,9 +10,23 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.base import get_session
-from app.services import performance
+from app.services import deep_analysis, performance
 
 router = APIRouter(prefix="/performance", tags=["performance"])
+
+
+@router.get("/deep")
+def deep(
+    years: int = Query(5, ge=1, le=15),
+    branch_id: int | None = Query(None),
+    lang: str = Query("en"),
+    session: Session = Depends(get_session),
+):
+    """Whole-pharmacy deep analysis across every aspect — growth, profitability,
+    inventory health & turnover, dead stock, customers & retention, supplier
+    concentration, cash position and branches — with scored findings,
+    recommendations and an AI executive narrative (deterministic offline)."""
+    return deep_analysis.deep_analysis(session, years=years, branch_id=branch_id, lang=lang)
 
 
 @router.get("/overview")

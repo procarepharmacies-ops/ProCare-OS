@@ -5,6 +5,7 @@ endpoints through the app. The same code runs on SQL Server in production.
 """
 from __future__ import annotations
 
+from app.services import deep_analysis as da
 from app.services import performance as perf
 
 
@@ -93,6 +94,37 @@ def test_vendor_purchasing_unknown_falls_back_to_ranking(session):
     vp = perf.vendor_purchasing(session, "no-such-vendor-xyz")
     assert vp["found"] is False
     assert vp["vendor_ranking"]  # still useful: the full ranking
+
+
+# --- deep analysis ----------------------------------------------------------
+def test_deep_analysis_covers_all_aspects(session):
+    d = da.deep_analysis(session, years=5, lang="en")
+    # Every aspect present.
+    for key in ("sales", "inventory", "customers", "suppliers", "by_branch", "audit",
+                "findings", "recommendations", "scorecard", "narrative"):
+        assert key in d, f"missing {key}"
+    # Inventory turnover computed.
+    assert d["inventory"]["turnover"]["days_of_stock_cover"] is not None
+    assert d["inventory"]["turnover"]["annual_inventory_turns"] > 0
+    # Findings are severity-scored and ordered (high risks first).
+    assert d["findings"]
+    sev_rank = {"high": 0, "medium": 1, "low": 2, "positive": 3}
+    ranks = [sev_rank[f["severity"]] for f in d["findings"]]
+    assert ranks == sorted(ranks)
+    # Supplier concentration is measured; PharmaOverseas dominates the seed.
+    assert d["suppliers"]["top_vendor"] == "PharmaOverseas"
+    assert 0 <= d["suppliers"]["herfindahl_index"] <= 1
+    # Offline, the narrative is the deterministic engine (no API key in tests).
+    assert d["narrative_engine"] == "rule-based"
+    assert len(d["narrative"]) > 40
+
+
+def test_deep_analysis_endpoint(client):
+    r = client.get("/api/performance/deep?years=5&lang=en")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["scorecard"]["high_risks"] >= 0
+    assert body["findings"]
 
 
 # --- HTTP endpoints ---------------------------------------------------------
