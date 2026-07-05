@@ -170,6 +170,10 @@ export const api = {
   returnPurchase: (purchaseId, payload = {}) =>
     http(`/purchasing/purchases/${purchaseId}/return`, { method: "POST", body: JSON.stringify(payload) }),
 
+  // In-system cash-flow & inventory audit.
+  auditReport: (months = 3, vendor = "") =>
+    http(`/audit/cash-report?months=${months}${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`),
+
   // Stock reports (JSON; append ?format=csv server-side for raw export).
   stockReport: (branch) => http(`/reports/stock${bq(branch)}`),
   stockBatches: (branch) => http(`/reports/stock/batches${bq(branch)}`),

@@ -165,6 +165,15 @@ const P = {
       <line x1="8.5" y1="18" x2="12.5" y2="18" />
     </>
   ),
+  // Balance scale — the audit report.
+  scale: (
+    <>
+      <path d="M12 4v16M8 20h8" />
+      <path d="M12 6h6.5M12 6H5.5" />
+      <path d="M5.5 6l-2.6 6a2.9 2.9 0 005.2 0z" />
+      <path d="M18.5 6l-2.6 6a2.9 2.9 0 005.2 0z" />
+    </>
+  ),
   moon: <path d="M20 14.5A8 8 0 119.5 4a6.5 6.5 0 0010.5 10.5z" />,
   sun: (
     <>
