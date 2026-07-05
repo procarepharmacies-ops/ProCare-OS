@@ -192,6 +192,16 @@ class Settings:
         return _odbc_url(_data.get("titan_drugeye_source", {}))
 
     @staticmethod
+    def estock_url_for_database(database: str) -> str | None:
+        """Build a read-only URL for another database on the SAME server/login as
+        ``estock_source`` — used to import each restored branch backup
+        (stock_elsanta, stock_mashala, …) without repeating credentials."""
+        block = dict(_data.get("estock_source", {}))
+        if database:
+            block["database"] = database
+        return _odbc_url(block)
+
+    @staticmethod
     def estock_store_branch_map() -> dict | None:
         """Optional eStock store_id -> ProCare branch CODE/id map for the mirror.
 

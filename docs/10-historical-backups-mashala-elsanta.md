@@ -93,13 +93,31 @@ is lost if a number is unknown — confirm it from the preflight, then rename.
   the mirror (`POST /api/etl/run`). Mashala, Elsanta and Main all import as
   separate branches; the deep analysis and the by-branch report then cover them.
 
-- **Branches were split across separate databases**: the mirror is a **full
-  refresh** (it reloads ProCare from a single source each run), so importing a
-  second historical db on its own would replace the first. To *combine* several
-  historical databases into one ProCare history, either (a) restore/attach them
-  and run the analysis against each separately for archival comparison, or
-  (b) ask for the **append/merge importer** — a small addition that loads a
-  source *without* wiping, deduping by branch + business date — and we wire it in.
+- **Branches were split across separate databases** (your case — Elsanta and
+  Mashala each in their own backup): use the **branch importer**, which loads one
+  restored database into ProCare mapped to a named branch, **appending** so the
+  branches accumulate and share **one deduped catalogue** (products matched by
+  code, customers by mobile/name, vendors by name — not duplicated).
+
+  **One click:** edit the two database names at the top of
+  [`deploy/Import-Branches.bat`](../deploy/Import-Branches.bat) to match what you
+  restored, then double-click it. It clears any demo/placeholder data, loads
+  Elsanta, then appends Mashala.
+
+  **Or by hand** (from `src/backend`):
+
+  ```bash
+  # start clean, load Elsanta:
+  python -m app.services.etl --import stock_elsanta ELSANTA --fresh
+  # append Mashala into the same ProCare database:
+  python -m app.services.etl --import stock_mashala MASHALA
+  ```
+
+  Each command prints the rows it added per table. Run the set **once**; re-running
+  the same source appends again (transactions aren't de-duplicated). `--fresh`
+  wipes ProCare's operational + catalogue tables first (branches and staff are
+  kept); omit it to append. The importer reuses the `estock_source` login from
+  `config/connections.json`, just pointed at each restored database name.
 
 ## 4. What you get
 
