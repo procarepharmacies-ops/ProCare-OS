@@ -100,6 +100,12 @@ export const api = {
   profitLoss: (branch, days = 30) => http(`/accounting/profit-loss${bq(branch, `days=${days}`)}`),
   salesByCustomer: (branch, days = 30) => http(`/accounting/sales-by-customer${bq(branch, `days=${days}`)}`),
 
+  // Performance over time (5-year), post-sync audit, supplier purchasing.
+  perfOverview: (branch, years = 5) => http(`/performance/overview${bq(branch, `years=${years}`)}`),
+  perfAudit: (branch) => http(`/performance/audit${bq(branch)}`),
+  perfVendor: (branch, query = "pharmaoverseas", years = 5) =>
+    http(`/performance/vendor${bq(branch, `query=${encodeURIComponent(query)}&years=${years}`)}`),
+
   cashShift: (branchId) => http(`/cashdesk/current?branch_id=${branchId}`),
   openShift: (payload) => http("/cashdesk/open", { method: "POST", body: JSON.stringify(payload) }),
   closeShift: (payload) => http("/cashdesk/close", { method: "POST", body: JSON.stringify(payload) }),

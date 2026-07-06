@@ -28,6 +28,11 @@ from app.db.base import Base, SessionLocal, engine
 
 RNG = random.Random(20260626)
 TODAY = date(2026, 6, 26)
+# Five full years of history so "pharmacy performance over time" is real: the
+# owner sees year-over-year revenue, invoices, customers, purchasing and stock,
+# not just a recent slice. START is the first day of the window.
+YEARS_BACK = 5
+START = date(TODAY.year - YEARS_BACK, TODAY.month, TODAY.day)
 
 # A small but realistic Egyptian-pharmacy catalogue (ar / en / scientific).
 DRUGS = [
@@ -73,7 +78,27 @@ CUSTOMER_NAMES = [
     "حسام الدين", "نورا عادل", "عمر فاروق", "هبة مصطفى", "كريم وحيد", "دعاء ناصر",
     "صيدلية النور", "مستشفى الأمل", "عيادة د. سمير", "ياسمين رضا", "طارق فؤاد", "ليلى كمال",
 ]
-VENDOR_NAMES = ["شركة المهن الطبية", "ابن سينا فارما", "يونايتد فارما", "مصر للأدوية", "فاركو"]
+# (name_ar, name_en). PharmaOverseas and Ibn Sina are the two giant Egyptian
+# distributors the pharmacy buys most of its stock from; PharmaOverseas is the
+# primary supplier here, so it carries the bulk of the purchasing history below.
+VENDORS = [
+    ("فارما أوفرسيز", "PharmaOverseas"),
+    ("ابن سينا فارما", "Ibn Sina Pharma"),
+    ("شركة المهن الطبية", "Medical Professions Co"),
+    ("يونايتد فارما", "United Pharma"),
+    ("مصر للأدوية", "Misr Pharma"),
+    ("فاركو", "Pharco"),
+]
+# Extra family/first names used to grow a realistic customer base over 5 years
+# (staggered join dates → a real "number of customers over time" curve).
+EXTRA_CUSTOMER_NAMES = [
+    "إيمان صبري", "رامي عصام", "شيماء جمال", "مصطفى لطفي", "دينا حمدي", "وليد شعبان",
+    "نهى فتحي", "أشرف زكي", "مروة سعيد", "هاني عبد الله", "غادة منير", "سامح رؤوف",
+    "أمنية طلعت", "بلال حسني", "رانيا مجدي", "تامر صلاح", "سلمى نبيل", "يحيى عادل",
+    "عبير شوقي", "كمال الدين", "نرمين وائل", "زياد أنور", "فريدة سمير", "أنس محسن",
+    "ملك إيهاب", "جمانة رفعت", "سيف مراد", "لمياء عاطف", "بسنت هشام", "مازن قدري",
+    "صيدلية الشفاء", "مركز طب الأسرة", "عيادة د. منى", "مستوصف الرحمة",
+]
 EMPLOYEES = [
     # (name_ar, username, job title, is_admin, login role)
     ("مدير النظام", "admin", "Admin", True, "ceo"),
@@ -186,34 +211,53 @@ def _seed(s: Session) -> dict:
 
     # --- Vendors --------------------------------------------------------------
     vendors = []
-    for n in VENDOR_NAMES:
+    for i, (name_ar, name_en) in enumerate(VENDORS):
+        # The primary distributor (PharmaOverseas) carries a larger open payable.
+        balance = round(RNG.uniform(120000, 240000), 2) if i == 0 else round(RNG.uniform(0, 90000), 2)
         vendors.append(
             m.Vendor(
-                name_ar=n,
+                name_ar=name_ar,
+                name_en=name_en,
                 mobile="010" + "".join(str(RNG.randint(0, 9)) for _ in range(8)),
-                credit_limit=200000,
-                current_balance=round(RNG.uniform(0, 90000), 2),
+                credit_limit=500000 if i == 0 else 200000,
+                current_balance=balance,
             )
         )
     s.add_all(vendors)
     s.flush()
+    # Weight purchasing toward the primary distributor, then the second-largest.
+    vendor_weights = [0.5, 0.2] + [0.3 / max(1, len(vendors) - 2)] * (len(vendors) - 2)
 
     # --- Customers (a few deliberately over their credit limit) --------------
+    # Joins are staggered across the 5-year window so "number of customers over
+    # time" is a real growth curve, not a flat line. The original core names all
+    # joined early (they are long-standing accounts); the extra pool trickles in.
+    span_days = (TODAY - START).days
+    customer_names = list(CUSTOMER_NAMES) + list(EXTRA_CUSTOMER_NAMES)
     customers = []
-    for i, name in enumerate(CUSTOMER_NAMES):
+    for i, name in enumerate(customer_names):
         limit = RNG.choice([0, 500, 1000, 2000, 5000])
         # ~1 in 5 sits over the limit, reproducing the eStock "61 over limit" issue.
         over = i % 5 == 0 and limit > 0
         balance = round(limit * RNG.uniform(1.05, 1.4), 2) if over else round(
             RNG.uniform(0, max(limit, 1) * 0.7), 2
         )
+        if i < len(CUSTOMER_NAMES):
+            # Core accounts: joined near the start of the window.
+            joined = START + timedelta(days=RNG.randint(0, 120))
+        else:
+            # New accounts acquired gradually, weighted toward more recent years.
+            frac = (RNG.random() ** 0.65)  # skew later
+            joined = START + timedelta(days=int(frac * span_days))
+        is_org = any(k in name for k in ("صيدلية", "مستشفى", "عيادة", "مركز", "مستوصف"))
         customers.append(
             m.Customer(
                 name_ar=name,
                 mobile="011" + "".join(str(RNG.randint(0, 9)) for _ in range(8)),
-                customer_class_id=classes[1 if "صيدلية" in name or "مستشفى" in name else 0].customer_class_id,
+                customer_class_id=classes[1 if is_org else 0].customer_class_id,
                 credit_limit=limit,
                 current_balance=balance,
+                created_at=datetime(joined.year, joined.month, joined.day, 10, 0),
             )
         )
     s.add_all(customers)
@@ -259,61 +303,144 @@ def _seed(s: Session) -> dict:
             )
         )
 
-    # --- Sales history (~90 days), FEFO-consistent ---------------------------
+    # --- Sales history (5 years), FEFO-consistent ----------------------------
+    # A rising trend: both invoice volume and prices grow year over year, so the
+    # performance report tells a real story. The most recent ~120 days are dense
+    # (daily) so today's dashboards stay rich; older history is sampled (a few
+    # days per week) to keep the demo fast while still filling every month.
     sales_count = 0
     lines_count = 0
     cashiers = [e for e in employees if e.name_en in ("Cashier", "Admin")]
-    for day_offset in range(90, -1, -1):
-        d = TODAY - timedelta(days=day_offset)
-        # Busier toward "today"; weekends (Fri=4) a touch quieter.
-        base = 6 + int((90 - day_offset) / 12)
-        if d.weekday() == 4:
-            base = int(base * 0.7)
-        n_sales = RNG.randint(max(2, base - 3), base + 4)
-        for _ in range(n_sales):
-            branch = RNG.choice(branches)
-            hour = RNG.choices(range(9, 23), weights=[3, 4, 5, 6, 7, 6, 5, 6, 7, 8, 7, 5, 3, 2])[0]
-            ts = datetime(d.year, d.month, d.day, hour, RNG.randint(0, 59))
-            is_credit = RNG.random() < 0.15
-            customer = RNG.choice(customers) if is_credit or RNG.random() < 0.3 else None
-            sale = m.Sale(
-                branch_id=branch.branch_id,
-                customer_id=customer.customer_id if customer else None,
-                cashier_id=RNG.choice(cashiers).employee_id,
-                sale_date=ts,
-                is_credit=is_credit,
-            )
-            s.add(sale)
+
+    def _progress(d: date) -> float:
+        """0.0 at the start of the window → 1.0 today."""
+        return (d - START).days / span_days if span_days else 1.0
+
+    day = START
+    while day <= TODAY:
+        prog = _progress(day)
+        recent = (TODAY - day).days <= 90
+        # Inflation + growth: prices ~0.75x five years ago rising to ~1.2x today.
+        infl = 0.75 + 0.45 * prog
+        # Sales/active-day grows from ~3 to ~10 across the window.
+        target = 3 + prog * 7
+        if day.weekday() == 4:  # Friday a touch quieter
+            target *= 0.7
+
+        if recent:
+            active = True
+            n_sales = RNG.randint(max(2, int(target) - 2), int(target) + 3)
+        else:
+            active = RNG.random() < 0.55  # ~4 days a week carried older history
+            n_sales = RNG.randint(1, max(2, int(target * 0.8)))
+
+        if active:
+            eligible = [c for c in customers if c.created_at.date() <= day]
+            for _ in range(n_sales):
+                branch = RNG.choice(branches)
+                hour = RNG.choices(range(9, 23), weights=[3, 4, 5, 6, 7, 6, 5, 6, 7, 8, 7, 5, 3, 2])[0]
+                ts = datetime(day.year, day.month, day.day, hour, RNG.randint(0, 59))
+                is_credit = RNG.random() < 0.15 and eligible
+                customer = RNG.choice(eligible) if eligible and (is_credit or RNG.random() < 0.3) else None
+                sale = m.Sale(
+                    branch_id=branch.branch_id,
+                    customer_id=customer.customer_id if customer else None,
+                    cashier_id=RNG.choice(cashiers).employee_id,
+                    sale_date=ts,
+                    is_credit=bool(is_credit),
+                )
+                s.add(sale)
+                s.flush()
+                n_lines = RNG.randint(1, 4)
+                gross = 0.0
+                for _ in range(n_lines):
+                    p = RNG.choice(products)
+                    qty = RNG.randint(1, 3)
+                    sell = round(float(p.sell_price) * infl, 2)
+                    buy = round(float(p.buy_price) * infl, 2)
+                    line_total = round(sell * qty, 2)
+                    gross += line_total
+                    s.add(
+                        m.SaleLine(
+                            sale_id=sale.sale_id,
+                            product_id=p.product_id,
+                            amount=qty,
+                            sell_price=sell,
+                            buy_price=buy,
+                            total_sell=line_total,
+                        )
+                    )
+                    lines_count += 1
+                disc = round(gross * RNG.choice([0, 0, 0, 0.02, 0.05]), 2)
+                net = round(gross - disc, 2)
+                sale.total_gross = gross
+                sale.total_discount = disc
+                sale.total_net = net
+                if is_credit:
+                    sale.cash_paid = 0
+                else:
+                    # A slice of walk-in sales are paid by card (network) — so the
+                    # cash-vs-card split in the analysis is meaningful.
+                    if RNG.random() < 0.25:
+                        sale.card_paid = net
+                    else:
+                        sale.cash_paid = net
+                sales_count += 1
             s.flush()
-            n_lines = RNG.randint(1, 4)
+        day += timedelta(days=1)
+
+    # --- Purchasing history (5 years) ----------------------------------------
+    # Weekly goods-received invoices per branch, mostly from the primary
+    # distributor (PharmaOverseas). Recorded as historical documents (header +
+    # lines) — they do NOT add to current stock, which is already seeded above,
+    # so stock/expiry reports stay correct while purchasing analysis has data.
+    purchases_count = 0
+    purchase_lines_count = 0
+    week = START
+    while week <= TODAY:
+        prog = _progress(week)
+        infl = 0.75 + 0.45 * prog
+        for branch in branches:
+            if RNG.random() < 0.15:  # occasional quiet week
+                continue
+            vendor = RNG.choices(vendors, weights=vendor_weights)[0]
+            bill_day = week + timedelta(days=RNG.randint(0, 6))
+            if bill_day > TODAY:
+                bill_day = TODAY
+            purchase = m.Purchase(
+                branch_id=branch.branch_id,
+                vendor_id=vendor.vendor_id,
+                bill_date=bill_day,
+                bill_number=f"PO-{bill_day.year}{bill_day.month:02d}-{purchases_count + 1:04d}",
+            )
+            s.add(purchase)
+            s.flush()
             gross = 0.0
-            for _ in range(n_lines):
+            for _ in range(RNG.randint(2, 7)):
                 p = RNG.choice(products)
-                qty = RNG.randint(1, 3)
-                line_total = round(float(p.sell_price) * qty, 2)
-                gross += line_total
+                qty = RNG.randint(10, 120)
+                buy = round(float(p.buy_price) * infl, 2)
+                sell = round(float(p.sell_price) * infl, 2)
+                gross += round(qty * buy, 2)
                 s.add(
-                    m.SaleLine(
-                        sale_id=sale.sale_id,
+                    m.PurchaseLine(
+                        purchase_id=purchase.purchase_id,
                         product_id=p.product_id,
                         amount=qty,
-                        sell_price=p.sell_price,
-                        buy_price=p.buy_price,
-                        total_sell=line_total,
+                        bonus=RNG.choice([0, 0, 0, qty * 0.05]),
+                        buy_price=buy,
+                        sell_price=sell,
+                        exp_date=bill_day + timedelta(days=RNG.randint(180, 900)),
                     )
                 )
-                lines_count += 1
-            disc = round(gross * RNG.choice([0, 0, 0, 0.02, 0.05]), 2)
-            net = round(gross - disc, 2)
-            sale.total_gross = gross
-            sale.total_discount = disc
-            sale.total_net = net
-            if is_credit:
-                sale.cash_paid = 0
-            else:
-                sale.cash_paid = net
-            sales_count += 1
+                purchase_lines_count += 1
+            disc = round(gross * RNG.choice([0, 0, 0.01, 0.02]), 2)
+            purchase.total_gross = round(gross, 2)
+            purchase.total_discount = disc
+            purchase.total_tax = 0
+            purchases_count += 1
         s.flush()
+        week += timedelta(days=7)
 
     return {
         "branches": len(branches),
@@ -324,6 +451,10 @@ def _seed(s: Session) -> dict:
         "stock_batches": len(batches),
         "sales": sales_count,
         "sale_lines": lines_count,
+        "purchases": purchases_count,
+        "purchase_lines": purchase_lines_count,
+        "history_from": START.isoformat(),
+        "history_to": TODAY.isoformat(),
     }
 
 

@@ -8,7 +8,7 @@ import { t } from "../i18n";
 import { api } from "../api";
 import { downloadCSV, downloadExcel, printReport } from "../lib/print";
 
-const TABS = ["daily", "sales", "pl", "purchasing", "stock", "cashiers", "productivity"];
+const TABS = ["daily", "performance", "sales", "pl", "purchasing", "stock", "cashiers", "productivity"];
 
 // Export toolbar: CSV / Excel (data only) + ProCare-branded print → PDF.
 function ExportBar({ L, lang, title, columns, rows }) {
@@ -34,7 +34,7 @@ export default function ReportsPage() {
     let alive = true;
     (async () => {
       try {
-        const [salesSummary, profitLoss, byCustomer, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall, stockRep, valuation, movements] = await Promise.all([
+        const [salesSummary, profitLoss, byCustomer, daily, top, cashiers, purchSummary, expiry, lowStock, dailyReport, productivity, footfall, perfOverview, perfAudit, perfVendor, stockRep, valuation, movements] = await Promise.all([
           api.get("/accounting/sales-summary", { branch_id: branch || undefined, days }),
           api.profitLoss(branch, days),
           api.salesByCustomer(branch, days),
@@ -47,6 +47,9 @@ export default function ReportsPage() {
           api.get("/insights/daily", { branch_id: branch || undefined }),
           api.get("/insights/productivity", { branch_id: branch || undefined, days }),
           api.get("/footfall/summary", { branch_id: branch || undefined, days: Math.min(days, 90) }),
+          api.perfOverview(branch, 5),
+          api.perfAudit(branch),
+          api.perfVendor(branch, "pharmaoverseas", 5),
           api.stockReport(branch).catch(() => ({ products: [] })),
           api.stockValuation().catch(() => ({ branches: [] })),
           api.stockMovements(branch, Math.min(days, 90)).catch(() => ({ movements: [] })),
@@ -65,6 +68,9 @@ export default function ReportsPage() {
             dailyReport,
             productivity,
             footfall,
+            perfOverview,
+            perfAudit,
+            perfVendor,
             stockRep: stockRep.products ?? [],
             valuation: valuation.branches ?? [],
             movements: movements.movements ?? [],
@@ -151,6 +157,236 @@ export default function ReportsPage() {
             )}
           </>
         )}
+
+        {data && !data.error && tab === "performance" && (() => {
+          const ov = data.perfOverview;
+          const au = data.perfAudit;
+          const vp = data.perfVendor;
+          const badge = { ok: "ok", info: "", warn: "warn", fail: "danger" };
+          const yr = (n) => (lang === "ar" && n == null ? "—" : n);
+          return (
+            <>
+              {/* Current position snapshot */}
+              <h3 className="section-title">{L("perf_snapshot")}</h3>
+              <div className="kpi-row">
+                <div className="kpi-box">
+                  <div className="kpi-value">{fmt(ov.snapshot.stock_value_at_cost)}</div>
+                  <div className="kpi-label">{L("perf_stock_value_cost")} ({L("egp")})</div>
+                </div>
+                <div className="kpi-box">
+                  <div className="kpi-value">{fmt(ov.snapshot.stock_on_hand_units)}</div>
+                  <div className="kpi-label">{L("perf_stock_units")}</div>
+                </div>
+                <div className="kpi-box">
+                  <div className="kpi-value">{fmt(ov.snapshot.registered_customers)}</div>
+                  <div className="kpi-label">{L("nav_customers")}</div>
+                </div>
+                <div className="kpi-box">
+                  <div className="kpi-value">{fmt(ov.snapshot.receivables_from_customers)}</div>
+                  <div className="kpi-label">{L("perf_receivables")}</div>
+                </div>
+                <div className="kpi-box">
+                  <div className="kpi-value">{fmt(ov.snapshot.payables_to_vendors)}</div>
+                  <div className="kpi-label">{L("perf_payables")}</div>
+                </div>
+                <div className="kpi-box">
+                  <div className="kpi-value" style={{ color: ov.snapshot.expired_in_stock_value > 0 ? "var(--danger)" : undefined }}>{fmt(ov.snapshot.expired_in_stock_value)}</div>
+                  <div className="kpi-label">{L("perf_expired_value")}</div>
+                </div>
+              </div>
+
+              {/* 5-year revenue trend */}
+              <div className="card" style={{ marginTop: 16 }}>
+                <h3 className="section-title">{L("perf_5yr_title")}</h3>
+                <BarChart data={ov.yearly} valueKey="revenue" labelKey="year" />
+              </div>
+
+              <div className="table-wrapper" style={{ marginTop: 16 }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("perf_year")}</th>
+                      <th className="num">{L("perf_revenue")}</th>
+                      <th className="num">{L("perf_gross_profit")}</th>
+                      <th className="num">{L("perf_margin")}</th>
+                      <th className="num">{L("perf_invoices")}</th>
+                      <th className="num">{L("perf_active_customers")}</th>
+                      <th className="num">{L("perf_new_customers")}</th>
+                      <th className="num">{L("perf_purchases")}</th>
+                      <th className="num">{L("perf_yoy")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ov.yearly.map((y) => (
+                      <tr key={y.year}>
+                        <td>{y.year}</td>
+                        <td className="num">{fmt(y.revenue)}</td>
+                        <td className="num">{fmt(y.gross_profit)}</td>
+                        <td className="num">{y.margin_pct != null ? `${y.margin_pct}%` : "—"}</td>
+                        <td className="num">{fmt(y.invoices)}</td>
+                        <td className="num">{fmt(y.active_customers)}</td>
+                        <td className="num">{fmt(y.new_customers)}</td>
+                        <td className="num">{fmt(y.purchases_spend)}</td>
+                        <td className="num" style={{ color: y.revenue_growth_pct == null ? undefined : y.revenue_growth_pct >= 0 ? "var(--ok)" : "var(--danger)" }}>
+                          {y.revenue_growth_pct != null ? `${y.revenue_growth_pct > 0 ? "+" : ""}${y.revenue_growth_pct}%` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* By-branch comparison (consolidated view only) */}
+              {ov.by_branch && ov.by_branch.length > 0 && (
+                <div className="table-wrapper" style={{ marginTop: 16 }}>
+                  <h3 className="section-title">{L("perf_by_branch")}</h3>
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>{L("branch")}</th>
+                        <th className="num">{L("perf_revenue")}</th>
+                        <th className="num">{L("perf_gross_profit")}</th>
+                        <th className="num">{L("perf_invoices")}</th>
+                        <th className="num">{L("perf_purchases")}</th>
+                        <th className="num">{L("perf_stock_value")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ov.by_branch.map((b) => (
+                        <tr key={b.branch_id}>
+                          <td>{lang === "ar" ? b.name_ar : b.name_en || b.name_ar}</td>
+                          <td className="num">{fmt(b.totals.revenue)}</td>
+                          <td className="num">{fmt(b.totals.gross_profit)}</td>
+                          <td className="num">{fmt(b.totals.invoices)}</td>
+                          <td className="num">{fmt(b.totals.purchases_spend)}</td>
+                          <td className="num">{fmt(b.snapshot.stock_value_at_cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                    {lang === "ar" ? "إجماليات ٥ سنوات لكل فرع" : "5-year totals per branch"}
+                  </p>
+                </div>
+              )}
+
+              {/* Post-sync audit */}
+              <div className="card" style={{ marginTop: 16 }}>
+                <h3 className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{L("perf_audit_title")}</span>
+                  <span className={`badge ${badge[au.overall] || ""}`}>{L(`perf_audit_${au.overall}`)}</span>
+                </h3>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("perf_check")}</th>
+                      <th className="num">{L("perf_result")}</th>
+                      <th>{L("status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {au.checks.map((c) => (
+                      <tr key={c.key}>
+                        <td>{lang === "ar" ? c.label_ar : c.label_en}</td>
+                        <td className="num">{c.value == null ? "—" : c.value}{c.detail ? <div className="muted" style={{ fontSize: 11 }}>{c.detail}</div> : null}</td>
+                        <td><span className={`badge ${badge[c.status] || ""}`}>{c.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* PharmaOverseas purchasing */}
+              {vp.found && (
+                <>
+                  <div className="kpi-row" style={{ marginTop: 16 }}>
+                    <div className="kpi-box">
+                      <div className="kpi-value">{fmt(vp.total_spend)}</div>
+                      <div className="kpi-label">{L("perf_supplier_spend")} ({L("egp")})</div>
+                    </div>
+                    <div className="kpi-box">
+                      <div className="kpi-value">{vp.share_of_purchasing_pct}%</div>
+                      <div className="kpi-label">{L("perf_supplier_share")}</div>
+                    </div>
+                    <div className="kpi-box">
+                      <div className="kpi-value">{fmt(vp.vendor.current_payable)}</div>
+                      <div className="kpi-label">{L("perf_supplier_payable")}</div>
+                    </div>
+                    <div className="kpi-box">
+                      <div className="kpi-value">{fmt(vp.total_orders)}</div>
+                      <div className="kpi-label">{L("perf_orders")}</div>
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ marginTop: 16 }}>
+                    <h3 className="section-title">{L("perf_supplier_title")} — {lang === "ar" ? vp.vendor.name_ar : vp.vendor.name_en}</h3>
+                    <BarChart data={vp.yearly} valueKey="spend" labelKey="year" color="var(--accent)" />
+                  </div>
+
+                  <div className="card" style={{ marginTop: 16 }}>
+                    <h3 className="section-title">{L("perf_supplier_ranking")}</h3>
+                    {vp.vendor_ranking.map((r, i) => (
+                      <div key={i} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                          <span>{lang === "ar" ? r.name_ar : r.name_en || r.name_ar}</span>
+                          <span>{fmt(r.spend)} {L("egp")} · {r.share_pct}%</span>
+                        </div>
+                        <HBar value={r.spend} max={vp.vendor_ranking[0]?.spend} />
+                      </div>
+                    ))}
+                  </div>
+
+                  {vp.by_branch && vp.by_branch.length > 0 && (
+                    <div className="table-wrapper" style={{ marginTop: 16 }}>
+                      <h3 className="section-title">{L("perf_supplier_title")} — {L("perf_by_branch")}</h3>
+                      <table className="tbl">
+                        <thead>
+                          <tr>
+                            <th>{L("branch")}</th>
+                            <th className="num">{L("perf_orders")}</th>
+                            <th className="num">{L("perf_supplier_spend")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vp.by_branch.map((b) => (
+                            <tr key={b.branch_id}>
+                              <td>{lang === "ar" ? b.name_ar : b.name_en || b.name_ar}</td>
+                              <td className="num">{fmt(b.orders)}</td>
+                              <td className="num">{fmt(b.spend)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {vp.top_products.length > 0 && (
+                    <div className="table-wrapper" style={{ marginTop: 16 }}>
+                      <table className="tbl">
+                        <thead>
+                          <tr>
+                            <th>{L("perf_top_products")}</th>
+                            <th className="num">{L("perf_items")}</th>
+                            <th className="num">{L("perf_supplier_spend")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vp.top_products.map((p, i) => (
+                            <tr key={i}>
+                              <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}</td>
+                              <td className="num">{fmt(p.units)}</td>
+                              <td className="num">{fmt(p.spend)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          );
+        })()}
 
         {data && !data.error && tab === "productivity" && (
           <>
