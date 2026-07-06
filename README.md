@@ -1,9 +1,9 @@
 # ProCare OS — نظام بروكير لإدارة الصيدليات
 
 **The complete, independent operating system for Procare Pharmacies.**
-Arabic-first (RTL) · Multi-branch (Main + Elsanta) · POS · Inventory · Purchasing · Accounting · HR · AI assistant · Installable as an app.
+Arabic-first (RTL) · Multi-branch (مسهله + السنطه) · POS · Inventory · Purchasing · Accounting · HR · AI assistant · Installable as an app.
 
-> مش مجرد صيدلية… عيلة لكل احتياجاتك
+>ليست مجرد صيدليه لكنها عائله لكل احتياجاتك
 
 ---
 
@@ -101,4 +101,4 @@ Browser ──► Next.js (UI, :3000) ──/api proxy──► FastAPI (:8000/:
 
 ## License & ownership
 
-Proprietary — built for **Procare Pharmacies** (Main الرئيسي + Elsanta السنتا). All rights reserved.
+Proprietary — built for **Procare Pharmacies** (Mas-Hala     مسهله+ Elsantaالسنطه ا). All rights reserved.
