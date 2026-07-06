@@ -156,6 +156,17 @@ def _num(value, default=0.0) -> float:
         return default
 
 
+def _ar(raw_ar, raw_en=None, placeholder: str = "بدون اسم") -> str:
+    """Arabic display name: the source Arabic value, else the English name, else
+    a clear Arabic placeholder. Never a bare ``"?"`` — that reads on screen as a
+    font/encoding failure rather than what it actually is (a missing name)."""
+    if raw_ar is not None and str(raw_ar).strip():
+        return str(raw_ar).strip()
+    if raw_en is not None and str(raw_en).strip():
+        return str(raw_en).strip()
+    return placeholder
+
+
 # --- the mirror core (testable: pass an explicit source + dest) -------------
 def mirror(
     source_engine,
@@ -327,7 +338,7 @@ def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int
             m.Product(
                 code=r.get(code) if code else None,
                 fast_code=r.get(fast) if fast else None,
-                name_ar=(r.get(name_ar) or "?") if name_ar else "?",
+                name_ar=_ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
                 name_en=r.get(name_en) if name_en else None,
                 scientific_name=r.get(sci) if sci else None,
                 is_controlled=_b(r.get(drug)) if drug else False,
@@ -382,7 +393,7 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
     pairs = []
     for r in rows:
         mob = r.get(mobile) if mobile else None
-        nm = (r.get(name_ar) or "?") if name_ar else "?"
+        nm = _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None)
         key = _ckey(mob, nm)
         if dedup and key is not None and key in existing:
             if cid and r.get(cid) is not None:
@@ -406,7 +417,10 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
     for r, obj in pairs:
         if cid and r.get(cid) is not None:
             mapping[int(r[cid])] = obj.customer_id
-        key = _ckey(r.get(mobile) if mobile else None, (r.get(name_ar) or "?") if name_ar else "?")
+        key = _ckey(
+            r.get(mobile) if mobile else None,
+            _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+        )
         if dedup and key is not None:
             existing[key] = obj.customer_id
     counts["customers"] = len(pairs)
@@ -431,7 +445,7 @@ def _load_vendors(insp, src, dst, counts, dedup: bool = False) -> None:
     rows = src.execute(text("SELECT * FROM Vendor")).mappings().all()
     objs = []
     for r in rows:
-        nm = (r.get(name_ar) or "?") if name_ar else "?"
+        nm = _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None)
         if dedup and str(nm).strip() in existing:
             continue  # vendor already known — don't duplicate across branches
         existing.add(str(nm).strip())
