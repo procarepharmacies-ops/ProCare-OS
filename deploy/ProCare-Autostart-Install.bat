@@ -17,14 +17,15 @@ set LAUNCHER=%ROOT%\deploy\ProCare-Local.bat
 set ICON=%ROOT%\src\frontend\public\procare.ico
 
 if not exist "%LAUNCHER%" (echo ProCare not found at %ROOT% & pause & exit /b 1)
+if not exist "%ICON%" (echo Icon not found at %ICON% & pause & exit /b 1)
 
-echo [1/2] Creating the Desktop icon...
+echo [1/2] Creating the Desktop icon (ProCare logo)...
 powershell -NoProfile -Command ^
   "$ws = New-Object -ComObject WScript.Shell;" ^
   "$s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\ProCare AI.lnk');" ^
   "$s.TargetPath = '%LAUNCHER%';" ^
   "$s.WorkingDirectory = '%ROOT%';" ^
-  "$s.IconLocation = '%ICON%';" ^
+  "$s.IconLocation = '%ICON%,0';" ^
   "$s.Description = 'ProCare AI - pharmacy operating system';" ^
   "$s.Save()"
 
@@ -35,7 +36,7 @@ powershell -NoProfile -Command ^
   "$s.TargetPath = '%LAUNCHER%';" ^
   "$s.Arguments = 'serve';" ^
   "$s.WorkingDirectory = '%ROOT%';" ^
-  "$s.IconLocation = '%ICON%';" ^
+  "$s.IconLocation = '%ICON%,0';" ^
   "$s.WindowStyle = 7;" ^
   "$s.Description = 'ProCare AI server (background autostart)';" ^
   "$s.Save()"
