@@ -1,9 +1,13 @@
 # ProCare AI — systemd unit: server autostarts at boot and is ALWAYS ON
 # (auto-restarts if it ever crashes). For Ubuntu/Debian desktop or server.
 #
-# Install (once):
+# EASIEST — one command (fills user/paths + a PATH systemd can find node in):
+#   ./deploy/install-service.sh
+#
+# Manual install (this template) — only if you prefer to edit by hand:
 #   sudo cp deploy/procare-local.service /etc/systemd/system/procare.service
-#   # edit User= and the two paths below if the repo is not /home/YOUR_USER/ProCare-OS
+#   # edit User= and the paths below, AND add your node/python dir to PATH:
+#   #   Environment=PATH=/path/to/node/bin:/usr/local/bin:/usr/bin:/bin
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now procare
 #

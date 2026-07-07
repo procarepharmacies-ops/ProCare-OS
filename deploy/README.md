@@ -13,7 +13,8 @@ know the host's IP for the app to work.
 | Script / guide | What it does |
 |---|---|
 | `ProCare-OneClick-Setup.bat` | **Fresh PC, one file**: installs Git/Python/Node (winget), downloads ProCare, creates the Desktop icon + autostart, builds and starts it |
-| `ProCare-Autostart-Install.bat` | Desktop icon + start on **login** (repo already on the PC) |
+| `ProCare-Desktop-Icon.bat` | **Just the Desktop icon** (ProCare logo). One click on it starts backend + frontend and opens the app. No always-on server. |
+| `ProCare-Autostart-Install.bat` | Same Desktop icon **plus** start on **login** (always-on server; repo already on the PC) |
 | `ProCare-Service-Install.bat` | Start on **Windows boot, before login** (Task Scheduler as SYSTEM) + optional **Cloudflare Tunnel as a Windows service** for a public https URL (phone access from anywhere) |
 | `SQL-SERVER-EXPRESS.md` | Move ProCare's database from SQLite to free **SQL Server Express** — config-only, step by step |
 | `../docs/08-google-cloud-300-plan.md` | Gemini API key setup + the plan for the $300 Google Cloud trial (off-site backups, free always-on VM, monitoring) |
@@ -144,10 +145,12 @@ One script drives everything on the pharmacy server:
 ./deploy/procare.sh update     # pull the newest version and rebuild
 ```
 
-**Desktop icon (Windows + WSL):** copy `deploy/ProCare.bat` to the Windows
-Desktop. Double-click = server starts (if not already running) and the app
-opens in the browser. On a plain Ubuntu desktop use `deploy/procare.desktop`
-instead (edit the two paths inside).
+**Desktop icon (Windows):** double-click `deploy/ProCare-Desktop-Icon.bat`
+**once** — it puts a **ProCare** icon (the ProCare logo) on the Desktop. One
+click on that icon starts the backend + frontend and opens the app in the
+browser. For an always-on server that also starts with Windows, use
+`deploy/ProCare-Autostart-Install.bat` instead (same icon + autostart). On a
+plain Ubuntu desktop use `deploy/procare.desktop` (edit the two paths inside).
 
 **Access from anywhere on the internet (Cloudflare Tunnel):**
 1. Cloudflare Zero Trust → Networks → Tunnels → create/open your tunnel and

@@ -29,7 +29,7 @@ from app.db.migrate import (
     ensure_shelf_location_column,
 )
 from app.db.seed import ensure_seeded
-from app.services import sync
+from app.services import scheduler, sync
 
 
 @asynccontextmanager
@@ -58,10 +58,15 @@ async def lifespan(_app: FastAPI):
     # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
     # read-only eStock source configured); otherwise it stays idle.
     sync.start()
+    # Start the automation scheduler (expiry alerts / auto-purchase drafts /
+    # auto-reports) when AUTOMATION_ENABLED is set and APScheduler is installed;
+    # otherwise it stays idle and jobs remain fireable on demand.
+    scheduler.start()
     try:
         yield
     finally:
         sync.stop()
+        scheduler.shutdown()
 
 
 app = FastAPI(

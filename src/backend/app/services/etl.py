@@ -156,30 +156,63 @@ def _num(value, default=0.0) -> float:
         return default
 
 
-# --- the mirror core (testable: pass an explicit source + dest) -------------
-def mirror(source_engine, dst: Session, store_branch_map: dict | None = None) -> dict:
-    """Run the full read-only mirror from ``source_engine`` into ProCare (``dst``).
+def _ar(raw_ar, raw_en=None, placeholder: str = "بدون اسم") -> str:
+    """Arabic display name: the source Arabic value, else the English name, else
+    a clear Arabic placeholder. Never a bare ``"?"`` — that reads on screen as a
+    font/encoding failure rather than what it actually is (a missing name)."""
+    if raw_ar is not None and str(raw_ar).strip():
+        return str(raw_ar).strip()
+    if raw_en is not None and str(raw_en).strip():
+        return str(raw_en).strip()
+    return placeholder
 
-    Idempotent: clears ProCare operational/catalogue tables, then reloads from
-    eStock. Returns per-table row counts. Raises only on a hard failure of a
-    core table; optional/absent source tables are skipped.
+
+# --- the mirror core (testable: pass an explicit source + dest) -------------
+def mirror(
+    source_engine,
+    dst: Session,
+    store_branch_map: dict | None = None,
+    *,
+    wipe: bool = True,
+    force_branch_code: str | None = None,
+    dedup: bool | None = None,
+) -> dict:
+    """Run the read-only mirror from ``source_engine`` into ProCare (``dst``).
+
+    Default (``wipe=True``): a full refresh — clears ProCare's operational and
+    catalogue tables, then reloads from a single eStock source. This is the
+    Phase-1 live mirror behaviour.
+
+    Multi-branch consolidation (``wipe=False`` + ``force_branch_code``): APPEND a
+    restored branch backup (e.g. Elsanta, then Mashala) into ProCare WITHOUT
+    clearing what's already there, mapping ALL of that source's rows to the named
+    branch. Append implies ``dedup`` so the shared drug catalogue, customers and
+    vendors are matched (by code / mobile / name) instead of duplicated across
+    branches — run each backup once. Returns per-table row counts (rows added).
     """
+    dedup = (not wipe) if dedup is None else dedup
     insp = inspect(source_engine)
 
     with source_engine.connect() as src:
-        # Discover the branches that actually exist on the source and ensure a
-        # ProCare branch for each, so no branch's data is merged into another
-        # (the remote server may carry Main, Elsanta, Mashal, ...).
-        store_ids = _distinct_store_ids(insp, src)
-        branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
-        default_branch = next(iter(branch_map.values()))
+        if force_branch_code:
+            # Every row from this single-branch backup belongs to one branch.
+            default_branch = _ensure_branch_code(dst, force_branch_code)
+            branch_map: dict[int, int] = {}
+        else:
+            # Discover the branches that actually exist on the source and ensure a
+            # ProCare branch for each, so no branch's data is merged into another
+            # (the remote server may carry Main, Elsanta, Mashala, ...).
+            store_ids = _distinct_store_ids(insp, src)
+            branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
+            default_branch = next(iter(branch_map.values()))
 
-        _wipe_destination(dst)
+        if wipe:
+            _wipe_destination(dst)
         counts: dict[str, int] = {}
 
-        product_map = _load_products(insp, src, dst, counts)
-        customer_map = _load_customers(insp, src, dst, counts)
-        _load_vendors(insp, src, dst, counts)
+        product_map = _load_products(insp, src, dst, counts, dedup=dedup)
+        customer_map = _load_customers(insp, src, dst, counts, dedup=dedup)
+        _load_vendors(insp, src, dst, counts, dedup=dedup)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
         _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=False)
         _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=True)
@@ -187,6 +220,18 @@ def mirror(source_engine, dst: Session, store_branch_map: dict | None = None) ->
 
         dst.commit()
     return counts
+
+
+def _ensure_branch_code(dst: Session, code: str, name_ar: str | None = None, name_en: str | None = None) -> int:
+    """Return the branch_id for ``code``, creating the branch if it's new."""
+    code = code.strip().upper()
+    existing = dst.scalars(select(m.Branch).where(m.Branch.code == code)).first()
+    if existing:
+        return existing.branch_id
+    b = m.Branch(code=code, name_ar=name_ar or code, name_en=name_en or code)
+    dst.add(b)
+    dst.flush()
+    return b.branch_id
 
 
 def _distinct_store_ids(insp, src) -> set[int]:
@@ -255,8 +300,9 @@ def _wipe_destination(dst: Session) -> None:
     dst.flush()
 
 
-def _load_products(insp, src, dst, counts) -> dict[int, int]:
-    """Returns src product_id -> dst product_id."""
+def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int]:
+    """Returns src product_id -> dst product_id. With ``dedup`` (append mode),
+    a product whose code already exists in ProCare is reused, not duplicated."""
     cols = {c["name"] for c in insp.get_columns("Products")}
     pid = _pick(cols, "product_id")
     name_ar = _pick(cols, "product_name_ar", "name_ar")
@@ -272,15 +318,27 @@ def _load_products(insp, src, dst, counts) -> dict[int, int]:
     deleted = _pick(cols, "deleted")
     active = _pick(cols, "active")
 
-    rows = src.execute(text(f"SELECT * FROM Products")).mappings().all()
+    existing: dict[str, int] = {}
+    if dedup:
+        for ex_pid, ex_code in dst.execute(select(m.Product.product_id, m.Product.code)).all():
+            if ex_code is not None:
+                existing[str(ex_code)] = ex_pid
+
+    rows = src.execute(text("SELECT * FROM Products")).mappings().all()
     mapping: dict[int, int] = {}
-    objs = []
+    pairs = []  # (row, obj) for products we actually create
     for r in rows:
-        objs.append(
+        code_val = str(r.get(code)) if code and r.get(code) is not None else None
+        if dedup and code_val is not None and code_val in existing:
+            if pid and r.get(pid) is not None:
+                mapping[int(r[pid])] = existing[code_val]
+            continue
+        pairs.append((
+            r,
             m.Product(
                 code=r.get(code) if code else None,
                 fast_code=r.get(fast) if fast else None,
-                name_ar=(r.get(name_ar) or "?") if name_ar else "?",
+                name_ar=_ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
                 name_en=r.get(name_en) if name_en else None,
                 scientific_name=r.get(sci) if sci else None,
                 is_controlled=_b(r.get(drug)) if drug else False,
@@ -290,18 +348,21 @@ def _load_products(insp, src, dst, counts) -> dict[int, int]:
                 tax_price=_num(r.get(tax)) if tax else 0,
                 is_active=_b(r.get(active)) if active else True,
                 is_deleted=_b(r.get(deleted)) if deleted else False,
-            )
-        )
-    dst.add_all(objs)
+            ),
+        ))
+    dst.add_all([obj for _, obj in pairs])
     dst.flush()
-    for r, obj in zip(rows, objs):
+    for r, obj in pairs:
         if pid and r.get(pid) is not None:
             mapping[int(r[pid])] = obj.product_id
-    counts["products"] = len(objs)
+        cv = str(r.get(code)) if code and r.get(code) is not None else None
+        if dedup and cv is not None:
+            existing[cv] = obj.product_id
+    counts["products"] = len(pairs)
     return mapping
 
 
-def _load_customers(insp, src, dst, counts) -> dict[int, int]:
+def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, int]:
     cols = {c["name"] for c in insp.get_columns("Customer")}
     cid = _pick(cols, "customer_id")
     name_ar = _pick(cols, "customer_name_ar", "name_ar")
@@ -313,32 +374,60 @@ def _load_customers(insp, src, dst, counts) -> dict[int, int]:
     deleted = _pick(cols, "deleted")
     active = _pick(cols, "active")
 
+    def _ckey(mob, nm):
+        if mob and str(mob).strip():
+            return "m:" + str(mob).strip()
+        if nm and str(nm).strip():
+            return "n:" + str(nm).strip()
+        return None
+
+    existing: dict[str, int] = {}
+    if dedup:
+        for ex in dst.scalars(select(m.Customer)).all():
+            key = _ckey(ex.mobile, ex.name_ar)
+            if key and key not in existing:
+                existing[key] = ex.customer_id
+
     rows = src.execute(text("SELECT * FROM Customer")).mappings().all()
     mapping: dict[int, int] = {}
-    objs = []
+    pairs = []
     for r in rows:
-        objs.append(
+        mob = r.get(mobile) if mobile else None
+        nm = _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None)
+        key = _ckey(mob, nm)
+        if dedup and key is not None and key in existing:
+            if cid and r.get(cid) is not None:
+                mapping[int(r[cid])] = existing[key]
+            continue
+        pairs.append((
+            r,
             m.Customer(
-                name_ar=(r.get(name_ar) or "?") if name_ar else "?",
+                name_ar=nm,
                 name_en=r.get(name_en) if name_en else None,
-                mobile=r.get(mobile) if mobile else None,
+                mobile=mob,
                 credit_limit=_num(r.get(limit)) if limit else 0,
                 current_balance=_num(r.get(balance)) if balance else 0,
                 opening_balance=_num(r.get(opening)) if opening else 0,
                 is_active=_b(r.get(active)) if active else True,
                 is_deleted=_b(r.get(deleted)) if deleted else False,
-            )
-        )
-    dst.add_all(objs)
+            ),
+        ))
+    dst.add_all([obj for _, obj in pairs])
     dst.flush()
-    for r, obj in zip(rows, objs):
+    for r, obj in pairs:
         if cid and r.get(cid) is not None:
             mapping[int(r[cid])] = obj.customer_id
-    counts["customers"] = len(objs)
+        key = _ckey(
+            r.get(mobile) if mobile else None,
+            _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+        )
+        if dedup and key is not None:
+            existing[key] = obj.customer_id
+    counts["customers"] = len(pairs)
     return mapping
 
 
-def _load_vendors(insp, src, dst, counts) -> None:
+def _load_vendors(insp, src, dst, counts, dedup: bool = False) -> None:
     cols = {c["name"] for c in insp.get_columns("Vendor")}
     name_ar = _pick(cols, "vendor_name_ar", "name_ar")
     name_en = _pick(cols, "vendor_name_en", "name_en")
@@ -347,18 +436,29 @@ def _load_vendors(insp, src, dst, counts) -> None:
     limit = _pick(cols, "vendor_max_money")
     balance = _pick(cols, "vendor_current_money")
 
+    existing: set[str] = set()
+    if dedup:
+        for (nm,) in dst.execute(select(m.Vendor.name_ar)).all():
+            if nm:
+                existing.add(str(nm).strip())
+
     rows = src.execute(text("SELECT * FROM Vendor")).mappings().all()
-    objs = [
-        m.Vendor(
-            name_ar=(r.get(name_ar) or "?") if name_ar else "?",
-            name_en=r.get(name_en) if name_en else None,
-            tel=r.get(tel) if tel else None,
-            mobile=r.get(mobile) if mobile else None,
-            credit_limit=_num(r.get(limit)) if limit else 0,
-            current_balance=_num(r.get(balance)) if balance else 0,
+    objs = []
+    for r in rows:
+        nm = _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None)
+        if dedup and str(nm).strip() in existing:
+            continue  # vendor already known — don't duplicate across branches
+        existing.add(str(nm).strip())
+        objs.append(
+            m.Vendor(
+                name_ar=nm,
+                name_en=r.get(name_en) if name_en else None,
+                tel=r.get(tel) if tel else None,
+                mobile=r.get(mobile) if mobile else None,
+                credit_limit=_num(r.get(limit)) if limit else 0,
+                current_balance=_num(r.get(balance)) if balance else 0,
+            )
         )
-        for r in rows
-    ]
     dst.add_all(objs)
     dst.flush()
     counts["vendors"] = len(objs)
@@ -653,6 +753,32 @@ def run_full_load() -> dict:
     return {"ran": True, "source": "eStock (read-only)", "counts": counts}
 
 
+def import_branch_backup(database: str, branch_code: str, *, append: bool = True) -> dict:
+    """Import one restored branch backup into ProCare, mapped to ``branch_code``.
+
+    ``database`` is a database on the SAME SQL Server as ``estock_source`` (e.g.
+    ``stock_elsanta`` or ``stock_mashala`` restored from a .bak). Append by
+    default so branches accumulate — import Elsanta, then Mashala — sharing one
+    deduped catalogue. Pass ``append=False`` to start ProCare fresh first.
+    """
+    url = settings.estock_url_for_database(database)
+    if not url:
+        return {
+            "ran": False,
+            "reason": "estock_source credentials are not set in config/connections.json — "
+            "fill server/username/password there (same login used for the mirror).",
+        }
+    Base.metadata.create_all(engine)
+    source_engine = create_engine(url, echo=False)
+    try:
+        with SessionLocal() as dst:
+            counts = mirror(source_engine, dst, wipe=not append, force_branch_code=branch_code)
+    finally:
+        source_engine.dispose()
+    return {"ran": True, "database": database, "branch": branch_code.strip().upper(),
+            "mode": "append" if append else "fresh", "counts": counts}
+
+
 if __name__ == "__main__":
     import json
     import sys
@@ -662,6 +788,14 @@ if __name__ == "__main__":
         out = preflight()
     elif arg == "--run":
         out = run_full_load()
+    elif arg == "--import":
+        # python -m app.services.etl --import <database> <BRANCH_CODE> [--fresh]
+        database = sys.argv[2] if len(sys.argv) > 2 else ""
+        branch = sys.argv[3] if len(sys.argv) > 3 else ""
+        if not database or not branch:
+            out = {"ran": False, "reason": "usage: --import <database> <BRANCH_CODE> [--fresh]"}
+        else:
+            out = import_branch_backup(database, branch, append="--fresh" not in sys.argv)
     else:
         out = status()
     print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
