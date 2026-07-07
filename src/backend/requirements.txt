@@ -14,6 +14,9 @@ pytest>=8.0
 #                         config/connections.json:procare_database has real creds
 
 # --- Optional, documented upgrades (not required to run) ---------------------
-# APScheduler>=3.10      # in-process scheduler for expiry_alerts / auto_purchase_order
+# APScheduler>=3.10      # in-process scheduler (services/scheduler.py) for the
+#                         AUTOMATION_ENABLED cron jobs — expiry_alerts /
+#                         auto_purchase_order / auto_reports. Without it the app
+#                         still runs; jobs stay fireable on demand via the API.
 # prophet>=1.1           # replaces the moving-average forecast in services/alerts.py
 # anthropic>=0.40        # alternative to the raw httpx Claude call in services/ai.py

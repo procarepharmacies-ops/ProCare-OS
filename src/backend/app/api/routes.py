@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, audit, auth, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, tasks, transfers, treasury, vendors
+from app.api import accounting, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -146,3 +146,4 @@ router.include_router(treasury.router, dependencies=[Depends(auth_guard(("ceo", 
 router.include_router(reports.router)
 # In-system cash-flow & inventory audit — management only.
 router.include_router(audit.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+router.include_router(automation.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
