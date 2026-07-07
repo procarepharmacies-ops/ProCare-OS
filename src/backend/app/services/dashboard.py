@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import TODAY, as_date, available_stock_filter, branch_filter, money
 
 
 def _sales_base(branch_id):
@@ -32,8 +32,8 @@ def summary(session: Session, branch_id: int | None = None) -> dict:
             .where(
                 m.Sale.is_return == False,  # noqa: E712
                 branch_filter(m.Sale, branch_id),
-                func.date(m.Sale.sale_date) >= start,
-                func.date(m.Sale.sale_date) <= end,
+                as_date(m.Sale.sale_date) >= start,
+                as_date(m.Sale.sale_date) <= end,
             )
         )
         rev, cnt = session.execute(stmt).one()
@@ -112,8 +112,8 @@ def _profit(session: Session, branch_id, start, end) -> float:
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
-            func.date(m.Sale.sale_date) <= end,
+            as_date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) <= end,
         )
     )
     revenue, cost = session.execute(stmt).one()
@@ -125,17 +125,17 @@ def daily_sales(session: Session, branch_id: int | None = None, days: int = 30) 
     start = TODAY - timedelta(days=days - 1)
     stmt = (
         select(
-            func.date(m.Sale.sale_date).label("d"),
+            as_date(m.Sale.sale_date).label("d"),
             func.count().label("bills"),
             func.coalesce(func.sum(m.Sale.total_net), 0).label("revenue"),
         )
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
-        .group_by(func.date(m.Sale.sale_date))
-        .order_by(func.date(m.Sale.sale_date))
+        .group_by(as_date(m.Sale.sale_date))
+        .order_by(as_date(m.Sale.sale_date))
     )
     rows = {str(r.d): (r.bills, money(r.revenue)) for r in session.execute(stmt)}
     # Fill gaps so the chart has a continuous axis.
@@ -161,7 +161,7 @@ def top_products(session: Session, branch_id: int | None = None, days: int = 30,
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
         .group_by(m.Product.product_id, m.Product.name_ar, m.Product.name_en)
         .order_by(func.sum(m.SaleLine.total_sell).desc())
@@ -177,7 +177,7 @@ def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:
     """Peak-hours for the most recent active day. Bucketed in Python so it is
     dialect-agnostic (SQLite dev + SQL Server prod behave identically)."""
     target = session.execute(
-        select(func.max(func.date(m.Sale.sale_date))).where(branch_filter(m.Sale, branch_id))
+        select(func.max(as_date(m.Sale.sale_date))).where(branch_filter(m.Sale, branch_id))
     ).scalar_one()
     if target is None:
         return []
@@ -185,7 +185,7 @@ def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:
         select(m.Sale.sale_date, m.Sale.total_net).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) == target,
+            as_date(m.Sale.sale_date) == target,
         )
     ).all()
     buckets: dict[int, list] = {}
@@ -213,7 +213,7 @@ def monthly_sales(session: Session, branch_id: int | None = None, months: int = 
         ).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
     ).all()
     profit_rows = session.execute(
@@ -225,7 +225,7 @@ def monthly_sales(session: Session, branch_id: int | None = None, months: int = 
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
         .group_by(m.Sale.sale_id, m.Sale.sale_date)
     ).all()
@@ -265,8 +265,8 @@ def by_branch(session: Session, date_from=None, date_to=None) -> list[dict]:
         )
         .where(
             m.Sale.is_return == False,  # noqa: E712
-            func.date(m.Sale.sale_date) >= start,
-            func.date(m.Sale.sale_date) <= end,
+            as_date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) <= end,
         )
         .group_by(m.Sale.branch_id)
     ).all()
@@ -280,8 +280,8 @@ def by_branch(session: Session, date_from=None, date_to=None) -> list[dict]:
         .join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
         .where(
             m.Sale.is_return == False,  # noqa: E712
-            func.date(m.Sale.sale_date) >= start,
-            func.date(m.Sale.sale_date) <= end,
+            as_date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) <= end,
         )
         .group_by(m.Sale.branch_id)
     ).all()
@@ -315,8 +315,8 @@ def range_summary(session: Session, branch_id: int | None, date_from, date_to) -
         ).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= date_from,
-            func.date(m.Sale.sale_date) <= date_to,
+            as_date(m.Sale.sale_date) >= date_from,
+            as_date(m.Sale.sale_date) <= date_to,
         )
     ).one()
     return {
@@ -342,7 +342,7 @@ def cashier_performance(session: Session, branch_id: int | None = None, days: in
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
         .group_by(m.Employee.employee_id, m.Employee.name_ar)
         .order_by(func.sum(m.Sale.total_net).desc())

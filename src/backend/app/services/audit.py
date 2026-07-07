@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.db import models as m
 from app.db.base import IS_SQLITE
 from app.services import sync
-from app.services.common import TODAY, money
+from app.services.common import TODAY, as_date, money
 
 RATIO_ALARM = 0.85  # purchases/sales above this converts cash into shelf stock
 
@@ -74,7 +74,7 @@ def cash_report(session: Session, months: int = 3, vendor_query: str | None = No
             ).where(
                 m.Sale.branch_id == bid,
                 m.Sale.is_return == False,  # noqa: E712
-                func.date(m.Sale.sale_date) >= start,
+                as_date(m.Sale.sale_date) >= start,
             )
         ).one()
         gross_profit = session.execute(
@@ -83,14 +83,14 @@ def cash_report(session: Session, months: int = 3, vendor_query: str | None = No
             .where(
                 m.Sale.branch_id == bid,
                 m.Sale.is_return == False,  # noqa: E712
-                func.date(m.Sale.sale_date) >= start,
+                as_date(m.Sale.sale_date) >= start,
             )
         ).scalar_one()
         returns_refunded = session.execute(
             select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
                 m.Sale.branch_id == bid,
                 m.Sale.is_return == True,  # noqa: E712
-                func.date(m.Sale.sale_date) >= start,
+                as_date(m.Sale.sale_date) >= start,
             )
         ).scalar_one()
 
@@ -132,7 +132,7 @@ def cash_report(session: Session, months: int = 3, vendor_query: str | None = No
                         m.LedgerEntry.branch_id == bid,
                         m.LedgerEntry.account_type == "vendor",
                         m.LedgerEntry.account_ref == vendor.vendor_id,
-                        func.date(m.LedgerEntry.entry_date) >= start,
+                        as_date(m.LedgerEntry.entry_date) >= start,
                         m.LedgerEntry.ref_type != "purchase_return",
                     )
                 ).scalar_one()
@@ -150,14 +150,14 @@ def cash_report(session: Session, months: int = 3, vendor_query: str | None = No
                 m.LedgerEntry.branch_id == bid,
                 m.LedgerEntry.account_type == "cash",
                 m.LedgerEntry.ref_type.in_(("treasury_out", "treasury_adjust")),
-                func.date(m.LedgerEntry.entry_date) >= start,
+                as_date(m.LedgerEntry.entry_date) >= start,
             )
         ).scalar_one()
         shifts, variance = session.execute(
             select(func.count(), func.coalesce(func.sum(m.CashShift.variance), 0)).where(
                 m.CashShift.branch_id == bid,
                 m.CashShift.status == "closed",
-                func.date(m.CashShift.opened_at) >= start,
+                as_date(m.CashShift.opened_at) >= start,
             )
         ).one()
 
@@ -189,7 +189,7 @@ def cash_report(session: Session, months: int = 3, vendor_query: str | None = No
         sold_pids = select(m.SaleLine.product_id).join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id).where(
             m.Sale.branch_id == bid,
             m.Sale.is_return == False,  # noqa: E712
-            func.date(m.Sale.sale_date) >= TODAY - timedelta(days=90),
+            as_date(m.Sale.sale_date) >= TODAY - timedelta(days=90),
         )
         dead_products, dead_cost = session.execute(
             select(

@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import TODAY, as_date, available_stock_filter, branch_filter, money
 
 
 def expiry_risk(session: Session, branch_id: int | None = None, horizon_days: int = 90) -> dict:
@@ -120,7 +120,7 @@ def _avg_daily_consumption(session: Session, branch_id: int | None, days: int = 
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
         .group_by(m.SaleLine.product_id)
     ).all()
@@ -177,15 +177,15 @@ def forecast(session: Session, product_id: int, branch_id: int | None = None, da
     window = 60
     start = TODAY - timedelta(days=window)
     rows = session.execute(
-        select(func.date(m.Sale.sale_date), func.sum(m.SaleLine.amount))
+        select(as_date(m.Sale.sale_date), func.sum(m.SaleLine.amount))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
         .where(
             m.SaleLine.product_id == product_id,
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
-        .group_by(func.date(m.Sale.sale_date))
+        .group_by(as_date(m.Sale.sale_date))
     ).all()
     by_day = {str(d): float(q) for d, q in rows}
     series = [by_day.get((start + timedelta(days=i)).isoformat(), 0.0) for i in range(window)]

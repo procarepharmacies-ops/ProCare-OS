@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.db import models as m
 from app.services import prescriptions as rx
 from app.services.alerts import _avg_daily_consumption
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import TODAY, as_date, available_stock_filter, branch_filter, money
 
 
 def budget_pct() -> float:
@@ -41,7 +41,7 @@ def daily_budget(session: Session, branch_id: int | None = None, days: int = 30)
         select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            as_date(m.Sale.sale_date) >= start,
         )
     ).scalar_one()
     avg_daily = float(revenue) / days

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import models as m
-from app.services.common import TODAY
+from app.services.common import TODAY, as_date
 
 _EXTRACT_PROMPT = (
     "You read a photo of a medical prescription from Egypt (Arabic and/or English). "
@@ -159,7 +159,7 @@ def doctor_habits(session: Session, branch_id: int | None = None, days: int = 18
     captured, and which drugs each doctor writes most (with counts) — so the
     pharmacy stocks what local doctors actually prescribe."""
     start = TODAY - timedelta(days=days)
-    q = select(m.Prescription).where(func.date(m.Prescription.created_at) >= start)
+    q = select(m.Prescription).where(as_date(m.Prescription.created_at) >= start)
     if branch_id:
         q = q.where(m.Prescription.branch_id == branch_id)
 
@@ -201,7 +201,7 @@ def demand_signal(session: Session, branch_id: int | None = None, days: int = 30
     """Drug-name → mention count from recent prescriptions. Feeds the
     predictive auto-purchasing (drugs doctors prescribe are drugs to stock)."""
     start = TODAY - timedelta(days=days)
-    q = select(m.Prescription.drugs_json).where(func.date(m.Prescription.created_at) >= start)
+    q = select(m.Prescription.drugs_json).where(as_date(m.Prescription.created_at) >= start)
     if branch_id:
         q = q.where(m.Prescription.branch_id == branch_id)
     counts: dict[str, int] = {}

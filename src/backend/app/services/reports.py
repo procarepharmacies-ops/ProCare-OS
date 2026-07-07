@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import TODAY, as_date, available_stock_filter, branch_filter, money
 
 
 def stock_on_hand(session: Session, branch_id: int | None = None, limit: int = 2000) -> list[dict]:
@@ -98,7 +98,7 @@ def stock_movements(
         .join(m.StockBatch, m.StockBatch.batch_id == m.StockMovement.batch_id)
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .join(m.Branch, m.Branch.branch_id == m.StockMovement.branch_id)
-        .where(branch_filter(m.StockMovement, branch_id), func.date(m.StockMovement.created_at) >= start)
+        .where(branch_filter(m.StockMovement, branch_id), as_date(m.StockMovement.created_at) >= start)
         .order_by(m.StockMovement.created_at.desc())
         .limit(limit)
     ).all()

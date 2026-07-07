@@ -21,6 +21,7 @@ import random
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import (
+    Unicode,
     Column,
     Date,
     DateTime,
@@ -74,37 +75,37 @@ metadata = MetaData()
 Products = Table(
     "Products", metadata,
     Column("product_id", Integer, primary_key=True),
-    Column("product_code", String(50)),
-    Column("product_name_ar", String(150)),
-    Column("product_name_en", String(150)),
-    Column("product_scientific_name", String(200)),
-    Column("product_drug", String(1)),
-    Column("product_has_expire", String(1)),
+    Column("product_code", Unicode(50)),
+    Column("product_name_ar", Unicode(150)),
+    Column("product_name_en", Unicode(150)),
+    Column("product_scientific_name", Unicode(200)),
+    Column("product_drug", Unicode(1)),
+    Column("product_has_expire", Unicode(1)),
     Column("sell_price", Numeric(18, 3)),
     Column("buy_price", Numeric(18, 3)),
     Column("tax_price", Numeric(18, 3)),
-    Column("deleted", String(1)),
-    Column("active", String(1)),
+    Column("deleted", Unicode(1)),
+    Column("active", Unicode(1)),
 )
 Customer = Table(
     "Customer", metadata,
     Column("customer_id", Integer, primary_key=True),
-    Column("customer_name_ar", String(150)),
-    Column("customer_name_en", String(150)),
-    Column("mobile", String(20)),
+    Column("customer_name_ar", Unicode(150)),
+    Column("customer_name_en", Unicode(150)),
+    Column("mobile", Unicode(20)),
     Column("customer_max_money", Numeric(18, 3)),
     Column("customer_current_money", Numeric(18, 3)),
     Column("customer_start_money", Numeric(18, 3)),
-    Column("deleted", String(1)),
-    Column("active", String(1)),
+    Column("deleted", Unicode(1)),
+    Column("active", Unicode(1)),
 )
 Vendor = Table(
     "Vendor", metadata,
     Column("vendor_id", Integer, primary_key=True),
-    Column("vendor_name_ar", String(150)),
-    Column("vendor_name_en", String(150)),
-    Column("tel", String(20)),
-    Column("mobile", String(20)),
+    Column("vendor_name_ar", Unicode(150)),
+    Column("vendor_name_en", Unicode(150)),
+    Column("tel", Unicode(20)),
+    Column("mobile", Unicode(20)),
     Column("vendor_max_money", Numeric(18, 3)),
     Column("vendor_current_money", Numeric(18, 3)),
 )
@@ -134,7 +135,7 @@ Sales_header = Table(
     Column("bill_cash", Numeric(18, 3)),
     Column("network_money", Numeric(18, 3)),
     Column("money_change", Numeric(18, 3)),
-    Column("back", String(1)),
+    Column("back", Unicode(1)),
 )
 Sales_details = Table(
     "Sales_details", metadata,
@@ -147,7 +148,7 @@ Sales_details = Table(
     Column("buy_price", Numeric(18, 3)),
     Column("disc_money", Numeric(18, 3)),
     Column("total_sell", Numeric(18, 3)),
-    Column("back", String(1)),
+    Column("back", Unicode(1)),
 )
 Back_sales_header = Table(
     "Back_sales_header", metadata,
@@ -162,7 +163,7 @@ Back_sales_header = Table(
     Column("bill_cash", Numeric(18, 3)),
     Column("network_money", Numeric(18, 3)),
     Column("money_change", Numeric(18, 3)),
-    Column("back", String(1)),
+    Column("back", Unicode(1)),
 )
 Back_Sales_details = Table(
     "Back_Sales_details", metadata,
@@ -173,7 +174,7 @@ Back_Sales_details = Table(
     Column("back_price", Numeric(18, 3)),
     Column("buy_price", Numeric(18, 3)),
     Column("total_sell", Numeric(18, 3)),
-    Column("back", String(1)),
+    Column("back", Unicode(1)),
 )
 
 

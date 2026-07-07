@@ -10,10 +10,22 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import and_, or_
+from sqlalchemy import Date, and_, func, or_
 from sqlalchemy.orm import Query
 
 from app.db import models as m
+from app.db.base import IS_SQLITE
+
+
+def as_date(col):
+    """Portable date-truncation of a datetime column.
+
+    ``func.date()`` is a SQLite built-in; SQL Server has no ``date()`` function,
+    so there we emit ``CAST(col AS DATE)`` — both truncate the time part. Every
+    metric that compares against a calendar day must go through this so the same
+    query runs on the dev SQLite DB and the production SQL Server unchanged.
+    """
+    return func.date(col) if IS_SQLITE else func.cast(col, Date)
 
 # In production this is GETDATE(); the demo data is anchored to a fixed "today"
 # so dashboards and tests are stable and reproducible.

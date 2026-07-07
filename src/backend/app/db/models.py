@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Unicode,
     CheckConstraint,
     Date,
     DateTime,
@@ -35,9 +36,9 @@ class Branch(Base):
     __tablename__ = "branches"
 
     branch_id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
-    name_en: Mapped[str] = mapped_column(String(100))
+    code: Mapped[str] = mapped_column(Unicode(20), unique=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
+    name_en: Mapped[str] = mapped_column(Unicode(100))
     is_pilot: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -47,8 +48,8 @@ class Company(Base):
     __tablename__ = "companies"
 
     company_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(150))
-    name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(150))
+    name_en: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
 
 
@@ -56,35 +57,35 @@ class ProductGroup(Base):
     __tablename__ = "product_groups"
 
     group_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
-    name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
+    name_en: Mapped[str | None] = mapped_column(Unicode(100), nullable=True)
 
 
 class Unit(Base):
     __tablename__ = "units"
 
     unit_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(50))
-    name_en: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(50))
+    name_en: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
 
 
 class CustomerClass(Base):
     __tablename__ = "customer_classes"
 
     customer_class_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(50))
-    name_en: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(50))
+    name_en: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
 
 
 class Product(Base):
     __tablename__ = "products"
 
     product_id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    fast_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    name_ar: Mapped[str] = mapped_column(String(150))
-    name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    scientific_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    code: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
+    fast_code: Mapped[str | None] = mapped_column(Unicode(20), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(150))
+    name_en: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
+    scientific_name: Mapped[str | None] = mapped_column(Unicode(200), nullable=True)
     titan_drug_id: Mapped[int | None] = mapped_column(nullable=True)
 
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.company_id"), nullable=True)
@@ -103,7 +104,7 @@ class Product(Base):
     min_stock: Mapped[float] = mapped_column(Qty, default=0)
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
-    shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    shelf_location: Mapped[str | None] = mapped_column(Unicode(80), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -120,9 +121,9 @@ class Customer(Base):
     __tablename__ = "customers"
 
     customer_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
-    name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
+    name_en: Mapped[str | None] = mapped_column(Unicode(100), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(Unicode(20), nullable=True)
     customer_class_id: Mapped[int | None] = mapped_column(
         ForeignKey("customer_classes.customer_class_id"), nullable=True
     )
@@ -142,10 +143,10 @@ class Vendor(Base):
     __tablename__ = "vendors"
 
     vendor_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
-    name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    tel: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
+    name_en: Mapped[str | None] = mapped_column(Unicode(100), nullable=True)
+    tel: Mapped[str | None] = mapped_column(Unicode(20), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(Unicode(20), nullable=True)
     credit_limit: Mapped[float] = mapped_column(Money, default=0)
     current_balance: Mapped[float] = mapped_column(Money, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -156,22 +157,22 @@ class Job(Base):
     __tablename__ = "jobs"
 
     job_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(80))
-    name_en: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    name_ar: Mapped[str] = mapped_column(Unicode(80))
+    name_en: Mapped[str | None] = mapped_column(Unicode(80), nullable=True)
 
 
 class Employee(Base):
     __tablename__ = "employees"
 
     employee_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
-    name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    username: Mapped[str] = mapped_column(String(50), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
+    name_en: Mapped[str | None] = mapped_column(Unicode(100), nullable=True)
+    username: Mapped[str] = mapped_column(Unicode(50), unique=True)
+    password_hash: Mapped[str] = mapped_column(Unicode(255))
     # Login role for the ProCare app itself (separate from eStock job titles):
     # "ceo" (full access), "manager" (branch-scoped, no salaries), "assistant"
     # (POS/inventory only). Defaults to the most restrictive tier.
-    role: Mapped[str] = mapped_column(String(20), default="assistant")
+    role: Mapped[str] = mapped_column(Unicode(20), default="assistant")
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.job_id"), nullable=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     basic_salary: Mapped[float] = mapped_column(Money, default=0)
@@ -218,7 +219,7 @@ class StockMovement(Base):
     batch_id: Mapped[int] = mapped_column(ForeignKey("stock_batches.batch_id"))
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     delta: Mapped[float] = mapped_column(Qty)
-    reason: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(Unicode(20))
     ref_id: Mapped[int | None] = mapped_column(nullable=True)
     employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -294,7 +295,7 @@ class Purchase(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     vendor_id: Mapped[int] = mapped_column(ForeignKey("vendors.vendor_id"))
     bill_date: Mapped[date] = mapped_column(Date)
-    bill_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    bill_number: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
     total_gross: Mapped[float] = mapped_column(Money, default=0)
     total_discount: Mapped[float] = mapped_column(Money, default=0)
     total_tax: Mapped[float] = mapped_column(Money, default=0)
@@ -326,7 +327,7 @@ class StockTransfer(Base):
     transfer_id: Mapped[int] = mapped_column(primary_key=True)
     from_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     to_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
-    status: Mapped[str] = mapped_column(String(20), default="requested")
+    status: Mapped[str] = mapped_column(Unicode(20), default="requested")
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     shipped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -365,13 +366,13 @@ class LedgerEntry(Base):
     entry_id: Mapped[int] = mapped_column(primary_key=True)
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     entry_date: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    account_type: Mapped[str] = mapped_column(String(20))
+    account_type: Mapped[str] = mapped_column(Unicode(20))
     account_ref: Mapped[int | None] = mapped_column(nullable=True)
-    ref_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ref_type: Mapped[str | None] = mapped_column(Unicode(20), nullable=True)
     ref_id: Mapped[int | None] = mapped_column(nullable=True)
     debit: Mapped[float] = mapped_column(Money, default=0)
     credit: Mapped[float] = mapped_column(Money, default=0)
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -398,8 +399,8 @@ class PurchaseOrderDraft(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
     on_hand: Mapped[float] = mapped_column(Qty, default=0)
     suggested_qty: Mapped[float] = mapped_column(Qty, default=0)
-    reason: Mapped[str] = mapped_column(String(40), default="below_min")
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/approved/rejected
+    reason: Mapped[str] = mapped_column(Unicode(40), default="below_min")
+    status: Mapped[str] = mapped_column(Unicode(20), default="draft")  # draft/approved/rejected
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
@@ -412,12 +413,12 @@ class EmployeeTask(Base):
     __tablename__ = "employee_tasks"
 
     task_id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(200))
-    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    title: Mapped[str] = mapped_column(Unicode(200))
+    details: Mapped[str | None] = mapped_column(Unicode(1000), nullable=True)
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/done
+    status: Mapped[str] = mapped_column(Unicode(20), default="pending")  # pending/done
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -438,8 +439,8 @@ class FootfallEvent(Base):
     event_id: Mapped[int] = mapped_column(primary_key=True)
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     ts: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    direction: Mapped[str] = mapped_column(String(3), default="in")  # in/out
-    source: Mapped[str | None] = mapped_column(String(50), nullable=True)  # NVR channel etc.
+    direction: Mapped[str] = mapped_column(Unicode(3), default="in")  # in/out
+    source: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)  # NVR channel etc.
 
     __table_args__ = (
         CheckConstraint("direction IN ('in','out')", name="CK_footfall_direction"),
@@ -463,7 +464,7 @@ class CashShift(Base):
     counted_cash: Mapped[float | None] = mapped_column(Money, nullable=True)
     expected_cash: Mapped[float | None] = mapped_column(Money, nullable=True)
     variance: Mapped[float | None] = mapped_column(Money, nullable=True)
-    status: Mapped[str] = mapped_column(String(10), default="open")  # open/closed
+    status: Mapped[str] = mapped_column(Unicode(10), default="open")  # open/closed
 
     __table_args__ = (
         CheckConstraint("status IN ('open','closed')", name="CK_shift_status"),
@@ -482,11 +483,11 @@ class EmployeeGoal(Base):
 
     goal_id: Mapped[int] = mapped_column(primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
-    title: Mapped[str] = mapped_column(String(200))
-    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    category: Mapped[str] = mapped_column(String(20), default="performance")
+    title: Mapped[str] = mapped_column(Unicode(200))
+    details: Mapped[str | None] = mapped_column(Unicode(1000), nullable=True)
+    category: Mapped[str] = mapped_column(Unicode(20), default="performance")
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="active")
+    status: Mapped[str] = mapped_column(Unicode(20), default="active")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -512,8 +513,8 @@ class LoyaltyTransaction(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.customer_id"))
     sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
     points_delta: Mapped[float] = mapped_column(Qty)  # + earn, - redeem/clawback
-    kind: Mapped[str] = mapped_column(String(20))  # earn/redeem/clawback/adjust
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    kind: Mapped[str] = mapped_column(Unicode(20))  # earn/redeem/clawback/adjust
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -536,13 +537,13 @@ class Prescription(Base):
     prescription_id: Mapped[int] = mapped_column(primary_key=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
-    doctor_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    doctor_specialty: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    clinic: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    doctor_name: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
+    doctor_specialty: Mapped[str | None] = mapped_column(Unicode(100), nullable=True)
+    clinic: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
     # JSON array of {name, dose, frequency, duration} the reader extracted.
-    drugs_json: Mapped[str] = mapped_column(String(4000), default="[]")
-    raw_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
-    source: Mapped[str] = mapped_column(String(20), default="manual")  # gemini/manual
+    drugs_json: Mapped[str] = mapped_column(Unicode(4000), default="[]")
+    raw_text: Mapped[str | None] = mapped_column(Unicode(4000), nullable=True)
+    source: Mapped[str] = mapped_column(Unicode(20), default="manual")  # gemini/manual
     captured_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -566,10 +567,10 @@ class ShortageItem(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.product_id"), nullable=True)
     # Free-text when the product isn't in the catalogue yet.
-    product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    product_name: Mapped[str | None] = mapped_column(Unicode(200), nullable=True)
     qty_requested: Mapped[float] = mapped_column(Qty, default=1)
-    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="open")  # open/ordered/received/cancelled
+    note: Mapped[str | None] = mapped_column(Unicode(500), nullable=True)
+    status: Mapped[str] = mapped_column(Unicode(20), default="open")  # open/ordered/received/cancelled
     reported_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
@@ -594,7 +595,7 @@ class TreasuryTransfer(Base):
     from_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     to_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     amount: Mapped[float] = mapped_column(Money)
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -616,10 +617,10 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     campaign_id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120))
-    message: Mapped[str] = mapped_column(String(2000))
-    audience: Mapped[str] = mapped_column(String(20), default="all")
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/sent
+    name: Mapped[str] = mapped_column(Unicode(120))
+    message: Mapped[str] = mapped_column(Unicode(2000))
+    audience: Mapped[str] = mapped_column(Unicode(20), default="all")
+    status: Mapped[str] = mapped_column(Unicode(20), default="draft")  # draft/sent
     recipient_count: Mapped[int] = mapped_column(default=0)
     sent_count: Mapped[int] = mapped_column(default=0)  # via Cloud API only
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
