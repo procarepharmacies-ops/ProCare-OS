@@ -438,6 +438,9 @@ export const dict = {
     profit_lbl: "الربح",
     month_lbl: "الشهر",
     view_details: "التفاصيل ←",
+    forecast_30d: "توقع ٣٠ يوم",
+    recent_sales: "آخر المبيعات",
+    stock: "المخزون",
     // POS substitutions + receipt
     alternatives: "بدائل",
     alt_for: "بدائل بنفس المادة الفعّالة",
@@ -979,6 +982,9 @@ export const dict = {
     profit_lbl: "Profit",
     month_lbl: "Month",
     view_details: "Details →",
+    forecast_30d: "30-day forecast",
+    recent_sales: "Recent sales",
+    stock: "Stock",
     // POS substitutions + receipt
     alternatives: "Alternatives",
     alt_for: "Same-active-ingredient alternatives",

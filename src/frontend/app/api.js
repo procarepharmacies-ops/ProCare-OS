@@ -80,6 +80,7 @@ export const api = {
   dashboardSummary: (branch) => http(`/dashboard/summary${bq(branch)}`),
   dailySales: (branch, days = 30) => http(`/dashboard/daily-sales${bq(branch, `days=${days}`)}`),
   topProducts: (branch, days = 30) => http(`/dashboard/top-products${bq(branch, `days=${days}`)}`),
+  productInsight: (productId, branch) => http(`/inventory/products/${productId}/insight${bq(branch)}`),
   cashiers: (branch) => http(`/dashboard/cashiers${bq(branch)}`),
 
   products: (branch, search = "") =>

@@ -8,11 +8,14 @@ from app.services import tasks as tasks_svc
 
 
 def test_daily_ops_idempotent_per_day(session):
-    n1 = tasks_svc.ensure_daily_ops_tasks(session)
-    assert n1 > 0
-    # Second call same day creates nothing new.
+    # Ensure today's tasks exist (may already have been created by app startup
+    # on the shared DB), then assert a repeat call creates nothing new and the
+    # count is stable — that's the idempotency guarantee.
+    tasks_svc.ensure_daily_ops_tasks(session)
+    before = len(tasks_svc.list_tasks(session))
     n2 = tasks_svc.ensure_daily_ops_tasks(session)
     assert n2 == 0
+    assert len(tasks_svc.list_tasks(session)) == before
 
 
 def test_daily_ops_have_priority_and_category(session):

@@ -31,6 +31,20 @@ def batches(
     return {"batches": inventory.product_batches(session, product_id, branch_id or None)}
 
 
+@router.get("/products/{product_id}/insight")
+def insight(
+    product_id: int,
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Product drill-down for the dashboard: on-hand per branch, 30-day demand
+    forecast, and recent sales."""
+    out = inventory.product_insight(session, product_id, branch_id or None)
+    if out is None:
+        raise HTTPException(status_code=404, detail="product not found")
+    return out
+
+
 class AdjustIn(BaseModel):
     batch_id: int
     new_amount: float = Field(ge=0)

@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import Shell from "./components/Shell";
 import { BarChart, HBar, CountUp } from "./components/charts";
 import Icon from "./components/icons";
+import DetailModal from "./components/DetailModal";
 import { useUI } from "./providers";
 import { t } from "./i18n";
 import { api } from "./api";
 
 export default function DashboardPage() {
-  const { lang, branch } = useUI();
+  const { lang, branch, setBranch } = useUI();
   const L = (k) => t(lang, k);
   const router = useRouter();
   const [data, setData] = useState(null);
@@ -21,6 +22,17 @@ export default function DashboardPage() {
   const [toDate, setToDate] = useState("");
   const [rangeData, setRangeData] = useState(null);
   const [branchCmp, setBranchCmp] = useState([]);
+  // Product drill-down modal (dashboard "second click").
+  const [insight, setInsight] = useState(null);
+
+  async function openProduct(productId) {
+    setInsight({ loading: true });
+    try {
+      setInsight(await api.productInsight(productId, branch));
+    } catch {
+      setInsight(null);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -153,6 +165,7 @@ export default function DashboardPage() {
                   rows={data.top.map((p) => ({
                     name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
                     value: p.revenue,
+                    onClick: p.product_id ? () => openProduct(p.product_id) : null,
                   }))}
                   fmt={fmt}
                   unit={L("egp")}
@@ -178,7 +191,12 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {branchCmp.map((b) => (
-                      <tr key={b.branch_id}>
+                      <tr
+                        key={b.branch_id}
+                        style={{ cursor: "pointer" }}
+                        title={L("view_details")}
+                        onClick={() => { setBranch(b.branch_id); router.push("/reports"); }}
+                      >
                         <td>{lang === "ar" ? b.name_ar : b.name_en || b.name_ar}</td>
                         <td className="num">{fmt(b.bills)}</td>
                         <td className="num">{fmt(b.revenue)}</td>
@@ -195,12 +213,56 @@ export default function DashboardPage() {
           <div className="card" style={{ marginTop: 16 }}>
             <h3 className="section-title">{L("cashier_perf")}</h3>
             <Ranked
-              rows={data.cashiers.map((c) => ({ name: c.cashier, value: c.revenue, sub: `${c.bills} ${L("bills")}` }))}
+              rows={data.cashiers.map((c) => ({
+                name: c.cashier,
+                value: c.revenue,
+                sub: `${c.bills} ${L("bills")}`,
+                onClick: () => router.push("/employees"),
+              }))}
               fmt={fmt}
               unit={L("egp")}
               color="var(--primary)"
             />
           </div>
+
+          {insight && (
+            <DetailModal
+              title={insight.loading ? L("loading") : (lang === "ar" ? insight.name_ar : insight.name_en || insight.name_ar)}
+              onClose={() => setInsight(null)}
+            >
+              {insight.loading ? (
+                <p className="muted">{L("loading")}</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div className="muted" style={{ fontSize: 13 }}>{insight.scientific_name}</div>
+                  <div className="kpi-row">
+                    <div className="kpi-box"><div className="kpi-value num">{fmt(insight.total_on_hand)}</div><div className="kpi-label">{L("stock")}</div></div>
+                    <div className="kpi-box"><div className="kpi-value num">{fmt(insight.sell_price)}</div><div className="kpi-label">{L("egp")}</div></div>
+                    <div className="kpi-box"><div className="kpi-value num">{fmt(Math.round(insight.forecast_30d?.projected_units || 0))}</div><div className="kpi-label">{L("forecast_30d")}</div></div>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{L("by_branch_cmp")}</div>
+                    {insight.on_hand_by_branch.map((b) => (
+                      <div key={b.branch_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "2px 0" }}>
+                        <span>{b.branch}</span>
+                        <span className="num">{fmt(b.on_hand)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{L("recent_sales")}</div>
+                    {insight.recent_sales.length === 0 && <p className="muted">—</p>}
+                    {insight.recent_sales.slice(0, 8).map((s) => (
+                      <div key={s.sale_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
+                        <span className="muted">{s.date}</span>
+                        <span className="num">{fmt(s.qty)} × · {fmt(s.total)} {L("egp")}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </DetailModal>
+          )}
         </>
       )}
     </Shell>
@@ -248,9 +310,14 @@ function Ranked({ rows, fmt, unit, color = "var(--accent)" }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {rows.map((r, i) => (
-        <div key={i}>
+        <div
+          key={i}
+          onClick={r.onClick || undefined}
+          style={r.onClick ? { cursor: "pointer" } : undefined}
+          title={r.onClick ? "↗" : undefined}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 4 }}>
-            <span>{r.name}</span>
+            <span>{r.name}{r.onClick ? " ›" : ""}</span>
             <span className="num muted">
               {fmt(r.value)} {unit} {r.sub ? `· ${r.sub}` : ""}
             </span>

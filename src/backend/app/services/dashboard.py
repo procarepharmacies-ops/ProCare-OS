@@ -151,6 +151,7 @@ def top_products(session: Session, branch_id: int | None = None, days: int = 30,
     start = TODAY - timedelta(days=days - 1)
     stmt = (
         select(
+            m.Product.product_id,
             m.Product.name_ar,
             m.Product.name_en,
             func.sum(m.SaleLine.amount).label("units"),
@@ -168,7 +169,7 @@ def top_products(session: Session, branch_id: int | None = None, days: int = 30,
         .limit(limit)
     )
     return [
-        {"name_ar": r.name_ar, "name_en": r.name_en, "units": money(r.units), "revenue": money(r.revenue)}
+        {"product_id": r.product_id, "name_ar": r.name_ar, "name_en": r.name_en, "units": money(r.units), "revenue": money(r.revenue)}
         for r in session.execute(stmt)
     ]
 
