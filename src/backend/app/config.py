@@ -81,15 +81,33 @@ _ai = _data.get("ai", {})
 _notify = _data.get("notifications", {})
 
 # Per-provider defaults: which model to use and which env var holds the key.
+# ``keyless`` providers run locally (Ollama) or via a logged-in CLI (Claude
+# Code) and need NO API key — the assistant works fully offline on the LAN.
 _AI_PROVIDER_DEFAULTS = {
     "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
     "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+    # Ollama serves an OpenAI-compatible API at http://localhost:11434. "Hermes"
+    # is just a model served by Ollama (default hermes3), so hermes -> ollama.
+    "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True},
+    # Shell out to a locally installed & logged-in Claude Code CLI.
+    "claude-cli": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY", "keyless": True},
 }
+
+# Providers that need no API key to be considered "configured".
+_KEYLESS_PROVIDERS = {p for p, d in _AI_PROVIDER_DEFAULTS.items() if d.get("keyless")}
 
 
 def _norm_provider(p: str) -> str:
     p = (p or "").strip().lower()
-    return "gemini" if p in ("gemini", "google") else p
+    if p in ("gemini", "google"):
+        return "gemini"
+    if p in ("ollama", "hermes", "local"):
+        return "ollama"
+    if p in ("claude-cli", "claude_cli", "cli"):
+        return "claude-cli"
+    if p in ("claude",):
+        return "anthropic"
+    return p
 
 
 def _detect_ai_provider() -> str:
@@ -150,7 +168,8 @@ class Settings:
     titan_configured: bool = _source_configured(_data.get("titan_drugeye_source", {}))
     procare_configured: bool = _source_configured(_data.get("procare_database", {}))
 
-    # AI assistant. Supports Anthropic (Claude) and Google (Gemini). The key is
+    # AI assistant. Supports Anthropic (Claude API), Google (Gemini), Ollama /
+    # Hermes (local, no key), and the Claude Code CLI (local, no key). The key is
     # read from the environment, never from git — config only names which env var
     # holds it. Provider/model/key-env can be set in the config "ai" block OR via
     # environment (AI_PROVIDER / AI_MODEL), which is how the Docker stack sets it.
@@ -158,6 +177,14 @@ class Settings:
     ai_provider: str = _detect_ai_provider()
     ai_model: str = _ai_model_for(ai_provider)
     ai_api_key_env: str = _ai_key_env_for(ai_provider)
+    # Base URL for local/OpenAI-compatible providers (Ollama). Override with
+    # AI_BASE_URL (or OLLAMA_BASE_URL) to point at another host on the LAN.
+    ai_base_url: str = (
+        os.environ.get("AI_BASE_URL")
+        or os.environ.get("OLLAMA_BASE_URL")
+        or _ai.get("base_url")
+        or "http://localhost:11434"
+    )
 
     # Login gate (CEO/manager/assistant roles). Opt-in via env so existing
     # deployments and the test suite are unaffected until a pharmacy turns it
@@ -216,6 +243,15 @@ class Settings:
         import os
 
         return os.environ.get(Settings.ai_api_key_env)
+
+    @staticmethod
+    def ai_is_configured() -> bool:
+        """True when the active provider can actually run: a keyless local
+        provider (Ollama / Claude CLI) is always considered configured; hosted
+        providers (Anthropic / Gemini) need their API key present."""
+        if Settings.ai_provider in _KEYLESS_PROVIDERS:
+            return True
+        return bool(Settings.ai_api_key())
 
     @staticmethod
     def branch_list() -> list:

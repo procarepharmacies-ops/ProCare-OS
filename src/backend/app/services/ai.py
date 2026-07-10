@@ -17,17 +17,14 @@ Either way, only curated read queries run — no writes are reachable from chat.
 """
 from __future__ import annotations
 
-import json
-from datetime import timedelta
-
 from sqlalchemy.orm import Session
 
 from sqlalchemy import select
 
 from app.config import settings
 from app.db import models as m
-from app.services import alerts, clinical, dashboard, parties
-from app.services.common import TODAY, money
+from app.services import alerts, clinical, dashboard, llm, parties
+from app.services.common import money
 
 # The whitelist of intents the assistant is allowed to invoke.
 INTENTS = {
@@ -215,139 +212,14 @@ def _execute(session: Session, intent: str, branch_id: int | None, lang: str, qu
     return {"intent": "help", "data": {"intents": list(INTENTS)}, "answer": text}
 
 
-def _classify_with_claude(query: str, branch_id: int | None) -> tuple[str, int | None] | None:
-    """Use Claude tool-use to pick an intent + branch. Returns None on any error
-    so the caller falls back to the keyword router."""
-    api_key = settings.ai_api_key()
-    if not api_key:
-        return None
-    try:
-        import httpx
-
-        tools = [
-            {
-                "name": "answer_with_intent",
-                "description": "Pick the single best intent to answer the pharmacy question.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "intent": {"type": "string", "enum": list(INTENTS)},
-                        "branch_id": {
-                            "type": "integer",
-                            "description": "1=Main, 2=Elsanta, 0=all branches",
-                        },
-                    },
-                    "required": ["intent"],
-                },
-            }
-        ]
-        system = (
-            "You route an Arabic/English pharmacy-manager question to exactly one read-only intent. "
-            "Intents: " + json.dumps(INTENTS) + ". Always call the answer_with_intent tool."
-        )
-        resp = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": settings.ai_model,
-                "max_tokens": 256,
-                "system": system,
-                "tools": tools,
-                "tool_choice": {"type": "tool", "name": "answer_with_intent"},
-                "messages": [{"role": "user", "content": query}],
-            },
-            timeout=20,
-        )
-        resp.raise_for_status()
-        for block in resp.json().get("content", []):
-            if block.get("type") == "tool_use":
-                inp = block["input"]
-                intent = inp.get("intent", "help")
-                if intent not in INTENTS:
-                    intent = "help"
-                b = inp.get("branch_id", branch_id)
-                return intent, (b if b else branch_id)
-        return None
-    except Exception:
-        return None
-
-
-def _classify_with_gemini(query: str, branch_id: int | None) -> tuple[str, int | None] | None:
-    """Use Gemini function-calling to pick an intent + branch. Returns None on any
-    error so the caller falls back to the keyword router."""
-    api_key = settings.ai_api_key()
-    if not api_key:
-        return None
-    try:
-        import httpx
-
-        tools = [
-            {
-                "function_declarations": [
-                    {
-                        "name": "answer_with_intent",
-                        "description": "Pick the single best intent to answer the pharmacy question.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "intent": {"type": "string", "enum": list(INTENTS)},
-                                "branch_id": {
-                                    "type": "integer",
-                                    "description": "1=Main, 2=Elsanta, 0=all branches",
-                                },
-                            },
-                            "required": ["intent"],
-                        },
-                    }
-                ]
-            }
-        ]
-        system = (
-            "You route an Arabic/English pharmacy-manager question to exactly one read-only intent. "
-            "Intents: " + json.dumps(INTENTS) + ". Always call the answer_with_intent function."
-        )
-        model = settings.ai_model
-        resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": api_key},
-            json={
-                "system_instruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": query}]}],
-                "tools": tools,
-                "tool_config": {"function_calling_config": {"mode": "ANY"}},
-            },
-            timeout=20,
-        )
-        resp.raise_for_status()
-        candidates = resp.json().get("candidates", [])
-        for cand in candidates:
-            for part in cand.get("content", {}).get("parts", []):
-                call = part.get("functionCall")
-                if call and call.get("name") == "answer_with_intent":
-                    args = call.get("args", {})
-                    intent = args.get("intent", "help")
-                    if intent not in INTENTS:
-                        intent = "help"
-                    b = args.get("branch_id", branch_id)
-                    return intent, (b if b else branch_id)
-        return None
-    except Exception:
-        return None
-
-
 def _classify(query: str, branch_id: int | None) -> tuple[str, int | None, str] | None:
-    """Dispatch to the configured AI provider's classifier. Returns
-    (intent, branch_id, engine_name) or None to fall back to the keyword router."""
-    provider = settings.ai_provider
-    if provider == "gemini":
-        routed = _classify_with_gemini(query, branch_id)
-        return (routed[0], routed[1], "gemini") if routed else None
-    routed = _classify_with_claude(query, branch_id)
-    return (routed[0], routed[1], "claude") if routed else None
+    """Classify via the active provider (see services.llm) into one whitelisted
+    intent. Returns (intent, branch_id, engine_name) or None to fall back to the
+    deterministic keyword router."""
+    routed = llm.classify(query, INTENTS, branch_id)
+    if routed is None:
+        return None
+    return routed[0], routed[1], settings.ai_provider
 
 
 def chat(session: Session, query: str, branch_id: int | None = None, lang: str = "ar") -> dict:
