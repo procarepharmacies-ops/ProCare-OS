@@ -120,28 +120,111 @@ def summary(session: Session, branch_id: int | None = None, assignee_id: int | N
     return {"pending": int(pending), "done_today": int(done_today)}
 
 
-# --- Recurring weekly operations tasks ---------------------------------------
-# The pharmacy's standing weekly routine (owner-defined operations checklist):
-# stocktake, merchandising/shelf-place check, expiry sweep, reorder review.
-# Title carries the ISO-week tag so creation is idempotent per week per branch.
+# --- Recurring operations tasks ----------------------------------------------
+# A professional daily + weekly routine. Each template is
+# (title, details, priority, category, role_hint) — role_hint auto-assigns the
+# task to a matching employee at the branch (cashier/manager/None=any).
+# The title carries a day/week tag so creation is idempotent per period/branch.
+DAILY_OPS_TEMPLATES = [
+    (
+        "فتح الوردية وعدّ الدرج",
+        "عدّ النقدية الافتتاحية وفتح وردية الكاشير، والتأكد من سيولة الفكة.",
+        "high", "opening", "assistant",
+    ),
+    (
+        "فحص ثلاجة الأدوية (الأنسولين)",
+        "تسجيل درجة حرارة ثلاجة الأدوية الباردة (٢–٨°م) والتأكد من سلامة الأنسولين واللقاحات.",
+        "high", "opening", None,
+    ),
+    (
+        "مراجعة أصناف قرب انتهاء الصلاحية",
+        "سحب الأصناف الأقرب انتهاءً للأمام (FEFO) من تنبيهات الصلاحية اليومية.",
+        "normal", "inventory", None,
+    ),
+    (
+        "مراجعة طلبات التحويل والنواقص",
+        "مراجعة طلبات التحويل بين الفروع ومسودات إعادة الطلب واعتمادها.",
+        "normal", "ordering", "manager",
+    ),
+    (
+        "إغلاق الوردية وتقفيل الدرج",
+        "تقفيل درج الكاشير ومطابقة النقدية الفعلية مع المتوقع وتسجيل أي فرق.",
+        "high", "closing", "assistant",
+    ),
+]
+
+# The standing weekly routine (owner-defined operations checklist).
 WEEKLY_OPS_TEMPLATES = [
     (
         "جرد أسبوعي للمخزون",
         "عد فعلي للأصناف عالية الحركة ومطابقة الكميات مع النظام — أي فرق يُسجل من شاشة تسوية المخزون.",
+        "normal", "inventory", None,
     ),
     (
         "مراجعة أماكن المنتجات والعرض (ميرشندايزينج)",
         "مراجعة أماكن الأصناف على الأرفف حسب خانة (المكان) في شاشة المخزون، وإبراز العروض والأصناف الموسمية.",
+        "low", "cleaning", None,
     ),
     (
         "مراجعة الصلاحيات القريبة",
         "مراجعة تنبيهات الصلاحية (٩٠/٣٠/٧ يوم) وتقديم الأقرب انتهاءً للأمام (FEFO) أو عرضه بخصم.",
+        "normal", "inventory", None,
     ),
     (
         "مراجعة النواقص وإعادة الطلب",
         "مراجعة مسودات إعادة الطلب الذكية واعتماد أوامر الشراء للموردين.",
+        "normal", "ordering", "manager",
     ),
 ]
+
+
+def _role_employee(session: Session, branch_id: int, role_hint: str | None) -> int | None:
+    """First active employee at the branch matching the role hint (or any)."""
+    if not role_hint:
+        return None
+    emp = session.scalars(
+        select(m.Employee).where(
+            m.Employee.branch_id == branch_id,
+            m.Employee.is_active == True,  # noqa: E712
+            m.Employee.role == role_hint,
+        )
+    ).first()
+    return emp.employee_id if emp else None
+
+
+def ensure_daily_ops_tasks(session: Session) -> int:
+    """Create today's standard daily operations tasks for every active branch
+    (once per day per branch — idempotent). Auto-assigns by role where the
+    template names one. Returns how many were created."""
+    today = date.today()
+    tag = f"[{today.isoformat()}]"
+    branches = session.scalars(select(m.Branch).where(m.Branch.is_active == True)).all()  # noqa: E712
+    created = 0
+    for branch in branches:
+        for title, details, priority, category, role_hint in DAILY_OPS_TEMPLATES:
+            full_title = f"{title} {tag}"
+            if session.scalar(
+                select(func.count())
+                .select_from(m.EmployeeTask)
+                .where(m.EmployeeTask.title == full_title, m.EmployeeTask.branch_id == branch.branch_id)
+            ):
+                continue
+            session.add(
+                m.EmployeeTask(
+                    title=full_title,
+                    details=details,
+                    branch_id=branch.branch_id,
+                    assignee_id=_role_employee(session, branch.branch_id, role_hint),
+                    due_date=today,
+                    status="pending",
+                    priority=priority,
+                    category=category,
+                )
+            )
+            created += 1
+    if created:
+        session.commit()
+    return created
 
 
 def ensure_weekly_ops_tasks(session: Session) -> int:
@@ -158,7 +241,7 @@ def ensure_weekly_ops_tasks(session: Session) -> int:
     branches = session.scalars(select(m.Branch).where(m.Branch.is_active == True)).all()  # noqa: E712
     created = 0
     for branch in branches:
-        for title, details in WEEKLY_OPS_TEMPLATES:
+        for title, details, priority, category, role_hint in WEEKLY_OPS_TEMPLATES:
             full_title = f"{title} {tag}"
             # One per (title, branch, week): the week tag is in the title.
             if session.scalar(
@@ -172,8 +255,11 @@ def ensure_weekly_ops_tasks(session: Session) -> int:
                     title=full_title,
                     details=details,
                     branch_id=branch.branch_id,
+                    assignee_id=_role_employee(session, branch.branch_id, role_hint),
                     due_date=due,
                     status="pending",
+                    priority=priority,
+                    category=category,
                 )
             )
             created += 1

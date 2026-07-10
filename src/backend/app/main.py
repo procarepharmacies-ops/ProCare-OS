@@ -59,6 +59,9 @@ async def lifespan(_app: FastAPI):
         from app.services import tasks as tasks_svc
 
         tasks_svc.ensure_weekly_ops_tasks(session)
+        # Today's daily operations checklist (opening/closing/inventory), once
+        # per day per branch, auto-assigned by role where the template names one.
+        tasks_svc.ensure_daily_ops_tasks(session)
     # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
     # read-only eStock source configured); otherwise it stays idle.
     sync.start()
