@@ -58,6 +58,7 @@
   },
   "notifications": {
     "whatsapp_provider": "TBD_(cloud_api_or_gateway)",
+    "_manager_phone": "Manager WhatsApp for operational alerts (transfer requests, daily report, expiry/reorder). Egyptian 01xxxxxxxxx is fine. Or set env MANAGER_PHONE. Needs WHATSAPP_TOKEN + WHATSAPP_PHONE_ID to actually send.",
     "manager_phone": "REPLACE_ME",
     "smtp": {
       "host": "",

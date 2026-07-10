@@ -198,6 +198,15 @@ class Settings:
     loyalty_egp_per_point: float = float(os.environ.get("LOYALTY_EGP_PER_POINT", "10") or 10)
     loyalty_point_value: float = float(os.environ.get("LOYALTY_POINT_VALUE", "0.25") or 0.25)
 
+    # Manager phone for WhatsApp operational alerts (transfer requests, daily
+    # report, expiry/reorder summaries). Env wins, else the notifications config
+    # block. Empty/placeholder = those manager alerts are simply skipped.
+    manager_phone: str = (
+        (os.environ.get("MANAGER_PHONE") or _notify.get("manager_phone") or "").strip()
+        if _is_real(os.environ.get("MANAGER_PHONE") or _notify.get("manager_phone") or "")
+        else ""
+    )
+
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:
         """SQL Server URL for ProCare's own DB, or None to use SQLite dev DB."""
