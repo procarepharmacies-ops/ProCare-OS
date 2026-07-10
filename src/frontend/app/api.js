@@ -160,6 +160,10 @@ export const api = {
   rxCreate: (payload) => http("/prescriptions", { method: "POST", body: JSON.stringify(payload) }),
   rxList: (branch) => http(`/prescriptions${bq(branch)}`),
   rxHabits: (branch, days = 180) => http(`/prescriptions/doctor-habits${bq(branch, `days=${days}`)}`),
+  rxResolve: (id, branch) => http(`/prescriptions/${id}/resolve${bq(branch)}`),
+  rxReview: (id, payload) => http(`/prescriptions/${id}/review`, { method: "POST", body: JSON.stringify(payload) }),
+  rxCart: (id, branch) => http(`/prescriptions/${id}/cart${bq(branch)}`),
+  rxDispensed: (id) => http(`/prescriptions/${id}/dispensed`, { method: "POST" }),
 
   // Shortage sheet.
   shortages: (branch, status) =>

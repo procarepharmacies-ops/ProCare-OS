@@ -547,6 +547,10 @@ class Prescription(Base):
     drugs_json: Mapped[str] = mapped_column(String(4000), default="[]")
     raw_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # gemini/manual
+    # Workflow: captured (just read) -> reviewed (staff confirmed + matched to
+    # catalogue products) -> dispensed (turned into a sale).
+    status: Mapped[str] = mapped_column(String(20), default="captured")
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     captured_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 

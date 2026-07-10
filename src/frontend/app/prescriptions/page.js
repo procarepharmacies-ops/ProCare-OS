@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Shell from "../components/Shell";
 import { useUI } from "../providers";
 import { t } from "../i18n";
@@ -12,7 +13,10 @@ import { api } from "../api";
 export default function PrescriptionsPage() {
   const { lang, branch, branches } = useUI();
   const L = (k) => t(lang, k);
+  const router = useRouter();
   const fileRef = useRef(null);
+  // Review-before-dispense panel state.
+  const [reviewRx, setReviewRx] = useState(null); // {prescription_id, lines:[{name, candidates, product_id}]}
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -97,8 +101,76 @@ export default function PrescriptionsPage() {
 
   const setDrug = (i, k, v) => setDrugs((ds) => ds.map((d, idx) => (idx === i ? { ...d, [k]: v } : d)));
 
+  // Open the review panel: resolve each drug line to catalogue candidates.
+  async function openReview(prescriptionId) {
+    setMsg(null);
+    try {
+      const res = await api.rxResolve(prescriptionId, rxBranch);
+      setReviewRx({
+        prescription_id: prescriptionId,
+        lines: (res.lines || []).map((l) => ({
+          name: l.name,
+          dose: l.dose,
+          candidates: l.candidates || [],
+          product_id: l.best_product_id || "",
+          qty: 1,
+        })),
+      });
+    } catch (e) {
+      setMsg({ ok: false, msg: e.message });
+    }
+  }
+
+  const setReviewLine = (i, k, v) =>
+    setReviewRx((r) => ({ ...r, lines: r.lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)) }));
+
+  // Save the reviewed lines, then jump to POS with the prescription seeded.
+  async function reviewToPOS() {
+    try {
+      await api.rxReview(reviewRx.prescription_id, {
+        drugs: reviewRx.lines.map((l) => ({
+          name: l.name,
+          dose: l.dose,
+          product_id: l.product_id ? Number(l.product_id) : null,
+          qty: Number(l.qty) || 1,
+        })),
+      });
+      const id = reviewRx.prescription_id;
+      setReviewRx(null);
+      router.push(`/pos?rx=${id}`);
+    } catch (e) {
+      setMsg({ ok: false, msg: e.message });
+    }
+  }
+
   return (
     <Shell titleKey="nav_prescriptions">
+      {reviewRx && (
+        <div className="card" style={{ marginBottom: 16, border: "2px solid var(--brand)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 className="section-title">{L("rx_review_title")} #{reviewRx.prescription_id}</h3>
+            <button className="btn icon" onClick={() => setReviewRx(null)}>✕</button>
+          </div>
+          <p className="muted" style={{ fontSize: 13 }}>{L("rx_review_hint")}</p>
+          {reviewRx.lines.map((l, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+              <span style={{ flex: 1, minWidth: 120 }}><strong>{l.name}</strong>{l.dose ? <span className="muted"> · {l.dose}</span> : null}</span>
+              <select className="select" value={l.product_id} onChange={(e) => setReviewLine(i, "product_id", e.target.value)} style={{ flex: 2, minWidth: 180 }}>
+                <option value="">{L("rx_no_match")}</option>
+                {l.candidates.map((c) => (
+                  <option key={c.product_id} value={c.product_id}>
+                    {(lang === "ar" ? c.name_ar : c.name_en || c.name_ar)} — {L("stock")}: {c.on_hand}
+                  </option>
+                ))}
+              </select>
+              <input className="input" type="number" min={1} value={l.qty} onChange={(e) => setReviewLine(i, "qty", e.target.value)} style={{ width: 64 }} />
+            </div>
+          ))}
+          <button className="btn primary" style={{ marginTop: 10 }} onClick={reviewToPOS}>
+            {L("rx_to_invoice")} →
+          </button>
+        </div>
+      )}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
         {/* Capture + manual entry */}
         <div className="card">
@@ -193,7 +265,16 @@ export default function PrescriptionsPage() {
                     <td className="muted">{rx.doctor_specialty || "—"}</td>
                     <td>{(rx.drugs || []).map((d) => d.name).join("، ") || "—"}</td>
                     <td className="muted">{rx.created_at ? new Date(rx.created_at).toLocaleDateString() : "—"}</td>
-                    <td>{rx.source === "gemini" ? <span className="badge ok">AI</span> : null}</td>
+                    <td style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {rx.source === "gemini" ? <span className="badge ok">AI</span> : null}
+                      {rx.status === "dispensed" ? (
+                        <span className="badge ok">{L("rx_dispensed")}</span>
+                      ) : (
+                        <button className="btn" style={{ padding: "2px 8px" }} onClick={() => openReview(rx.prescription_id)}>
+                          {L("rx_review_dispense")}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}

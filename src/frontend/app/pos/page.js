@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Shell from "../components/Shell";
 import Icon from "../components/icons";
 import { useUI } from "../providers";
@@ -8,7 +9,17 @@ import { t } from "../i18n";
 import { api } from "../api";
 import { printReceipt } from "../lib/print";
 
+// useSearchParams (for the ?rx=<id> prescription hand-off) must sit inside a
+// Suspense boundary so Next can build the page.
 export default function POSPage() {
+  return (
+    <Suspense fallback={null}>
+      <POSInner />
+    </Suspense>
+  );
+}
+
+function POSInner() {
   const { lang, branch, branches, setBranch } = useUI();
   const L = (k) => t(lang, k);
   const [products, setProducts] = useState([]);
@@ -42,6 +53,29 @@ export default function POSPage() {
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
+
+  // Seed the cart from a reviewed prescription (?rx=<id>): the prescription
+  // reader hands off here so the pharmacist dispenses it as a normal sale.
+  const searchParams = useSearchParams();
+  const [rxId, setRxId] = useState(null);
+  useEffect(() => {
+    const id = searchParams.get("rx");
+    if (!id || !posBranch) return;
+    setRxId(Number(id));
+    api
+      .rxCart(id, posBranch)
+      .then((res) => {
+        const lines = (res.lines || []).map((l) => ({
+          product_id: l.product_id,
+          name: lang === "ar" ? l.name_ar : l.name_en || l.name_ar,
+          sell_price: l.sell_price,
+          amount: l.amount || 1,
+        }));
+        if (lines.length) setCart(lines);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, posBranch]);
 
   useEffect(() => {
     if (!posBranch) return;
@@ -243,6 +277,11 @@ export default function POSPage() {
         redeem_points: Number(redeemIn) || 0,
       };
       const r = await api.createSale(payload);
+      // If this sale came from a prescription, mark it dispensed.
+      if (rxId) {
+        api.rxDispensed(rxId).catch(() => {});
+        setRxId(null);
+      }
       let msg = `${L("sale_done")} ${r.sale_id} · ${fmt(r.total_net)} ${L("egp")}`;
       if (r.loyalty_points !== undefined) msg += ` · ${L("points_balance")}: ${fmt(r.loyalty_points)} ⭐`;
       if (r.whatsapp_sent) msg += ` · ${L("wa_sent")} ✓`;
