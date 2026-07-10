@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Shell from "../components/Shell";
 import Icon from "../components/icons";
 import { useUI } from "../providers";
@@ -8,7 +9,17 @@ import { t } from "../i18n";
 import { api } from "../api";
 import { printReceipt } from "../lib/print";
 
+// useSearchParams (for the ?rx=<id> prescription hand-off) must sit inside a
+// Suspense boundary so Next can build the page.
 export default function POSPage() {
+  return (
+    <Suspense fallback={null}>
+      <POSInner />
+    </Suspense>
+  );
+}
+
+function POSInner() {
   const { lang, branch, branches, setBranch } = useUI();
   const L = (k) => t(lang, k);
   const [products, setProducts] = useState([]);
@@ -42,6 +53,29 @@ export default function POSPage() {
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
+
+  // Seed the cart from a reviewed prescription (?rx=<id>): the prescription
+  // reader hands off here so the pharmacist dispenses it as a normal sale.
+  const searchParams = useSearchParams();
+  const [rxId, setRxId] = useState(null);
+  useEffect(() => {
+    const id = searchParams.get("rx");
+    if (!id || !posBranch) return;
+    setRxId(Number(id));
+    api
+      .rxCart(id, posBranch)
+      .then((res) => {
+        const lines = (res.lines || []).map((l) => ({
+          product_id: l.product_id,
+          name: lang === "ar" ? l.name_ar : l.name_en || l.name_ar,
+          sell_price: l.sell_price,
+          amount: l.amount || 1,
+        }));
+        if (lines.length) setCart(lines);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, posBranch]);
 
   useEffect(() => {
     if (!posBranch) return;
@@ -175,8 +209,8 @@ export default function POSPage() {
     }
   }
 
-  async function showSubs(item) {
-    setSubsFor({ product_id: item.product_id, name: item.name });
+  async function showSubs(item, outOfStock = false) {
+    setSubsFor({ product_id: item.product_id, name: item.name, outOfStock });
     setSubs(null);
     try {
       const r = await api.substitutions(item.product_id, posBranch, lang);
@@ -187,16 +221,36 @@ export default function POSPage() {
   }
 
   function swapToSub(s) {
-    // Replace the original cart line with the chosen alternative.
-    setCart((c) =>
-      c.map((x) =>
-        x.product_id === subsFor.product_id
-          ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
-          : x
-      )
-    );
+    // From an out-of-stock trigger there is no cart line yet → add the chosen
+    // in-stock alternative. Otherwise replace the original cart line.
+    if (subsFor?.outOfStock) {
+      addToCart({ product_id: s.product_id, name_ar: s.name, name_en: s.name, sell_price: s.sell_price, on_hand: 1 });
+    } else {
+      setCart((c) =>
+        c.map((x) =>
+          x.product_id === subsFor.product_id
+            ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
+            : x
+        )
+      );
+    }
     setSubsFor(null);
     setSubs(null);
+  }
+
+  // Order the product from another branch that has stock: creates a transfer
+  // request (a manager approves it — nothing moves until then).
+  async function orderFromBranch(fromBranchId, productId, name) {
+    try {
+      await api.requestTransfer({
+        from_branch_id: fromBranchId,
+        to_branch_id: posBranch,
+        lines: [{ product_id: productId, amount: 1 }],
+      });
+      setShiftMsg({ ok: true, text: L("transfer_requested") + ": " + name });
+    } catch {
+      setShiftMsg({ ok: false, text: L("transfer_request_failed") });
+    }
   }
 
   async function doPrintReceipt() {
@@ -223,6 +277,11 @@ export default function POSPage() {
         redeem_points: Number(redeemIn) || 0,
       };
       const r = await api.createSale(payload);
+      // If this sale came from a prescription, mark it dispensed.
+      if (rxId) {
+        api.rxDispensed(rxId).catch(() => {});
+        setRxId(null);
+      }
       let msg = `${L("sale_done")} ${r.sale_id} · ${fmt(r.total_net)} ${L("egp")}`;
       if (r.loyalty_points !== undefined) msg += ` · ${L("points_balance")}: ${fmt(r.loyalty_points)} ⭐`;
       if (r.whatsapp_sent) msg += ` · ${L("wa_sent")} ✓`;
@@ -395,7 +454,16 @@ export default function POSPage() {
             <table className="tbl">
               <tbody>
                 {products.map((p) => (
-                  <tr key={p.product_id} style={{ cursor: "pointer" }} onClick={() => p.on_hand > 0 && addToCart(p)}>
+                  <tr
+                    key={p.product_id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() =>
+                      p.on_hand > 0
+                        ? addToCart(p)
+                        : showSubs({ product_id: p.product_id, name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar }, true)
+                    }
+                    title={p.on_hand > 0 ? "" : L("oos_show_alts")}
+                  >
                     <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}</td>
                     <td className="num muted">{fmt(p.sell_price)}</td>
                     <td className="num">
@@ -405,7 +473,7 @@ export default function POSPage() {
                         <span className="badge danger">0</span>
                       )}
                     </td>
-                    <td>＋</td>
+                    <td>{p.on_hand > 0 ? "＋" : "⇄"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -446,7 +514,7 @@ export default function POSPage() {
             <div className="card" style={{ margin: "10px 0", padding: 10, background: "var(--bg)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <strong style={{ fontSize: 13 }}>
-                  ⇄ {L("alt_for")}: {subsFor.name}
+                  {subsFor.outOfStock ? "⚠ " + L("oos_alts_title") : "⇄ " + L("alt_for")}: {subsFor.name}
                 </strong>
                 <button className="btn icon" onClick={() => { setSubsFor(null); setSubs(null); }}>✕</button>
               </div>
@@ -466,9 +534,19 @@ export default function POSPage() {
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
                     {(s.branches || []).map((b) => (
-                      <span key={b.branch_id} className="badge" style={{ fontSize: 11 }}>
+                      <span key={b.branch_id} className="badge" style={{ fontSize: 11, display: "inline-flex", gap: 4, alignItems: "center" }}>
                         {b.branch_name}: {fmt(b.qty)}
                         {b.nearest_expiry ? ` · ${L("expiry_lbl")} ${b.nearest_expiry}` : ""}
+                        {b.branch_id !== posBranch && b.qty > 0 && (
+                          <button
+                            className="btn"
+                            style={{ padding: "0 6px", fontSize: 11 }}
+                            title={L("order_from_branch")}
+                            onClick={() => orderFromBranch(b.branch_id, s.product_id, s.name)}
+                          >
+                            ⇩ {L("order")}
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>

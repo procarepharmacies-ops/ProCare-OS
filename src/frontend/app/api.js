@@ -80,6 +80,7 @@ export const api = {
   dashboardSummary: (branch) => http(`/dashboard/summary${bq(branch)}`),
   dailySales: (branch, days = 30) => http(`/dashboard/daily-sales${bq(branch, `days=${days}`)}`),
   topProducts: (branch, days = 30) => http(`/dashboard/top-products${bq(branch, `days=${days}`)}`),
+  productInsight: (productId, branch) => http(`/inventory/products/${productId}/insight${bq(branch)}`),
   cashiers: (branch) => http(`/dashboard/cashiers${bq(branch)}`),
 
   products: (branch, search = "") =>
@@ -160,6 +161,10 @@ export const api = {
   rxCreate: (payload) => http("/prescriptions", { method: "POST", body: JSON.stringify(payload) }),
   rxList: (branch) => http(`/prescriptions${bq(branch)}`),
   rxHabits: (branch, days = 180) => http(`/prescriptions/doctor-habits${bq(branch, `days=${days}`)}`),
+  rxResolve: (id, branch) => http(`/prescriptions/${id}/resolve${bq(branch)}`),
+  rxReview: (id, payload) => http(`/prescriptions/${id}/review`, { method: "POST", body: JSON.stringify(payload) }),
+  rxCart: (id, branch) => http(`/prescriptions/${id}/cart${bq(branch)}`),
+  rxDispensed: (id) => http(`/prescriptions/${id}/dispensed`, { method: "POST" }),
 
   // Shortage sheet.
   shortages: (branch, status) =>
@@ -175,6 +180,17 @@ export const api = {
   purchaseDetail: (purchaseId) => http(`/purchasing/purchases/${purchaseId}`),
   returnPurchase: (purchaseId, payload = {}) =>
     http(`/purchasing/purchases/${purchaseId}/return`, { method: "POST", body: JSON.stringify(payload) }),
+  purchaseDrafts: (branch) => http(`/purchasing/drafts${bq(branch)}`),
+  approveDraft: (draftId) => http(`/purchasing/drafts/${draftId}/approve`, { method: "POST" }),
+  rejectDraft: (draftId) => http(`/purchasing/drafts/${draftId}/reject`, { method: "POST" }),
+
+  // Inter-branch transfer requests + approval workflow.
+  transfersList: (branch, status) =>
+    http(`/transfers/list${bq(branch, status ? `status=${status}` : "")}`),
+  requestTransfer: (payload) =>
+    http("/transfers/request", { method: "POST", body: JSON.stringify(payload) }),
+  approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
+  rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
 
   // In-system cash-flow & inventory audit.
   auditReport: (months = 3, vendor = "") =>

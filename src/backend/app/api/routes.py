@@ -16,6 +16,7 @@ from app.config import settings
 from app.db import models as m
 from app.db.base import IS_SQLITE, get_session
 from app.services import clinical as clinical_svc
+from app.services import llm as llm_svc
 from app.services import etl, sync
 
 router = APIRouter()
@@ -37,9 +38,11 @@ def health(session: Session = Depends(get_session)):
             "procare_database": settings.procare_configured,
         },
         "ai_assistant": {
-            "engine": settings.ai_provider if settings.ai_api_key() else "rule-based (no API key set)",
+            "engine": settings.ai_provider if llm_svc.is_configured() else "rule-based (not configured)",
             "provider": settings.ai_provider,
             "model": settings.ai_model,
+            "configured": llm_svc.is_configured(),
+            "base_url": settings.ai_base_url if settings.ai_provider == "ollama" else None,
         },
         "clinical_advisory": {
             "mode": "live" if clinical_svc.is_live() else "offline (curated advisory rules)",

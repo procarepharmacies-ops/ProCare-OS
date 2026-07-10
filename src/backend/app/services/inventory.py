@@ -94,6 +94,60 @@ def product_batches(session: Session, product_id: int, branch_id: int | None = N
     return out
 
 
+def product_insight(session: Session, product_id: int, branch_id: int | None = None) -> dict | None:
+    """Drill-down for a product: identity, on-hand per branch, a 30-day demand
+    forecast, and recent sales — composed from existing services so a dashboard
+    'second click' shows the detail behind a number."""
+    from app.services import alerts
+
+    p = session.get(m.Product, product_id)
+    if p is None:
+        return None
+
+    # On-hand per branch (available = amount>0, non-expired).
+    rows = session.execute(
+        select(m.Branch.branch_id, m.Branch.name_ar, func.coalesce(func.sum(m.StockBatch.amount), 0))
+        .select_from(m.Branch)
+        .join(
+            m.StockBatch,
+            (m.StockBatch.branch_id == m.Branch.branch_id)
+            & (m.StockBatch.product_id == product_id)
+            & available_stock_filter(),
+            isouter=True,
+        )
+        .group_by(m.Branch.branch_id, m.Branch.name_ar)
+    ).all()
+    per_branch = [{"branch_id": bid, "branch": name, "on_hand": money(qty)} for bid, name, qty in rows]
+
+    # Recent sales of this product (last 20 lines).
+    recent = session.execute(
+        select(m.Sale.sale_id, m.Sale.sale_date, m.SaleLine.amount, m.SaleLine.total_sell)
+        .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
+        .where(m.SaleLine.product_id == product_id, m.Sale.is_return == False)  # noqa: E712
+        .order_by(m.Sale.sale_date.desc())
+        .limit(20)
+    ).all()
+    recent_sales = [
+        {"sale_id": sid, "date": d.isoformat() if d else None, "qty": money(amt), "total": money(tot)}
+        for sid, d, amt, tot in recent
+    ]
+
+    forecast = alerts.forecast(session, product_id, branch_id, days=30)
+
+    return {
+        "product_id": p.product_id,
+        "name_ar": p.name_ar,
+        "name_en": p.name_en,
+        "scientific_name": p.scientific_name,
+        "sell_price": money(p.sell_price),
+        "buy_price": money(p.buy_price),
+        "on_hand_by_branch": per_branch,
+        "total_on_hand": money(sum(b["on_hand"] for b in per_branch)),
+        "forecast_30d": forecast,
+        "recent_sales": recent_sales,
+    }
+
+
 def adjust_stock(
     session: Session,
     batch_id: int,

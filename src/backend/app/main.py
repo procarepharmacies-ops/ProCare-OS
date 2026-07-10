@@ -24,9 +24,11 @@ from app.db.migrate import (
     bootstrap_ceo_if_configured,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
+    ensure_prescription_status_columns,
     ensure_role_column,
     ensure_roster,
     ensure_shelf_location_column,
+    ensure_task_priority_columns,
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
@@ -41,6 +43,8 @@ async def lifespan(_app: FastAPI):
     ensure_original_sale_id_column(engine)
     ensure_shelf_location_column(engine)
     ensure_loyalty_points_column(engine)
+    ensure_task_priority_columns(engine)
+    ensure_prescription_status_columns(engine)
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
@@ -55,6 +59,9 @@ async def lifespan(_app: FastAPI):
         from app.services import tasks as tasks_svc
 
         tasks_svc.ensure_weekly_ops_tasks(session)
+        # Today's daily operations checklist (opening/closing/inventory), once
+        # per day per branch, auto-assigned by role where the template names one.
+        tasks_svc.ensure_daily_ops_tasks(session)
     # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
     # read-only eStock source configured); otherwise it stays idle.
     sync.start()

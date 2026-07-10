@@ -14,6 +14,8 @@ export default function TransfersPage() {
   const [selectedTransfer, setSelectedTransfer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [reload, setReload] = useState(0);
+  const [actionMsg, setActionMsg] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -35,7 +37,18 @@ export default function TransfersPage() {
       }
     };
     loadData();
-  }, [branch, statusFilter]);
+  }, [branch, statusFilter, reload]);
+
+  async function act(transferId, kind) {
+    try {
+      if (kind === "approve") await api.approveTransfer(transferId);
+      else await api.rejectTransfer(transferId);
+      setActionMsg({ ok: true, text: `#${transferId}: ${L(kind === "approve" ? "approved" : "rejected")}` });
+      setReload((n) => n + 1);
+    } catch (e) {
+      setActionMsg({ ok: false, text: e?.message || L("error") });
+    }
+  }
 
   if (loading) return <Shell titleKey="nav_transfers"><div className="page">{L("loading")}</div></Shell>;
 
@@ -111,6 +124,12 @@ export default function TransfersPage() {
           </div>
         )}
 
+        {actionMsg && (
+          <div className="card" style={{ marginBottom: 12, color: actionMsg.ok ? "var(--ok)" : "var(--danger)" }}>
+            {actionMsg.text}
+          </div>
+        )}
+
         <div className="table-wrapper">
           <table className="tbl">
             <thead>
@@ -122,21 +141,40 @@ export default function TransfersPage() {
                 <th>{L("requested_at")}</th>
                 <th>{L("shipped_at")}</th>
                 <th>{L("received_at")}</th>
+                <th>{L("actions")}</th>
               </tr>
             </thead>
             <tbody>
               {transfers.length === 0 ? (
-                <tr><td colSpan="7" className="empty">{L("none")}</td></tr>
+                <tr><td colSpan="8" className="empty">{L("none")}</td></tr>
               ) : (
                 transfers.map((tr) => (
-                  <tr key={tr.transfer_id} onClick={() => setSelectedTransfer(tr)} style={{ cursor: "pointer" }}>
-                    <td>#{tr.transfer_id}</td>
-                    <td>{tr.from_branch_name}</td>
-                    <td>{tr.to_branch_name}</td>
-                    <td>{tr.status}</td>
-                    <td>{tr.created_at ? new Date(tr.created_at).toLocaleDateString("en-US") : "-"}</td>
-                    <td>{tr.shipped_at ? new Date(tr.shipped_at).toLocaleDateString("en-US") : "-"}</td>
-                    <td>{tr.received_at ? new Date(tr.received_at).toLocaleDateString("en-US") : "-"}</td>
+                  <tr key={tr.transfer_id} style={{ cursor: "pointer" }}>
+                    <td onClick={() => setSelectedTransfer(tr)}>#{tr.transfer_id}</td>
+                    <td onClick={() => setSelectedTransfer(tr)}>{tr.from_branch_name}</td>
+                    <td onClick={() => setSelectedTransfer(tr)}>{tr.to_branch_name}</td>
+                    <td onClick={() => setSelectedTransfer(tr)}>
+                      <span className={`badge ${tr.status === "requested" ? "warn" : tr.status === "received" ? "ok" : ""}`}>
+                        {L(`status_${tr.status}`) || tr.status}
+                      </span>
+                    </td>
+                    <td onClick={() => setSelectedTransfer(tr)}>{tr.created_at ? new Date(tr.created_at).toLocaleDateString("en-US") : "-"}</td>
+                    <td onClick={() => setSelectedTransfer(tr)}>{tr.shipped_at ? new Date(tr.shipped_at).toLocaleDateString("en-US") : "-"}</td>
+                    <td onClick={() => setSelectedTransfer(tr)}>{tr.received_at ? new Date(tr.received_at).toLocaleDateString("en-US") : "-"}</td>
+                    <td>
+                      {tr.status === "requested" ? (
+                        <span style={{ display: "flex", gap: 4 }}>
+                          <button className="btn" style={{ padding: "2px 8px" }} onClick={() => act(tr.transfer_id, "approve")}>
+                            ✓ {L("approve")}
+                          </button>
+                          <button className="btn" style={{ padding: "2px 8px" }} onClick={() => act(tr.transfer_id, "reject")}>
+                            ✕ {L("reject")}
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}

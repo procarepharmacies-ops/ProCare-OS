@@ -23,7 +23,7 @@ import logging
 import os
 
 from app.db.base import SessionLocal
-from app.services import alerts, dashboard
+from app.services import alerts, dashboard, whatsapp
 
 log = logging.getLogger("procare.automation")
 
@@ -47,13 +47,21 @@ def _run_expiry_alerts():
         out["counts"],
         out["expected_loss_within_horizon"],
     )
+    # Notify the manager (self-gating: only if WhatsApp + manager phone set).
+    if out["counts"].get("d7") or out["counts"].get("expired"):
+        whatsapp.notify_manager(
+            whatsapp.expiry_alert_message(out["counts"], out["expected_loss_within_horizon"])
+        )
 
 
 def _run_auto_purchase_order():
     with SessionLocal() as session:
         drafts = alerts.smart_reorder(session, branch_id=None)
+    units = sum(d.get("suggested_qty", 0) for d in drafts)
     _last_results["auto_purchase_order"] = {"drafts": len(drafts)}
     log.info("auto_purchase_order: %d reorder drafts (not sent)", len(drafts))
+    if drafts:
+        whatsapp.notify_manager(whatsapp.reorder_drafts_message(len(drafts), units))
 
 
 def _run_auto_reports():
@@ -66,6 +74,7 @@ def _run_auto_reports():
         "low_stock": kpis["low_stock"],
     }
     log.info("auto_reports KPI pack: %s", _last_results["auto_reports"])
+    whatsapp.notify_manager(whatsapp.daily_report_message(kpis))
 
 
 # --- lifecycle --------------------------------------------------------------

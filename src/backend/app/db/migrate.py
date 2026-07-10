@@ -69,6 +69,34 @@ def ensure_loyalty_points_column(engine) -> None:
         conn.execute(text("ALTER TABLE customers ADD COLUMN loyalty_points NUMERIC(18,3) DEFAULT 0"))
 
 
+def ensure_task_priority_columns(engine) -> None:
+    """Add ``employee_tasks.priority`` and ``.category`` if the table predates
+    the professional daily-plan upgrade. Existing tasks default to normal/general."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    with engine.begin() as conn:
+        if "priority" not in columns:
+            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"))
+        if "category" not in columns:
+            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN category VARCHAR(20) DEFAULT 'general'"))
+
+
+def ensure_prescription_status_columns(engine) -> None:
+    """Add ``prescriptions.status`` + ``.reviewed_by`` if the table predates the
+    capture -> review -> dispense workflow. Existing rows become 'captured'."""
+    inspector = inspect(engine)
+    if "prescriptions" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("prescriptions")}
+    with engine.begin() as conn:
+        if "status" not in columns:
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN status VARCHAR(20) DEFAULT 'captured'"))
+        if "reviewed_by" not in columns:
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN reviewed_by INTEGER NULL"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.

@@ -149,12 +149,21 @@ def return_sale(sale_id: int, payload: ReturnIn, session: Session = Depends(get_
         )
     except pos.POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
-    return {
+    out = {
         "return_id": ret.sale_id,
         "original_sale_id": ret.original_sale_id,
         "total_refund": money(ret.total_net),
         "lines": len(ret.lines),
     }
+    # Confirm the refund to the customer over WhatsApp (same seam as a sale).
+    customer = ret.customer
+    if customer is not None and customer.mobile:
+        from app.services import whatsapp as wa
+
+        text = wa.return_message(session, ret)
+        out["whatsapp_link"] = wa.wa_link(customer.mobile, text)
+        out["whatsapp_sent"] = wa.send_text(customer.mobile, text) if wa.is_configured() else False
+    return out
 
 
 @router.get("/recent")

@@ -2,7 +2,7 @@
 configured), store the extraction, and the doctor-habits report."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -106,3 +106,52 @@ def habits(
     session: Session = Depends(get_session),
 ):
     return {"days": days, "doctors": rx.doctor_habits(session, branch_id or None, days)}
+
+
+class ReviewLine(BaseModel):
+    name: str | None = None
+    dose: str | None = None
+    product_id: int | None = None
+    qty: float = 1
+
+
+class ReviewIn(BaseModel):
+    drugs: list[ReviewLine] = []
+    reviewed_by: int | None = None
+
+
+@router.get("/{prescription_id}/resolve")
+def resolve(prescription_id: int, branch_id: int | None = Query(None), session: Session = Depends(get_session)):
+    """Per drug line, catalogue product candidates + on-hand stock for the
+    review step (before turning the Rx into a sale)."""
+    out = rx.resolve_products(session, prescription_id, branch_id or None)
+    if out is None:
+        raise HTTPException(status_code=404, detail="prescription not found")
+    return out
+
+
+@router.post("/{prescription_id}/review")
+def review(prescription_id: int, payload: ReviewIn, session: Session = Depends(get_session)):
+    out = rx.review(
+        session, prescription_id, [d.model_dump() for d in payload.drugs], reviewed_by=payload.reviewed_by
+    )
+    if out is None:
+        raise HTTPException(status_code=404, detail="prescription not found")
+    return out
+
+
+@router.get("/{prescription_id}/cart")
+def cart(prescription_id: int, branch_id: int | None = Query(None), session: Session = Depends(get_session)):
+    """Reviewed prescription as POS-ready cart lines (in-stock) + unresolved."""
+    out = rx.cart_lines(session, prescription_id, branch_id or None)
+    if out is None:
+        raise HTTPException(status_code=404, detail="prescription not found")
+    return out
+
+
+@router.post("/{prescription_id}/dispensed")
+def dispensed(prescription_id: int, session: Session = Depends(get_session)):
+    out = rx.mark_dispensed(session, prescription_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="prescription not found")
+    return out

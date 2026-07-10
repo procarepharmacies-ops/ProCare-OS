@@ -58,6 +58,7 @@
   },
   "notifications": {
     "whatsapp_provider": "TBD_(cloud_api_or_gateway)",
+    "_manager_phone": "Manager WhatsApp for operational alerts (transfer requests, daily report, expiry/reorder). Egyptian 01xxxxxxxxx is fine. Or set env MANAGER_PHONE. Needs WHATSAPP_TOKEN + WHATSAPP_PHONE_ID to actually send.",
     "manager_phone": "REPLACE_ME",
     "smtp": {
       "host": "",
@@ -67,9 +68,12 @@
     }
   },
   "ai": {
+    "_providers": "anthropic | gemini | ollama (local, no key; 'hermes' is an alias) | claude-cli (local Claude Code, no key). Gemini Pro = set model gemini-2.5-pro.",
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
-    "api_key_env": "ANTHROPIC_API_KEY"
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "_base_url": "For provider=ollama only; the local server. Override with AI_BASE_URL / OLLAMA_BASE_URL.",
+    "base_url": "http://localhost:11434"
   },
   "ui": {
     "default_language": "ar",

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import models as m
-from app.services import alerts, performance
+from app.services import alerts, llm, performance
 from app.services.common import TODAY, available_stock_filter, branch_filter, money
 
 
@@ -326,8 +326,7 @@ def _ai_narrative(summary: dict, lang: str) -> tuple[str, str]:
     """Return (narrative, engine). Uses the configured provider to *phrase* the
     computed findings; falls back to a deterministic executive summary offline."""
     fallback = _fallback_narrative(summary, lang)
-    api_key = settings.ai_api_key()
-    if not api_key:
+    if not llm.is_configured():
         return fallback, "rule-based"
     facts = json.dumps({
         "as_of": summary["as_of"], "years": summary["period"]["years"],
@@ -340,29 +339,10 @@ def _ai_narrative(summary: dict, lang: str) -> tuple[str, str]:
         "top priorities. Do not invent any number not in the facts. "
         + ("Write in Arabic." if lang != "en" else "Write in English.")
     )
-    try:
-        import httpx
-        if settings.ai_provider == "gemini":
-            r = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{settings.ai_model}:generateContent",
-                params={"key": api_key},
-                json={"system_instruction": {"parts": [{"text": system}]},
-                      "contents": [{"role": "user", "parts": [{"text": facts}]}]},
-                timeout=30)
-            r.raise_for_status()
-            parts = r.json()["candidates"][0]["content"]["parts"]
-            return " ".join(p.get("text", "") for p in parts).strip() or fallback, "gemini"
-        r = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": settings.ai_model, "max_tokens": 700, "system": system,
-                  "messages": [{"role": "user", "content": facts}]},
-            timeout=30)
-        r.raise_for_status()
-        text = " ".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
-        return text or fallback, "claude"
-    except Exception:
-        return fallback, "rule-based"
+    text = llm.complete(facts, system=system, max_tokens=700)
+    if text:
+        return text, settings.ai_provider
+    return fallback, "rule-based"
 
 
 def _fallback_narrative(summary: dict, lang: str) -> str:
