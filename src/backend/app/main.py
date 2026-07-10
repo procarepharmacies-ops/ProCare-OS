@@ -24,9 +24,11 @@ from app.db.migrate import (
     bootstrap_ceo_if_configured,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
+    ensure_prescription_status_columns,
     ensure_role_column,
     ensure_roster,
     ensure_shelf_location_column,
+    ensure_task_priority_columns,
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
@@ -41,6 +43,8 @@ async def lifespan(_app: FastAPI):
     ensure_original_sale_id_column(engine)
     ensure_shelf_location_column(engine)
     ensure_loyalty_points_column(engine)
+    ensure_task_priority_columns(engine)
+    ensure_prescription_status_columns(engine)
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()

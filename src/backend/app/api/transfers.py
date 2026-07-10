@@ -1,13 +1,60 @@
 """Stock transfer endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.auth import auth_guard
 from app.db.base import get_session
-from app.services import transfers
+from app.services import pos, transfers
 
 router = APIRouter(prefix="/transfers", tags=["transfers"])
+
+
+class RequestLineIn(BaseModel):
+    product_id: int
+    amount: float = Field(gt=0)
+
+
+class TransferRequestIn(BaseModel):
+    from_branch_id: int
+    to_branch_id: int
+    lines: list[RequestLineIn]
+    requested_by: int | None = None
+
+
+@router.post("/request")
+def request_transfer(payload: TransferRequestIn, session: Session = Depends(get_session)):
+    """Create a transfer REQUEST (no stock moves yet). Raises an approval task
+    for the source-branch manager + a WhatsApp alert."""
+    try:
+        return transfers.request_transfer(
+            session,
+            payload.from_branch_id,
+            payload.to_branch_id,
+            [(l.product_id, l.amount) for l in payload.lines],
+            requested_by=payload.requested_by,
+        )
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+@router.post("/{transfer_id}/approve", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def approve_transfer(transfer_id: int, approved_by: int | None = None, session: Session = Depends(get_session)):
+    """Approve a requested transfer: move the stock now and mark it received."""
+    try:
+        return transfers.approve_transfer(session, transfer_id, approved_by=approved_by)
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+@router.post("/{transfer_id}/reject", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def reject_transfer(transfer_id: int, session: Session = Depends(get_session)):
+    try:
+        return transfers.reject_transfer(session, transfer_id)
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
 
 
 @router.get("/list")

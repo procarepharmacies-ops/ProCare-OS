@@ -50,6 +50,22 @@ def purchasing_summary(
     return purchasing.purchase_summary(session, branch_id)
 
 
+@router.post("/drafts/{draft_id}/approve")
+def approve_draft(draft_id: int, session: Session = Depends(get_session)):
+    result = purchasing.set_draft_status(session, draft_id, "approved")
+    if result is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    return result
+
+
+@router.post("/drafts/{draft_id}/reject")
+def reject_draft(draft_id: int, session: Session = Depends(get_session)):
+    result = purchasing.set_draft_status(session, draft_id, "rejected")
+    if result is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    return result
+
+
 class PurchaseLineIn(BaseModel):
     product_id: int
     amount: float = Field(gt=0)

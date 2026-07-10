@@ -175,8 +175,8 @@ export default function POSPage() {
     }
   }
 
-  async function showSubs(item) {
-    setSubsFor({ product_id: item.product_id, name: item.name });
+  async function showSubs(item, outOfStock = false) {
+    setSubsFor({ product_id: item.product_id, name: item.name, outOfStock });
     setSubs(null);
     try {
       const r = await api.substitutions(item.product_id, posBranch, lang);
@@ -187,16 +187,36 @@ export default function POSPage() {
   }
 
   function swapToSub(s) {
-    // Replace the original cart line with the chosen alternative.
-    setCart((c) =>
-      c.map((x) =>
-        x.product_id === subsFor.product_id
-          ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
-          : x
-      )
-    );
+    // From an out-of-stock trigger there is no cart line yet → add the chosen
+    // in-stock alternative. Otherwise replace the original cart line.
+    if (subsFor?.outOfStock) {
+      addToCart({ product_id: s.product_id, name_ar: s.name, name_en: s.name, sell_price: s.sell_price, on_hand: 1 });
+    } else {
+      setCart((c) =>
+        c.map((x) =>
+          x.product_id === subsFor.product_id
+            ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
+            : x
+        )
+      );
+    }
     setSubsFor(null);
     setSubs(null);
+  }
+
+  // Order the product from another branch that has stock: creates a transfer
+  // request (a manager approves it — nothing moves until then).
+  async function orderFromBranch(fromBranchId, productId, name) {
+    try {
+      await api.requestTransfer({
+        from_branch_id: fromBranchId,
+        to_branch_id: posBranch,
+        lines: [{ product_id: productId, amount: 1 }],
+      });
+      setShiftMsg({ ok: true, text: L("transfer_requested") + ": " + name });
+    } catch {
+      setShiftMsg({ ok: false, text: L("transfer_request_failed") });
+    }
   }
 
   async function doPrintReceipt() {
@@ -395,7 +415,16 @@ export default function POSPage() {
             <table className="tbl">
               <tbody>
                 {products.map((p) => (
-                  <tr key={p.product_id} style={{ cursor: "pointer" }} onClick={() => p.on_hand > 0 && addToCart(p)}>
+                  <tr
+                    key={p.product_id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() =>
+                      p.on_hand > 0
+                        ? addToCart(p)
+                        : showSubs({ product_id: p.product_id, name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar }, true)
+                    }
+                    title={p.on_hand > 0 ? "" : L("oos_show_alts")}
+                  >
                     <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}</td>
                     <td className="num muted">{fmt(p.sell_price)}</td>
                     <td className="num">
@@ -405,7 +434,7 @@ export default function POSPage() {
                         <span className="badge danger">0</span>
                       )}
                     </td>
-                    <td>＋</td>
+                    <td>{p.on_hand > 0 ? "＋" : "⇄"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -446,7 +475,7 @@ export default function POSPage() {
             <div className="card" style={{ margin: "10px 0", padding: 10, background: "var(--bg)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <strong style={{ fontSize: 13 }}>
-                  ⇄ {L("alt_for")}: {subsFor.name}
+                  {subsFor.outOfStock ? "⚠ " + L("oos_alts_title") : "⇄ " + L("alt_for")}: {subsFor.name}
                 </strong>
                 <button className="btn icon" onClick={() => { setSubsFor(null); setSubs(null); }}>✕</button>
               </div>
@@ -466,9 +495,19 @@ export default function POSPage() {
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
                     {(s.branches || []).map((b) => (
-                      <span key={b.branch_id} className="badge" style={{ fontSize: 11 }}>
+                      <span key={b.branch_id} className="badge" style={{ fontSize: 11, display: "inline-flex", gap: 4, alignItems: "center" }}>
                         {b.branch_name}: {fmt(b.qty)}
                         {b.nearest_expiry ? ` · ${L("expiry_lbl")} ${b.nearest_expiry}` : ""}
+                        {b.branch_id !== posBranch && b.qty > 0 && (
+                          <button
+                            className="btn"
+                            style={{ padding: "0 6px", fontSize: 11 }}
+                            title={L("order_from_branch")}
+                            onClick={() => orderFromBranch(b.branch_id, s.product_id, s.name)}
+                          >
+                            ⇩ {L("order")}
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>

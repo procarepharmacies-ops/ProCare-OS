@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
@@ -26,7 +26,15 @@ def list_tasks(
     status: str | None = None,
     limit: int = 200,
 ) -> list[dict]:
-    q = select(m.EmployeeTask).order_by(m.EmployeeTask.status.desc(), m.EmployeeTask.due_date, m.EmployeeTask.task_id.desc())
+    # Order: pending first, then high→low priority, then earliest due.
+    priority_rank = case(
+        (m.EmployeeTask.priority == "high", 0),
+        (m.EmployeeTask.priority == "normal", 1),
+        else_=2,
+    )
+    q = select(m.EmployeeTask).order_by(
+        m.EmployeeTask.status.desc(), priority_rank, m.EmployeeTask.due_date, m.EmployeeTask.task_id.desc()
+    )
     if assignee_id:
         q = q.where(m.EmployeeTask.assignee_id == assignee_id)
     if branch_id:
@@ -45,6 +53,8 @@ def list_tasks(
             "branch_id": t.branch_id,
             "due_date": t.due_date.isoformat() if t.due_date else None,
             "status": t.status,
+            "priority": t.priority,
+            "category": t.category,
             "created_by": t.created_by,
             "created_by_name": names.get(t.created_by),
             "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -62,6 +72,8 @@ def create_task(
     branch_id: int | None = None,
     due_date: date | None = None,
     created_by: int | None = None,
+    priority: str = "normal",
+    category: str = "general",
 ) -> dict:
     t = m.EmployeeTask(
         title=title.strip(),
@@ -70,6 +82,8 @@ def create_task(
         branch_id=branch_id,
         due_date=due_date,
         created_by=created_by,
+        priority=priority if priority in ("high", "normal", "low") else "normal",
+        category=category or "general",
     )
     session.add(t)
     session.commit()

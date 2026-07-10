@@ -111,6 +111,20 @@ def list_purchase_drafts(session: Session, branch_id: int | None = None, limit: 
     ]
 
 
+def set_draft_status(session: Session, draft_id: int, status: str) -> dict | None:
+    """Approve or reject a purchase-order draft. Approved drafts stay as the
+    record of what the manager cleared to order (a human still places it with
+    the vendor); rejected drafts are dismissed so reruns don't resurface them."""
+    if status not in ("approved", "rejected"):
+        raise ValueError("status must be 'approved' or 'rejected'")
+    d = session.get(m.PurchaseOrderDraft, draft_id)
+    if d is None:
+        return None
+    d.status = status
+    session.commit()
+    return {"draft_id": d.draft_id, "status": d.status}
+
+
 def purchase_summary(session: Session, branch_id: int | None = None) -> dict:
     """Summary: total spent, pending POs, etc."""
     q_purchase = select(m.Purchase).where(m.Purchase.is_return == False)
