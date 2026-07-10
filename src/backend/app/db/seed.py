@@ -141,9 +141,17 @@ def ensure_seeded() -> dict:
 
 def _seed(s: Session) -> dict:
     # --- Branches (the schema seeds these; we own them here on SQLite) --------
-    main = m.Branch(code="MAIN", name_ar="الرئيسي", name_en="Main", is_pilot=False)
-    elsanta = m.Branch(code="ELSANTA", name_ar="السنتا", name_en="Elsanta", is_pilot=True)
-    s.add_all([main, elsanta])
+    # Check-before-insert: a partially-seeded DB (tables/branches already present
+    # but zero products) must not crash ensure_seeded() with a duplicate-key
+    # error on MAIN/ELSANTA — reuse the existing rows instead of re-inserting.
+    main = s.scalars(select(m.Branch).where(m.Branch.code == "MAIN")).first()
+    if main is None:
+        main = m.Branch(code="MAIN", name_ar="الرئيسي", name_en="Main", is_pilot=False)
+        s.add(main)
+    elsanta = s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first()
+    if elsanta is None:
+        elsanta = m.Branch(code="ELSANTA", name_ar="السنتا", name_en="Elsanta", is_pilot=True)
+        s.add(elsanta)
     s.flush()
     branches = [main, elsanta]
 

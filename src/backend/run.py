@@ -10,6 +10,19 @@ import sys
 BASE = os.path.dirname(os.path.abspath(__file__))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
+
+# Load .env files (backend dir first, then repo root) so the pharmacy PC can keep
+# its API keys / DB settings in a file. Optional: if python-dotenv isn't
+# installed the server still starts — a missing package must never take the
+# backend down (that surfaces in the browser as a 500 on every request).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(BASE, ".env"))
+    load_dotenv(os.path.join(BASE, "..", "..", ".env"))
+except ImportError:
+    pass
+
 # The reloader spawns a child process; pass the path through the environment too.
 os.environ["PYTHONPATH"] = BASE + os.pathsep + os.environ.get("PYTHONPATH", "")
 
