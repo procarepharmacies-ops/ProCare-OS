@@ -107,6 +107,12 @@ class Product(Base):
     unit_big: Mapped[str | None] = mapped_column(String(50), nullable=True)
     unit_small: Mapped[str | None] = mapped_column(String(50), nullable=True)
     unit_factor: Mapped[float] = mapped_column(Qty, default=1)
+    # Classification (التصنيف): pharmaceutical form (أقراص/شراب/حقن/كريم…),
+    # OTC vs prescription, and free-text uses/indications (الاستخدامات) — the
+    # filter axes of the items screen alongside scientific name and shelf place.
+    dosage_form: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_otc: Mapped[bool] = mapped_column(default=False)
+    uses: Mapped[str | None] = mapped_column(String(300), nullable=True)
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
     shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)

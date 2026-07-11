@@ -50,3 +50,13 @@
   branch-scoped sync wipe FK-failed on pending transfer requests (NULL-batch
   lines). Fixed in etl._wipe_branch_rows (delete lines by parent transfer too).
 - Tests: 170/170 pass (5 new in test_units_stagnant.py). next build clean.
+
+## 2026-07-11 (night) · Phase 3 — round 3 (owner's full eStock list)
+- Surveyed first: treasury/cashdesk/performance/accounting/parties largely
+  cover الخزينة والدرج وكشوف الحساب والأداء السنوي — did NOT rebuild.
+- BUILT: backups (auto+manual+pre-wipe), product classification + add-product
+  + screen filters, POS invoice profit, كشكول النواقص بأولوية الشراء +
+  transfer-first + consolidated 80% order, vendor statement/avg-discount/pay,
+  grouped رئيسي/فرعي nav, Settings backup card.
+- Tests: 174/174 (4 new in test_estock_parity3.py). next build clean.
+- Honest gaps queued in task_plan Phase 3 "Next".

@@ -9,28 +9,59 @@ import Wordmark from "./Wordmark";
 // `roles: null` = visible to everyone logged in. Otherwise the user's role
 // must be in the list. Mirrors the backend's CEO-only gate on accounting /
 // employees, plus a tighter POS-focused view for assistants.
-const NAV = [
-  { href: "/", key: "nav_dashboard", ico: "dashboard", roles: null },
-  { href: "/inventory", key: "nav_inventory", ico: "pill", roles: null },
-  { href: "/stocktaking", key: "nav_stocktaking", ico: "clipboard", roles: null },
-  { href: "/pos", key: "nav_pos", ico: "receipt", roles: null },
-  { href: "/customers", key: "nav_customers", ico: "customers", roles: null },
-  { href: "/vendors", key: "nav_vendors", ico: "store", roles: ["ceo", "manager"] },
-  { href: "/purchasing", key: "nav_purchasing", ico: "box", roles: ["ceo", "manager"] },
-  { href: "/transfers", key: "nav_transfers", ico: "transfer", roles: ["ceo", "manager"] },
-  { href: "/accounting", key: "nav_accounting", ico: "coins", roles: ["ceo"] },
-  { href: "/employees", key: "nav_employees", ico: "badge", roles: ["ceo"] },
-  { href: "/tasks", key: "nav_tasks", ico: "clipboard", roles: null },
-  { href: "/alerts", key: "nav_alerts", ico: "bell", roles: null },
-  { href: "/clinical", key: "nav_clinical", ico: "mortar", roles: null },
-  { href: "/assistant", key: "nav_assistant", ico: "sparkle", roles: null },
-  { href: "/marketing", key: "nav_marketing", ico: "megaphone", roles: ["ceo", "manager"] },
-  { href: "/prescriptions", key: "nav_prescriptions", ico: "camera", roles: null },
-  { href: "/shortages", key: "nav_shortages", ico: "sheet", roles: null },
-  { href: "/treasury", key: "nav_treasury", ico: "safe", roles: ["ceo", "manager"] },
-  { href: "/audit", key: "nav_audit", ico: "scale", roles: ["ceo", "manager"] },
-  { href: "/reports", key: "nav_reports", ico: "chart", roles: ["ceo", "manager"] },
-  { href: "/settings", key: "nav_settings", ico: "gear", roles: ["ceo", "manager"] },
+// Grouped رئيسي/فرعي: section headers with their sub-screens, eStock-style.
+const NAV_GROUPS = [
+  {
+    key: "navg_ops",
+    items: [
+      { href: "/", key: "nav_dashboard", ico: "dashboard", roles: null },
+      { href: "/pos", key: "nav_pos", ico: "receipt", roles: null },
+      { href: "/prescriptions", key: "nav_prescriptions", ico: "camera", roles: null },
+      { href: "/tasks", key: "nav_tasks", ico: "clipboard", roles: null },
+    ],
+  },
+  {
+    key: "navg_inventory",
+    items: [
+      { href: "/inventory", key: "nav_inventory", ico: "pill", roles: null },
+      { href: "/stocktaking", key: "nav_stocktaking", ico: "clipboard", roles: null },
+      { href: "/shortages", key: "nav_shortages", ico: "sheet", roles: null },
+      { href: "/transfers", key: "nav_transfers", ico: "transfer", roles: ["ceo", "manager"] },
+      { href: "/alerts", key: "nav_alerts", ico: "bell", roles: null },
+    ],
+  },
+  {
+    key: "navg_purchasing",
+    items: [
+      { href: "/purchasing", key: "nav_purchasing", ico: "box", roles: ["ceo", "manager"] },
+      { href: "/vendors", key: "nav_vendors", ico: "store", roles: ["ceo", "manager"] },
+    ],
+  },
+  {
+    key: "navg_money",
+    items: [
+      { href: "/treasury", key: "nav_treasury", ico: "safe", roles: ["ceo", "manager"] },
+      { href: "/accounting", key: "nav_accounting", ico: "coins", roles: ["ceo"] },
+      { href: "/audit", key: "nav_audit", ico: "scale", roles: ["ceo", "manager"] },
+      { href: "/reports", key: "nav_reports", ico: "chart", roles: ["ceo", "manager"] },
+    ],
+  },
+  {
+    key: "navg_people",
+    items: [
+      { href: "/customers", key: "nav_customers", ico: "customers", roles: null },
+      { href: "/marketing", key: "nav_marketing", ico: "megaphone", roles: ["ceo", "manager"] },
+      { href: "/employees", key: "nav_employees", ico: "badge", roles: ["ceo"] },
+    ],
+  },
+  {
+    key: "navg_tools",
+    items: [
+      { href: "/clinical", key: "nav_clinical", ico: "mortar", roles: null },
+      { href: "/assistant", key: "nav_assistant", ico: "sparkle", roles: null },
+      { href: "/settings", key: "nav_settings", ico: "gear", roles: ["ceo", "manager"] },
+    ],
+  },
 ];
 
 export default function Shell({ titleKey, children }) {
@@ -39,7 +70,10 @@ export default function Shell({ titleKey, children }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const nav = NAV.filter((n) => !n.roles || n.roles.includes(user?.role));
+  const groups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((n) => !n.roles || n.roles.includes(user?.role)),
+  })).filter((g) => g.items.length > 0);
   const userName = user ? (lang === "ar" ? user.name_ar : user.name_en || user.name_ar) : "";
 
   return (
@@ -54,16 +88,23 @@ export default function Shell({ titleKey, children }) {
             <small>{L("tagline")}</small>
           </span>
         </div>
-        {nav.map((n) => (
-          <div
-            key={n.href}
-            className={`navlink ${pathname === n.href ? "active" : ""}`}
-            onClick={() => router.push(n.href)}
-          >
-            <span className="ico">
-              <Icon name={n.ico} />
-            </span>
-            <span>{L(n.key)}</span>
+        {groups.map((g) => (
+          <div key={g.key}>
+            <div className="kpi-sub" style={{ padding: "10px 10px 2px", fontWeight: 700, opacity: 0.75 }}>
+              {L(g.key)}
+            </div>
+            {g.items.map((n) => (
+              <div
+                key={n.href}
+                className={`navlink ${pathname === n.href ? "active" : ""}`}
+                onClick={() => router.push(n.href)}
+              >
+                <span className="ico">
+                  <Icon name={n.ico} />
+                </span>
+                <span>{L(n.key)}</span>
+              </div>
+            ))}
           </div>
         ))}
         <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>

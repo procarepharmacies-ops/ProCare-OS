@@ -136,6 +136,23 @@ def ensure_product_unit_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE products {add} unit_factor NUMERIC(18,3) DEFAULT 1"))
 
 
+def ensure_product_classification_columns(engine) -> None:
+    """Add ``products.dosage_form/is_otc/uses`` (الشكل الصيدلاني / OTC /
+    الاستخدامات) if the table predates the classification feature."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "dosage_form" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} dosage_form VARCHAR(50) NULL"))
+        if "is_otc" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} is_otc BOOLEAN DEFAULT 0"))
+        if "uses" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} uses VARCHAR(300) NULL"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.

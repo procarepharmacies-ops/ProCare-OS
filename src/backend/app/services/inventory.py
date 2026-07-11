@@ -17,6 +17,12 @@ def list_products(
     branch_id: int | None = None,
     search: str | None = None,
     limit: int = 100,
+    *,
+    dosage_form: str | None = None,
+    otc: bool | None = None,
+    scientific: str | None = None,
+    location: str | None = None,
+    sort: str | None = None,  # name (default) | price_asc | price_desc
 ) -> list[dict]:
     on_hand = (
         select(
@@ -32,6 +38,15 @@ def list_products(
         .join(on_hand, on_hand.c.pid == m.Product.product_id, isouter=True)
         .where(m.Product.is_deleted == False)  # noqa: E712
     )
+    # Classification filters (الفلترة): every axis the pharmacist thinks in.
+    if dosage_form:
+        stmt = stmt.where(m.Product.dosage_form == dosage_form)
+    if otc is not None:
+        stmt = stmt.where(m.Product.is_otc == otc)
+    if scientific:
+        stmt = stmt.where(m.Product.scientific_name.like(f"{scientific}%"))
+    if location:
+        stmt = stmt.where(m.Product.shelf_location.like(f"{location}%"))
     if search:
         # Search-as-you-type: one typed letter matches every product that
         # STARTS with it (prefix), ranked before contains-anywhere matches —
@@ -60,6 +75,10 @@ def list_products(
             else_=2,
         )
         stmt = stmt.order_by(rank, m.Product.name_ar)
+    elif sort == "price_asc":
+        stmt = stmt.order_by(m.Product.sell_price.asc(), m.Product.name_ar)
+    elif sort == "price_desc":
+        stmt = stmt.order_by(m.Product.sell_price.desc(), m.Product.name_ar)
     else:
         stmt = stmt.order_by(m.Product.name_ar)
     stmt = stmt.limit(limit)
@@ -111,11 +130,66 @@ def list_products(
                 "unit_big": p.unit_big,
                 "unit_small": p.unit_small,
                 "unit_factor": money(p.unit_factor or 1) or 1,
+                "dosage_form": p.dosage_form,
+                "is_otc": p.is_otc,
+                "uses": p.uses,
                 "other_branches": others.get(p.product_id, []),
                 "low": on_hand_qty < float(p.min_stock or 0),
             }
         )
     return out
+
+
+def create_product(session: Session, data: dict) -> dict:
+    """إضافة صنف جديد — a locally-added product (eStock never mirrors it away:
+    the catalogue loaders match by code/name and keep unmatched local rows)."""
+    from app.services.pos import POSError
+
+    name_ar = (data.get("name_ar") or "").strip()
+    if not name_ar:
+        raise POSError("name_required", "اسم الصنف مطلوب / product name required")
+    dup = session.scalars(
+        select(m.Product).where(m.Product.name_ar == name_ar, m.Product.is_deleted == False)  # noqa: E712
+    ).first()
+    if dup is not None:
+        raise POSError("duplicate_name", f"الصنف موجود بالفعل #{dup.product_id} / already exists")
+    factor = float(data.get("unit_factor") or 1)
+    p = m.Product(
+        name_ar=name_ar,
+        name_en=(data.get("name_en") or "").strip() or None,
+        scientific_name=(data.get("scientific_name") or "").strip() or None,
+        code=(data.get("code") or "").strip() or None,
+        sell_price=float(data.get("sell_price") or 0),
+        buy_price=float(data.get("buy_price") or 0),
+        min_stock=float(data.get("min_stock") or 0),
+        unit_big=(data.get("unit_big") or "").strip() or None,
+        unit_small=(data.get("unit_small") or "").strip() or None,
+        unit_factor=factor if factor >= 1 else 1,
+        dosage_form=(data.get("dosage_form") or "").strip() or None,
+        is_otc=bool(data.get("is_otc") or False),
+        uses=(data.get("uses") or "").strip() or None,
+        shelf_location=(data.get("shelf_location") or "").strip() or None,
+        is_controlled=bool(data.get("is_controlled") or False),
+    )
+    session.add(p)
+    session.commit()
+    return {"product_id": p.product_id, "name_ar": p.name_ar}
+
+
+def filter_values(session: Session) -> dict:
+    """Distinct classification values that actually exist — feeds the filter
+    dropdowns (الشكل الصيدلاني، الأماكن) on the items screen."""
+    forms = [
+        f for (f,) in session.execute(
+            select(m.Product.dosage_form).where(m.Product.dosage_form.is_not(None)).distinct()
+        ) if f
+    ]
+    locations = [
+        l for (l,) in session.execute(
+            select(m.Product.shelf_location).where(m.Product.shelf_location.is_not(None)).distinct()
+        ) if l
+    ]
+    return {"dosage_forms": sorted(forms), "locations": sorted(locations)}
 
 
 def stagnant_products(

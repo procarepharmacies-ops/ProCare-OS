@@ -26,6 +26,7 @@ from app.db.migrate import (
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
     ensure_prescription_status_columns,
+    ensure_product_classification_columns,
     ensure_product_unit_columns,
     ensure_role_column,
     ensure_roster,
@@ -49,6 +50,11 @@ async def lifespan(_app: FastAPI):
     ensure_prescription_status_columns(engine)
     ensure_employee_reset_columns(engine)
     ensure_product_unit_columns(engine)
+    ensure_product_classification_columns(engine)
+    # Daily safety net: the pharmacy never opens without a fresh backup.
+    from app.services import backup
+
+    backup.backup_if_stale(24, "startup-daily")
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()

@@ -196,6 +196,29 @@ export const api = {
   approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
   rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
 
+  // Catalogue management + classification filters.
+  productFilters: () => http("/inventory/filters"),
+  createProduct: (payload) => http("/inventory/products", { method: "POST", body: JSON.stringify(payload) }),
+  productsFiltered: (branch, params = {}) => {
+    const extra = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join("&");
+    return http(`/inventory/products${bq(branch, extra)}`);
+  },
+
+  // Purchase planning (كشكول النواقص): priority + transfer-first + consolidated.
+  purchasePlan: (branchId) => http(`/purchasing/plan?branch_id=${branchId}`),
+  purchasePlanConsolidated: () => http("/purchasing/plan/consolidated"),
+
+  // Vendor account (كشف حساب مورد + سداد).
+  vendorStatement: (vendorId) => http(`/vendors/${vendorId}/statement`),
+  payVendor: (vendorId, payload) => http(`/vendors/${vendorId}/pay`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Backups (نسخ احتياطية).
+  backupNow: () => http("/backup", { method: "POST" }),
+  backupList: () => http("/backup"),
+
   // Stagnant items (الأصناف الراكدة): stocked, no sale in N days.
   stagnant: (branch, days = 90) => http(`/inventory/stagnant${bq(branch, `days=${days}`)}`),
 

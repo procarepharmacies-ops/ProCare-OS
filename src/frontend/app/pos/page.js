@@ -20,7 +20,7 @@ export default function POSPage() {
 }
 
 function POSInner() {
-  const { lang, branch, branches, setBranch } = useUI();
+  const { lang, branch, branches, setBranch, user } = useUI();
   const L = (k) => t(lang, k);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -147,6 +147,7 @@ function POSInner() {
           product_id: p.product_id,
           name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
           sell_price: p.sell_price,
+          buy_price: Number(p.buy_price) || 0,
           amount: 1, // ALWAYS in big units (علبة) — the DB stock unit
           unit: "big",
           unit_big: p.unit_big || null,
@@ -183,6 +184,12 @@ function POSInner() {
   }
 
   const total = useMemo(() => cart.reduce((s, x) => s + x.sell_price * x.amount, 0), [cart]);
+  // مكسب الفاتورة أثناء البيع — manager/CEO eyes only (buy prices are gated).
+  const invoiceProfit = useMemo(
+    () => cart.reduce((s, x) => s + (x.sell_price - (x.buy_price || 0)) * x.amount, 0),
+    [cart]
+  );
+  const canSeeProfit = user && (user.role === "ceo" || user.role === "manager");
 
   useEffect(() => {
     if (!posBranch) return;
@@ -636,6 +643,14 @@ function POSInner() {
                 {fmt(total)} {L("egp")}
               </span>
             </div>
+            {canSeeProfit && cart.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 4 }} className="muted">
+                <span>{L("invoice_profit")}</span>
+                <span className="num" style={{ color: invoiceProfit >= 0 ? "var(--ok)" : "var(--danger)" }}>
+                  {fmt(invoiceProfit)} {L("egp")}
+                </span>
+              </div>
+            )}
 
             {advisory.length > 0 && (
               <div

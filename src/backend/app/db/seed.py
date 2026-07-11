@@ -237,6 +237,12 @@ def _seed(s: Session) -> dict:
             unit_big="علبة",
             unit_small=RNG.choice(["شريط", "شريط", "أمبول", "كبسولة"]),
             unit_factor=RNG.choice([2, 3, 3, 6, 10]),
+            dosage_form=RNG.choice(["أقراص", "أقراص", "شراب", "حقن", "كريم", "نقط", "لبوس"]),
+            is_otc=(i % 3 == 0),
+            uses=RNG.choice([
+                "مسكن وخافض للحرارة", "مضاد حيوي واسع المجال", "مضاد للالتهاب",
+                "علاج البرد والاحتقان", "فيتامينات ومكملات", "علاج الحموضة والمعدة",
+            ]),
         )
         products.append(p)
     s.add_all(products)

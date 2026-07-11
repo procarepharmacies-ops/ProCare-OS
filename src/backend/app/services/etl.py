@@ -319,6 +319,11 @@ def _resolve_branch_map(
 
 
 def _wipe_destination(dst: Session) -> None:
+    # The full wipe is the single most destructive operation in the system —
+    # make sure a recent backup exists first (throttled; fail-soft).
+    from app.services import backup
+
+    backup.backup_if_stale(6, "pre-sync-wipe")
     for model in _WIPE_ORDER:
         if model is not None:
             dst.execute(text(f"DELETE FROM {model.__tablename__}"))

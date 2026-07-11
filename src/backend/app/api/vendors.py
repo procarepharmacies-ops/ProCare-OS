@@ -1,11 +1,13 @@
 """Vendor/supplier management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.base import get_session
 from app.services import vendors
+from app.services.pos import POSError
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
 
@@ -41,3 +43,31 @@ def vendor_purchases(
     session: Session = Depends(get_session),
 ):
     return {"purchases": vendors.vendor_purchases(session, vendor_id, limit)}
+
+
+@router.get("/{vendor_id}/statement")
+def vendor_statement(vendor_id: int, session: Session = Depends(get_session)):
+    """كشف حساب المورد: فواتير وسدادات برصيد جارٍ."""
+    result = vendors.vendor_statement(session, vendor_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="vendor not found")
+    return result
+
+
+class PayIn(BaseModel):
+    branch_id: int
+    amount: float = Field(gt=0)
+    note: str | None = Field(None, max_length=255)
+    employee_id: int | None = None
+
+
+@router.post("/{vendor_id}/pay")
+def pay_vendor(vendor_id: int, payload: PayIn, session: Session = Depends(get_session)):
+    """صرف نقدية لمورد من خزينة الفرع (يخفض رصيده المستحق)."""
+    try:
+        return vendors.pay_vendor(
+            session, vendor_id, payload.branch_id, payload.amount,
+            note=payload.note, employee_id=payload.employee_id,
+        )
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})

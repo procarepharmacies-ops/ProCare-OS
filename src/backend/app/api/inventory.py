@@ -17,9 +17,53 @@ def products(
     branch_id: int | None = Query(None),
     search: str | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
+    dosage_form: str | None = Query(None),
+    otc: bool | None = Query(None),
+    scientific: str | None = Query(None),
+    location: str | None = Query(None),
+    sort: str | None = Query(None, pattern="^(price_asc|price_desc)$"),
     session: Session = Depends(get_session),
 ):
-    return {"products": inventory.list_products(session, branch_id or None, search, limit)}
+    return {
+        "products": inventory.list_products(
+            session, branch_id or None, search, limit,
+            dosage_form=dosage_form, otc=otc, scientific=scientific,
+            location=location, sort=sort,
+        )
+    }
+
+
+@router.get("/filters")
+def filters(session: Session = Depends(get_session)):
+    """Distinct classification values for the items screen's filter dropdowns."""
+    return inventory.filter_values(session)
+
+
+class ProductIn(BaseModel):
+    name_ar: str = Field(min_length=1, max_length=150)
+    name_en: str | None = Field(None, max_length=150)
+    scientific_name: str | None = Field(None, max_length=200)
+    code: str | None = Field(None, max_length=50)
+    sell_price: float = Field(0, ge=0)
+    buy_price: float = Field(0, ge=0)
+    min_stock: float = Field(0, ge=0)
+    unit_big: str | None = Field(None, max_length=50)
+    unit_small: str | None = Field(None, max_length=50)
+    unit_factor: float = Field(1, ge=1)
+    dosage_form: str | None = Field(None, max_length=50)
+    is_otc: bool = False
+    uses: str | None = Field(None, max_length=300)
+    shelf_location: str | None = Field(None, max_length=80)
+    is_controlled: bool = False
+
+
+@router.post("/products")
+def create_product(payload: ProductIn, session: Session = Depends(get_session)):
+    """إضافة صنف جديد إلى الكتالوج."""
+    try:
+        return inventory.create_product(session, payload.model_dump())
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
 
 
 @router.get("/stagnant")
