@@ -271,6 +271,69 @@ When Claude works on this repo:
 
 ---
 
+## Project Memory (B.L.A.S.T. protocol)
+
+This repo is run under the B.L.A.S.T. protocol (Blueprint → Link → Architect →
+Stylize → Trigger). CLAUDE.md is the **constitution** (schemas, rules,
+invariants — law). Working memory lives in:
+
+| File | Role |
+|------|------|
+| `task_plan.md` | Phases, goals, checklists (the approved Blueprint) |
+| `findings.md` | Research, discoveries, constraints |
+| `progress.md` | Run log: what was done, errors, test results |
+
+Rules: define the data schema here **before** coding a feature; update the
+plan/progress files after every meaningful task; amend CLAUDE.md only when a
+schema, rule, or architectural invariant changes. On tool failure: analyze the
+real stack trace, patch, re-test, then record the learning in `findings.md`.
+
+## Data Schemas
+
+### Stocktaking (الجرد) — `stock_counts` / `stock_count_lines`
+
+Count session (`POST /api/stocktaking` → `GET /api/stocktaking/{id}`):
+
+```json
+{
+  "count_id": 1,
+  "branch_id": 1,
+  "count_type": "full | periodic | partial",
+  "status": "open | posted | cancelled",
+  "note": "string?",
+  "created_at": "ISO", "posted_at": "ISO?",
+  "lines": [{
+    "line_id": 1, "batch_id": 10, "product_id": 5,
+    "name_ar": "…", "name_en": "…", "shelf_location": "A3?",
+    "exp_date": "2027-01-31?", "buy_price": 10.0, "sell_price": 15.0,
+    "expected_qty": 12.0,
+    "counted_qty": 11.0,
+    "variance": -1.0,
+    "variance_value": -10.0,
+    "posted_delta": -1.0
+  }],
+  "summary": {
+    "total_lines": 0, "counted_lines": 0, "variance_lines": 0,
+    "shortage_qty": 0, "shortage_value": 0,
+    "overage_qty": 0, "overage_value": 0
+  }
+}
+```
+
+Invariants: posting sets each counted batch to its **physical** quantity
+(delta computed against the LIVE amount at post time, not the snapshot); every
+non-zero delta writes a `stock_movements` row (`reason='adjust'`,
+`ref_id=count_id`); posting is atomic; `periodic` with no explicit product list
+scopes to the branch's 30-day top movers; sessions never block sales.
+
+### Product search
+
+`GET /api/inventory/products?search=<q>` ranks **prefix** matches on
+name_ar/name_en/code first, then scientific-name prefix, then contains-anywhere
+— one typed letter must list every product beginning with that letter.
+
+---
+
 ## Success Criteria
 
 ✅ Pharmacy operates all day without manual intervention or restarts  
