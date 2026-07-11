@@ -128,22 +128,37 @@ def reset_and_seed() -> dict:
 
 
 def ensure_seeded() -> dict:
-    """Create tables and seed once if the catalogue is empty. Idempotent."""
+    """Create tables and seed once if the catalogue is empty. Idempotent.
+
+    When a live eStock source is configured, DEMO data is never seeded — the
+    branch-scoped sync fills the database with real rows and would have no way
+    to clear demo rows sitting in other branches. Only the branch rows (which
+    the mirror requires) are ensured in that case.
+    """
     Base.metadata.create_all(engine)
     with SessionLocal() as s:
         count = s.scalar(select(func.count()).select_from(m.Product)) or 0
         if count > 0:
             return {"already_seeded": True, "products": count}
+        from app.config import settings
+
+        if settings.estock_configured:
+            # Real branches only (owner spelling): Elsanta السنطه is the main
+            # branch, Mas-hala مسهله the second. The mirror's store_branch_map
+            # auto-creates any further codes it meets.
+            if s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first() is None:
+                s.add(m.Branch(code="ELSANTA", name_ar="السنطه", name_en="Elsanta", is_pilot=True))
+            if s.scalars(select(m.Branch).where(m.Branch.code == "MASHALA")).first() is None:
+                s.add(m.Branch(code="MASHALA", name_ar="مسهله", name_en="Mas-hala", is_pilot=False))
+            s.commit()
+            return {"skipped_demo": True, "reason": "live eStock source configured — sync fills the DB"}
         summary = _seed(s)
         s.commit()
         return summary
 
 
-def _seed(s: Session) -> dict:
-    # --- Branches (the schema seeds these; we own them here on SQLite) --------
-    # Check-before-insert: a partially-seeded DB (tables/branches already present
-    # but zero products) must not crash ensure_seeded() with a duplicate-key
-    # error on MAIN/ELSANTA — reuse the existing rows instead of re-inserting.
+def _ensure_branches(s: Session) -> list:
+    """The two founding branch rows, created only if missing (mirror needs ≥1)."""
     main = s.scalars(select(m.Branch).where(m.Branch.code == "MAIN")).first()
     if main is None:
         main = m.Branch(code="MAIN", name_ar="الرئيسي", name_en="Main", is_pilot=False)
@@ -153,6 +168,15 @@ def _seed(s: Session) -> dict:
         elsanta = m.Branch(code="ELSANTA", name_ar="السنتا", name_en="Elsanta", is_pilot=True)
         s.add(elsanta)
     s.flush()
+    return [main, elsanta]
+
+
+def _seed(s: Session) -> dict:
+    # --- Branches (the schema seeds these; we own them here on SQLite) --------
+    # Check-before-insert: a partially-seeded DB (tables/branches already present
+    # but zero products) must not crash ensure_seeded() with a duplicate-key
+    # error on MAIN/ELSANTA — reuse the existing rows instead of re-inserting.
+    main, elsanta = _ensure_branches(s)
     branches = [main, elsanta]
 
     # --- Reference data -------------------------------------------------------

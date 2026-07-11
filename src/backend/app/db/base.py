@@ -16,6 +16,7 @@ only activates when real read-only credentials are present).
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -32,8 +33,13 @@ DATA_DIR.mkdir(exist_ok=True)
 def _build_url() -> str:
     """Return the SQLAlchemy URL for ProCare's own DB.
 
-    Uses SQL Server when real credentials exist, else a local SQLite file.
+    ``PROCARE_DB_URL`` (env) wins — the test suite sets it to an isolated SQLite
+    file so tests can NEVER drop/reseed a configured production SQL Server.
+    Otherwise: SQL Server when real credentials exist, else the SQLite dev file.
     """
+    override = os.environ.get("PROCARE_DB_URL")
+    if override:
+        return override
     sqlserver_url = settings.procare_sqlalchemy_url()
     if sqlserver_url:
         return sqlserver_url
