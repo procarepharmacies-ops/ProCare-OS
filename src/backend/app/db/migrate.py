@@ -118,6 +118,24 @@ def ensure_employee_reset_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE employees {add} reset_attempts INTEGER DEFAULT 0"))
 
 
+def ensure_product_unit_columns(engine) -> None:
+    """Add ``products.unit_big/unit_small/unit_factor`` (وحدة كبرى/صغرى) if the
+    table predates the units feature. Existing products default to factor 1
+    (no subdivision) until the next eStock sync refreshes them."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "unit_big" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_big VARCHAR(50) NULL"))
+        if "unit_small" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_small VARCHAR(50) NULL"))
+        if "unit_factor" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_factor NUMERIC(18,3) DEFAULT 1"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.

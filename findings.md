@@ -43,6 +43,14 @@
   stock_batches, sales, purchases, vendors, customers…) from tables that must
   survive sync — snapshot the display fields instead.
 
+- 2026-07-11 · Branch-scoped sync wipe (`etl._wipe_branch_rows`) failed with a
+  FK IntegrityError whenever a *requested* (unapproved) transfer existed: its
+  lines carry NULL batch ids, so the batch-based line delete missed them and
+  the parent-transfer delete failed — this would kill every production sync
+  cycle while a transfer request is pending. Fix: also delete lines by parent
+  transfer_id. Caught by running the full suite in order (test_transfer_requests
+  leaves a pending request, then test_units_stagnant syncs).
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the

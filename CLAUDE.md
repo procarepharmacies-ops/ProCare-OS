@@ -326,6 +326,32 @@ non-zero delta writes a `stock_movements` row (`reason='adjust'`,
 `ref_id=count_id`); posting is atomic; `periodic` with no explicit product list
 scopes to the branch's 30-day top movers; sessions never block sales.
 
+### Units (وحدة كبرى/صغرى) — on `products`
+
+`unit_big` (علبة), `unit_small` (شريط/أمبول/كبسولة), `unit_factor` (small per
+big, >= 1). **Stock amounts are ALWAYS stored in big units**; selling n small
+units deducts n/`unit_factor`. POS sends cart amounts in big units — the unit
+selector is a display/entry convenience only. ETL maps eStock's
+product_unit1/product_unit2/product_no2per1 (graceful when absent → factor 1).
+
+### Stagnant items (الأصناف الراكدة)
+
+`GET /api/inventory/stagnant?days=90&branch_id=` → stocked items (on-hand > 0)
+with no sale in `days` days: on_hand, value (buy price), last_sale, idle_days +
+totals. `POST /api/stocktaking {scope:"stagnant"}` opens a partial count scoped
+to that list.
+
+### Cross-branch availability
+
+`list_products` with `branch_id` returns `other_branches: [{branch_id, branch,
+on_hand}]` per product (live, available stock only) — the POS shows it on
+out-of-stock rows so the cashier knows the other branch has it.
+
+### Sync wipe rule
+
+`etl._wipe_branch_rows` must delete children by BOTH batch linkage and parent
+transfer linkage — requested transfers have NULL-batch lines.
+
 ### Product search
 
 `GET /api/inventory/products?search=<q>` ranks **prefix** matches on

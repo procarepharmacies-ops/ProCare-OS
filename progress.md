@@ -32,3 +32,21 @@
   ("ف" → فاركولين/فلاجيل/فولتارين first) · periodic جرد created 47 lines.
 - Drill-down verdict: backend + UI fine in this build — pharmacy PC needs
   `git pull` + `npm run build` (stale build), not a code fix.
+
+## 2026-07-11 (later) · Phase 2 — eStock parity round 2 (owner feedback)
+- Owner: "مش زي eStock بالظبط" — named gaps: أصناف راكدة, cross-branch
+  availability during sale, unit hierarchy (علبة/شريط/أمبول, كبرى/صغرى).
+- BUILT:
+  - Units: products.unit_big/unit_small/unit_factor + dialect-aware migration;
+    ETL maps product_unit1/unit2/no2per1 (graceful when absent); demo + eStock
+    test seeds carry units; POS per-line unit toggle (sell بالعلبة أو بالشريط,
+    stock stays in big units, small qty = qty/factor); inventory shows الوحدة.
+  - Stagnant (الراكدة): GET /inventory/stagnant?days= (on-hand, tied-up value,
+    last sale, idle days + totals); inventory "الراكد فقط" view; جرد الراكدة
+    scope on count creation.
+  - Cross-branch: list_products?branch_id= adds other_branches per product;
+    POS out-of-stock rows show "متوفر في <فرع>: <كمية>".
+- ERROR + FIX (self-annealing #2): full suite exposed pre-existing prod bug —
+  branch-scoped sync wipe FK-failed on pending transfer requests (NULL-batch
+  lines). Fixed in etl._wipe_branch_rows (delete lines by parent transfer too).
+- Tests: 170/170 pass (5 new in test_units_stagnant.py). next build clean.

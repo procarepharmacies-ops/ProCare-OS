@@ -101,6 +101,12 @@ class Product(Base):
     wholesale_price: Mapped[float | None] = mapped_column(Money, nullable=True)
 
     min_stock: Mapped[float] = mapped_column(Qty, default=0)
+    # Units (وحدات الصنف): the big unit (علبة) subdivides into ``unit_factor``
+    # small units (شريط/أمبول/كبسولة). Stock amounts are ALWAYS in big units;
+    # selling one small unit deducts 1/unit_factor of a big unit.
+    unit_big: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_small: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_factor: Mapped[float] = mapped_column(Qty, default=1)
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
     shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)

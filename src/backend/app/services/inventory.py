@@ -63,8 +63,37 @@ def list_products(
     else:
         stmt = stmt.order_by(m.Product.name_ar)
     stmt = stmt.limit(limit)
+    rows = session.execute(stmt).all()
+
+    # Cross-branch availability (أثناء البيع): when the caller is scoped to one
+    # branch, also report each product's live stock at the OTHER branches so the
+    # cashier instantly sees "متوفر في السنتا: ٩١" for an item that's out here.
+    others: dict[int, list[dict]] = {}
+    if branch_id and rows:
+        ids = [p.product_id for p, _ in rows]
+        other_rows = session.execute(
+            select(
+                m.StockBatch.product_id,
+                m.Branch.branch_id,
+                m.Branch.name_ar,
+                func.sum(m.StockBatch.amount),
+            )
+            .join(m.Branch, m.Branch.branch_id == m.StockBatch.branch_id)
+            .where(
+                m.StockBatch.product_id.in_(ids),
+                m.StockBatch.branch_id != branch_id,
+                available_stock_filter(),
+            )
+            .group_by(m.StockBatch.product_id, m.Branch.branch_id, m.Branch.name_ar)
+        ).all()
+        for pid, bid, bname, qty in other_rows:
+            if qty and float(qty) > 0:
+                others.setdefault(pid, []).append(
+                    {"branch_id": bid, "branch": bname, "on_hand": money(qty)}
+                )
+
     out = []
-    for p, qty in session.execute(stmt):
+    for p, qty in rows:
         on_hand_qty = money(qty)
         out.append(
             {
@@ -79,10 +108,90 @@ def list_products(
                 "on_hand": on_hand_qty,
                 "is_controlled": p.is_controlled,
                 "shelf_location": p.shelf_location,
+                "unit_big": p.unit_big,
+                "unit_small": p.unit_small,
+                "unit_factor": money(p.unit_factor or 1) or 1,
+                "other_branches": others.get(p.product_id, []),
                 "low": on_hand_qty < float(p.min_stock or 0),
             }
         )
     return out
+
+
+def stagnant_products(
+    session: Session,
+    branch_id: int | None = None,
+    days: int = 90,
+    limit: int = 300,
+) -> dict:
+    """الأصناف الراكدة — stocked items with no sale in the last ``days`` days.
+
+    Returns each item's on-hand, tied-up value (at buy price), last sale date
+    and idle days, plus totals — eStock's stagnant-items report. Also used to
+    scope a stagnant-items count session (جرد الراكد)."""
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.now() - timedelta(days=days)
+
+    on_hand = (
+        select(
+            m.StockBatch.product_id.label("pid"),
+            func.sum(m.StockBatch.amount).label("qty"),
+        )
+        .where(available_stock_filter(), branch_filter(m.StockBatch, branch_id))
+        .group_by(m.StockBatch.product_id)
+        .subquery()
+    )
+    last_sale_q = (
+        select(
+            m.SaleLine.product_id.label("pid"),
+            func.max(m.Sale.sale_date).label("last_sale"),
+        )
+        .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
+        .where(m.Sale.is_return == False, branch_filter(m.Sale, branch_id))  # noqa: E712
+        .group_by(m.SaleLine.product_id)
+        .subquery()
+    )
+    stmt = (
+        select(m.Product, on_hand.c.qty, last_sale_q.c.last_sale)
+        .join(on_hand, on_hand.c.pid == m.Product.product_id)
+        .join(last_sale_q, last_sale_q.c.pid == m.Product.product_id, isouter=True)
+        .where(
+            m.Product.is_deleted == False,  # noqa: E712
+            (last_sale_q.c.last_sale.is_(None)) | (last_sale_q.c.last_sale < cutoff),
+        )
+        .order_by((on_hand.c.qty * m.Product.buy_price).desc())
+        .limit(limit)
+    )
+    today = datetime.now()
+    items = []
+    total_qty = total_value = 0.0
+    for p, qty, last_sale in session.execute(stmt):
+        qty_f = money(qty)
+        value = round(qty_f * float(p.buy_price or 0), 3)
+        total_qty += qty_f
+        total_value += value
+        items.append(
+            {
+                "product_id": p.product_id,
+                "code": p.code,
+                "name_ar": p.name_ar,
+                "name_en": p.name_en,
+                "on_hand": qty_f,
+                "buy_price": money(p.buy_price),
+                "value": value,
+                "last_sale": last_sale.isoformat() if last_sale else None,
+                "idle_days": (today - last_sale).days if last_sale else None,
+                "unit_big": p.unit_big,
+            }
+        )
+    return {
+        "days": days,
+        "items": items,
+        "total_items": len(items),
+        "total_qty": money(total_qty),
+        "total_value": money(total_value),
+    }
 
 
 def product_batches(session: Session, product_id: int, branch_id: int | None = None) -> list[dict]:

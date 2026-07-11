@@ -234,6 +234,9 @@ def _seed(s: Session) -> dict:
             tax_price=0,
             wholesale_price=round(sell * 0.92, 2),
             min_stock=RNG.choice([10, 15, 20, 25, 30]),
+            unit_big="علبة",
+            unit_small=RNG.choice(["شريط", "شريط", "أمبول", "كبسولة"]),
+            unit_factor=RNG.choice([2, 3, 3, 6, 10]),
         )
         products.append(p)
     s.add_all(products)

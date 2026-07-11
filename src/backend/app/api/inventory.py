@@ -22,6 +22,17 @@ def products(
     return {"products": inventory.list_products(session, branch_id or None, search, limit)}
 
 
+@router.get("/stagnant")
+def stagnant(
+    branch_id: int | None = Query(None),
+    days: int = Query(90, ge=1, le=3650),
+    session: Session = Depends(get_session),
+):
+    """الأصناف الراكدة — stocked items with no sale in the last N days, with the
+    money tied up in them (eStock's stagnant-items report)."""
+    return inventory.stagnant_products(session, branch_id or None, days)
+
+
 @router.get("/products/{product_id}/batches")
 def batches(
     product_id: int,

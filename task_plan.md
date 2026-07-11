@@ -52,7 +52,14 @@ bilingual (Arabic RTL first).
 - [ ] Commit per feature, push branch, PR to main
 - [ ] Owner pulls on pharmacy PC, restarts, verifies with real data
 
-## Phase 2 — Backlog (not started)
+## Phase 2 — eStock parity round 2 (BUILT — same PR #17)
+- [x] Units وحدة كبرى/صغرى: model + migration + ETL + POS unit selling + inventory display
+- [x] Stagnant items الأصناف الراكدة: report endpoint + inventory view + جرد scope
+- [x] Cross-branch availability in POS (out-of-stock rows show other branch's stock)
+- [x] fix: branch-scoped sync wipe vs pending transfer requests (NULL-batch lines)
+
+## Phase 3 — Backlog
 - [ ] Remaining eStock screens audit (owner to name any still missing)
 - [ ] Barcode-scanner-driven count sheet entry
+- [ ] Small-unit sell price override (currently price = big price / factor)
 - [ ] Gemini/ollama runtime keys on pharmacy PC (.env)

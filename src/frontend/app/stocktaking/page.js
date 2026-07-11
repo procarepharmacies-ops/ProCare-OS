@@ -62,7 +62,8 @@ export default function StocktakingPage() {
     try {
       const r = await api.createStockCount({
         branch_id: branchId,
-        count_type: newType,
+        count_type: newType === "stagnant" ? "partial" : newType,
+        scope: newType === "stagnant" ? "stagnant" : undefined,
         created_by: user?.employee_id ?? null,
       });
       await loadList();
@@ -145,6 +146,7 @@ export default function StocktakingPage() {
           <select className="input" value={newType} onChange={(e) => setNewType(e.target.value)}>
             <option value="full">{L("stk_full")}</option>
             <option value="periodic">{L("stk_periodic")}</option>
+            <option value="stagnant">{L("stk_stagnant")}</option>
             <option value="partial">{L("stk_partial")}</option>
           </select>
           <button className="btn primary" disabled={busy} onClick={createCount}>

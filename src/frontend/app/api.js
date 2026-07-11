@@ -196,6 +196,9 @@ export const api = {
   approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
   rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
 
+  // Stagnant items (الأصناف الراكدة): stocked, no sale in N days.
+  stagnant: (branch, days = 90) => http(`/inventory/stagnant${bq(branch, `days=${days}`)}`),
+
   // Stocktaking (الجرد): count sessions, count sheet, posting adjustments.
   stockCounts: (branch) => http(`/stocktaking${bq(branch)}`),
   stockCountDetail: (countId) => http(`/stocktaking/${countId}`),

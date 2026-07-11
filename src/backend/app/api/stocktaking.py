@@ -27,6 +27,7 @@ def counts(
 class CreateIn(BaseModel):
     branch_id: int
     count_type: str = Field("full", pattern="^(full|periodic|partial)$")
+    scope: str | None = Field(None, pattern="^(stagnant)$")  # partial-count presets
     note: str | None = Field(None, max_length=300)
     created_by: int | None = None
     product_ids: list[int] | None = None  # optional scope for periodic/partial
@@ -35,16 +36,26 @@ class CreateIn(BaseModel):
 @router.post("")
 def create(payload: CreateIn, session: Session = Depends(get_session)):
     """Open a count session. ``periodic`` with no explicit product list counts
-    the branch's 30-day top movers (الجرد الدوري)."""
+    the branch's 30-day top movers (الجرد الدوري); ``scope='stagnant'`` counts
+    the stagnant items (جرد الأصناف الراكدة)."""
     try:
         product_ids = payload.product_ids
-        if payload.count_type == "periodic" and not product_ids:
+        count_type = payload.count_type
+        note = payload.note
+        if payload.scope == "stagnant" and not product_ids:
+            from app.services import inventory
+
+            report = inventory.stagnant_products(session, payload.branch_id, days=90)
+            product_ids = [i["product_id"] for i in report["items"]]
+            count_type = "partial"
+            note = note or "جرد الأصناف الراكدة (٩٠ يوم بدون حركة)"
+        elif count_type == "periodic" and not product_ids:
             product_ids = stocktaking.top_movers(session, payload.branch_id)
         return stocktaking.create_count(
             session,
             payload.branch_id,
-            payload.count_type,
-            note=payload.note,
+            count_type,
+            note=note,
             created_by=payload.created_by,
             product_ids=product_ids,
         )
