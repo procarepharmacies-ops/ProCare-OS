@@ -257,7 +257,9 @@ class Sale(Base):
     customer: Mapped[Customer | None] = relationship()
 
     __table_args__ = (
-        CheckConstraint("total_gross >= 0 AND total_net >= 0 AND total_discount >= 0", name="CK_sales_totals"),
+        # No totals CHECK: the eStock mirror must carry legacy correction rows
+        # verbatim (a handful of sales have small negative totals). Non-negative
+        # totals for ProCare-created sales are enforced in services/pos.py.
         Index("IX_sales_date", "sale_date"),
         Index("IX_sales_branch_date", "branch_id", "sale_date"),
     )
@@ -281,7 +283,9 @@ class SaleLine(Base):
     product: Mapped[Product] = relationship()
 
     __table_args__ = (
-        CheckConstraint("amount > 0", name="CK_saleline_amount"),
+        # >= 0 (not > 0): legacy eStock lines include zero-amount bonus/free
+        # items. New POS lines are validated > 0 in services/pos.py.
+        CheckConstraint("amount >= 0", name="CK_saleline_amount"),
         Index("IX_sale_lines_sale", "sale_id"),
         Index("IX_sale_lines_product", "product_id"),
     )
