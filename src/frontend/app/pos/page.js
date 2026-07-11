@@ -447,8 +447,20 @@ function POSInner() {
               placeholder={L("search") + "…"}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter = take the top suggestion straight into the cart.
+                if (e.key === "Enter" && products.length > 0 && products[0].on_hand > 0) {
+                  addToCart(products[0]);
+                  setSearch("");
+                }
+              }}
               style={{ width: "100%" }}
             />
+            {search && (
+              <p className="muted" style={{ margin: "6px 2px 0", fontSize: 12 }}>
+                {products.length} {L("search_matches")} — Enter {L("search_enter_hint")}
+              </p>
+            )}
           </div>
           <div style={{ maxHeight: 460, overflowY: "auto" }}>
             <table className="tbl">

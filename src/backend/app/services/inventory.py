@@ -5,7 +5,7 @@ stock follows the data-quality rule (positive and not expired).
 """
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
@@ -33,16 +33,36 @@ def list_products(
         .where(m.Product.is_deleted == False)  # noqa: E712
     )
     if search:
-        like = f"%{search}%"
+        # Search-as-you-type: one typed letter matches every product that
+        # STARTS with it (prefix), ranked before contains-anywhere matches —
+        # so "ب" lists بانادول، بروفين… first, like eStock's item lookup.
+        term = search.strip()
+        prefix = f"{term}%"
+        anywhere = f"%{term}%"
         stmt = stmt.where(
             or_(
-                m.Product.name_ar.like(like),
-                m.Product.name_en.like(like),
-                m.Product.scientific_name.like(like),
-                m.Product.code.like(like),
+                m.Product.name_ar.like(anywhere),
+                m.Product.name_en.like(anywhere),
+                m.Product.scientific_name.like(anywhere),
+                m.Product.code.like(anywhere),
             )
         )
-    stmt = stmt.order_by(m.Product.name_ar).limit(limit)
+        rank = case(
+            (
+                or_(
+                    m.Product.name_ar.like(prefix),
+                    m.Product.name_en.like(prefix),
+                    m.Product.code.like(prefix),
+                ),
+                0,
+            ),
+            (m.Product.scientific_name.like(prefix), 1),
+            else_=2,
+        )
+        stmt = stmt.order_by(rank, m.Product.name_ar)
+    else:
+        stmt = stmt.order_by(m.Product.name_ar)
+    stmt = stmt.limit(limit)
     out = []
     for p, qty in session.execute(stmt):
         on_hand_qty = money(qty)
