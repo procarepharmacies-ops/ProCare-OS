@@ -155,14 +155,36 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         m.Sale.sale_date >= cutoff,
     )
 
+    # Paid amounts by payment type over the same non-return window. Cash
+    # received nets out any change handed back (change_given is 0 for POS
+    # sales but populated on ETL-imported sales).
+    base_paid = select(
+        func.coalesce(func.sum(m.Sale.cash_paid - m.Sale.change_given), 0),
+        func.coalesce(func.sum(m.Sale.card_paid), 0),
+    ).where(
+        m.Sale.is_return == False,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
+    base_credit = select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
+        m.Sale.is_return == False,  # noqa: E712
+        m.Sale.is_credit == True,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
+
     if branch_id:
         base_sales = base_sales.where(m.Sale.branch_id == branch_id)
         base_returns = base_returns.where(m.Sale.branch_id == branch_id)
         base_count = base_count.where(m.Sale.branch_id == branch_id)
+        base_paid = base_paid.where(m.Sale.branch_id == branch_id)
+        base_credit = base_credit.where(m.Sale.branch_id == branch_id)
 
     total_sales = float(session.scalar(base_sales) or 0)
     total_returns = float(session.scalar(base_returns) or 0)
     num_sales = int(session.scalar(base_count) or 0)
+    cash_paid_row, card_paid_row = session.execute(base_paid).one()
+    cash_paid = round(float(cash_paid_row or 0), 2)
+    card_paid = round(float(card_paid_row or 0), 2)
+    credit_sales = round(float(session.scalar(base_credit) or 0), 2)
 
     return {
         "period_days": days,
@@ -170,6 +192,10 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         "total_returns_net": total_returns,
         "num_sales": num_sales,
         "net_revenue": total_sales - total_returns,
+        "cash_paid": cash_paid,
+        "card_paid": card_paid,
+        "total_paid": round(cash_paid + card_paid, 2),
+        "credit_sales": credit_sales,
     }
 
 
