@@ -75,6 +75,10 @@ export const api = {
     login: (username, password) =>
       http("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
     me: () => http("/auth/me"),
+    forgotPassword: (username) =>
+      http("/auth/forgot-password", { method: "POST", body: JSON.stringify({ username }) }),
+    resetPassword: (username, code, new_password) =>
+      http("/auth/reset-password", { method: "POST", body: JSON.stringify({ username, code, new_password }) }),
   },
 
   dashboardSummary: (branch) => http(`/dashboard/summary${bq(branch)}`),

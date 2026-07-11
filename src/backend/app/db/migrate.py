@@ -97,6 +97,27 @@ def ensure_prescription_status_columns(engine) -> None:
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN reviewed_by INTEGER NULL"))
 
 
+def ensure_employee_reset_columns(engine) -> None:
+    """Add the WhatsApp password-reset columns if the table predates them.
+
+    Dialect-aware: SQL Server wants ``ADD``, SQLite wants ``ADD COLUMN``.
+    """
+    inspector = inspect(engine)
+    if "employees" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employees")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "phone" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} phone VARCHAR(20) NULL"))
+        if "reset_code_hash" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_code_hash VARCHAR(255) NULL"))
+        if "reset_code_expires" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_code_expires DATETIME NULL"))
+        if "reset_attempts" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_attempts INTEGER DEFAULT 0"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.

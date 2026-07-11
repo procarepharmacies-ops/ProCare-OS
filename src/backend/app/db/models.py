@@ -186,6 +186,14 @@ class Employee(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
+    # WhatsApp number for the self-service password reset (and future alerts).
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Pending reset code (hash only — the code itself is never stored) with a
+    # short expiry and an attempt counter to stop brute-forcing.
+    reset_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reset_code_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reset_attempts: Mapped[int] = mapped_column(default=0)
+
 
 class StockBatch(Base):
     __tablename__ = "stock_batches"
