@@ -1,115 +1,286 @@
-# CLAUDE.md
+# ProCare OS
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+> **This is a real pharmacy management system.** Quality is not optional. Data loss, crashes, or silent failures cost money and harm patients.
 
-## What this is
+## Quick Start
 
-ProCare OS — a standalone pharmacy management system for Procare Pharmacies (two branches: Main/مسهله and Elsanta/السنطه). Arabic-first (RTL) UI with English toggle. It is replacing the legacy **eStock** system in three phases: mirror (read-only ETL) → parallel pilot → cutover. During transition, eStock is a read-only source only.
-
-**This is production software running a real pharmacy.** Data loss, crashes, or silent failures cost money and can harm patients. Quality is not optional.
-
-## Commands
-
-### Backend (FastAPI, Python 3.12) — from `src/backend/`
-
+**Local development (Windows/Mac/Linux):**
 ```bash
-pip install -r requirements.txt
-python run.py                          # dev server on :8000, docs at /docs
-python -m pytest                       # full test suite (~89 tests)
-python -m pytest app/tests/test_pos.py                 # one file
-python -m pytest app/tests/test_pos.py -k credit       # one test by keyword
-python -m app.db.seed                  # force a clean demo reseed
-python -m app.services.etl --status    # eStock mirror: offline vs live + mapping plan
-python -m app.services.etl --check     # verify the eStock login is truly READ-ONLY
-python -m app.services.etl --run       # run the full read-only mirror
+cd src/backend && pip install -r requirements.txt && python run.py   # :8000
+cd src/frontend && npm install && npm run dev                        # :3000
 ```
 
-First backend start auto-creates the schema and seeds demo data into `src/backend/data/procare.db` (SQLite, git-ignored). No database setup needed for dev.
-
-### Frontend (Next.js 15 / React 19) — from `src/frontend/`
-
+**Production (Docker):**
 ```bash
-npm install
-npm run dev        # :3000
-npm run build
-npm run lint
+docker compose up -d --build
+# UI http://localhost:3000 · API http://localhost:3000/api (proxied)
 ```
 
-### Full stack
-
-- Docker: `docker compose up -d --build` — UI :3000, API :7000, SQL Server :1433. `deploy/procare.sh` is the start/stop/update/logs/health control center.
-- Windows one-click launchers live in `deploy/` (`ProCare-Desktop-Icon.bat`, `ProCare-Autostart-Install.bat`); `deploy/ProCare-Connect-eStock.bat` is the user-facing eStock connector (config → test → sync → auto-enable).
-- `.claude/launch.json` defines `procare-backend` and `procare-frontend` run configurations.
-- Local-run logs: `.local-run/backend.log` and `.local-run/frontend.log`.
-
-## Architecture
-
-```
-Browser → Next.js (:3000) —/api proxy→ FastAPI (:8000 dev / :7000 docker) → ProCare DB
-                                            │ read-only sync/ETL (transition only)
-                                            └→ eStock `stock` DB + Titan/Drug-Eye (clinical)
+**Connect real eStock database:**
+```bash
+deploy/ProCare-Connect-eStock.bat  # Windows pharmacy PC only
 ```
 
-### Backend layering (`src/backend/app/`)
+---
 
-- `api/` — thin FastAPI routers only; all business logic lives in `services/`.
-- `services/` — one module per domain (pos, purchasing, cashdesk, loyalty, accounting, transfers, etl, sync, ai, llm, clinical, whatsapp, scheduler, tasks…). This is where guardrails are enforced.
-- `db/models.py` — ORM mirroring `sql/procare-schema.sql` (real FKs, checks, `branch_id` on every row). `db/base.py` picks SQLite (dev) vs SQL Server (prod). `db/migrate.py` holds the real staff roster created at startup plus idempotent column-add migrations; `db/seed.py` seeds demo data when no live eStock source is configured, so everything runs offline.
-- `config.py` — loads `config/connections.json` (git-ignored), falling back to `config/connections.example.json`. Placeholder markers (`REPLACE_ME`, etc.) count as "not configured" and trigger the SQLite/demo fallback. The API never exposes secrets — `/api/health` only reports *whether* a source is configured.
-- `run.py` — dev launcher; sets `sys.path`/`PYTHONPATH` and loads `.env` (backend dir, then repo root) so it works from any cwd. `python-dotenv` is an optional import — a missing package must never take the backend down.
-- Startup lifespan: ensure tables → idempotent migrations → seed (idempotent) → create today's ops tasks → spawn background sync thread if `SYNC_ENABLED=1`.
+## Production-Grade Standards
 
-### eStock sync (`services/sync.py`, `services/etl.py`)
+### Server Health & Uptime
+- Always monitor backend logs (`.local-run/backend.log`) for crashes, errors, memory leaks
+- Check `/api/health` endpoint before and after every deployment — must return `{"status": "ok"}`
+- Ensure database connection pool is stable (no connection leaks)
+- Sync status at `GET /api/sync/status` must show `"running": true` with recent timestamp
+- Alert immediately if any service drops or fails to respond
 
-- **Read-only to eStock — SELECT only, ProCare never writes.** ETL uses a dedicated read-only SQL login; the preflight (`etl.py --check`) verifies a write is *blocked* before any run.
-- Continuous background sync, interval via `SYNC_INTERVAL_SECONDS` (default 30s), enabled via `SYNC_ENABLED=1` in `.env`. Status at `GET /api/sync/status`.
-- Sync failures must **never block pharmacy operations** — fail soft: log the full error, create an alert, continue. No silent failures.
-- Each sync run is atomic per table — all-or-nothing, no partial updates.
-- Demo/seed data must never corrupt synced production data.
+### Database Integrity & Quality (CRITICAL FOR PHARMACY)
 
-### Non-negotiable guardrails (enforced in `services/`, tested in `app/tests/`)
+**FEFO Compliance (non-negotiable):**
+- Stock movements always sorted by expiry date (First-Expiry-First-Out)
+- When picking stock for a sale, eldest-expiry items reserved first
+- Transfers between branches respect FEFO automatically (see `services/pos.py:transfer_stock`)
 
-- POS write-path (`services/pos.py`): FEFO batch deduction (always deduct by earliest expiry — pharma requirement), stock can never go negative, expired stock can't be sold, credit-limit block (override requires `can_sale_credit`), all-or-nothing transactions, every stock movement audited.
-- **Fail-soft architecture** — no single feature crash may bring down the app. LLM features fall back to the offline keyword router when no API key is configured (`services/llm.py` provider registry: anthropic, gemini, ollama, claude-cli).
-- Clinical/interaction output is **advisory only** — shown to the pharmacist, never silently blocks a sale.
-- Loyalty points are audited; returns claw points back automatically.
-- Role-based access: cashier ≠ manager ≠ CEO — new endpoints must respect roles.
-- Multi-step DB changes always wrapped in a transaction/session; no orphaned records (FKs enforced).
-- Idempotency everywhere: `seed.py`, migrations in `migrate.py`, scheduled tasks, and sync runs must all tolerate re-runs (same input = same safe state, no duplicates, no errors).
-- Schema changes: back up the DB first and make migrations reversible; test on a copy before running against real data.
+**Idempotent Operations:**
+- `src/backend/app/db/seed.py` — running twice on same DB = no errors, no duplicates
+- `src/backend/app/db/migrate.py` — all column adds use `ensure_*` pattern, safe to re-run
+- ETL sync (`services/etl.py`) — each run is all-or-nothing per table (atomic)
+- Tasks (`services/tasks.py:ensure_daily_ops_tasks`) — called daily, creates today's tasks once
+- Backup before any schema change; test migrations on a copy first
 
-### Frontend (`src/frontend/app/`)
+**Transaction Safety:**
+- All multi-step changes wrapped in SQLAlchemy sessions or SQL transactions
+- Foreign key constraints enforced — no orphaned records
+- No silent failures — if sync fails, create alert task + log full error
 
-- One directory per screen (pos, inventory, purchasing, customers, accounting, reports, tasks, transfers, prescriptions…). `layout.js` sets `<html dir/lang>` with a no-flash theme script; `providers.js` holds language + theme context persisted in `localStorage`; `i18n.js` has ar (default) / en strings; `globals.css` defines light/dark tokens as CSS variables. `api.js` is the backend client. PWA (manifest + service worker) — live data is never cached.
-- **Arabic/RTL and Light are the defaults**; English and Dark are toggles. Every screen and every new string must be fully bilingual — no English-only flows. Test that Arabic text doesn't break layout.
-- `/api` is proxied server-side to the backend via `next.config.mjs` — keep that intact; no CORS setup should be needed.
+### eStock Sync Reliability
 
-## Development practices
+**Read-Only to eStock:**
+- ProCare performs SELECT-only queries on eStock (never writes)
+- Preflight check (`GET /api/sync/preflight`) validates read-only login before each sync
 
-- **Never push to `main` directly** — branch + PR, tests green first.
-- Commit format: `<type>: <subject (≤50 chars)>` + wrapped body; types: fix, feat, refactor, test, docs, perf. No vague "fix stuff".
-- New features require a `test_*.py` covering the happy path + edge cases.
-- Type hints (`-> ReturnType`) on Python functions.
-- No TODOs committed to main — fix it or file an issue.
-- Error messages are user-facing (Arabic/English) and actionable; log the full context server-side, never surface a bare "Internal Server Error".
-- Windows is a first-class target: `.bat` scripts need backslash paths, clear success/failure output, and correct exit codes; test on real Windows before declaring Windows support.
+**Continuous Sync (Configurable):**
+- Controlled by `.env` flags: `SYNC_ENABLED=1` (default 0) and `SYNC_INTERVAL_SECONDS` (default 30)
+- Runs in background thread spawned on backend startup (see `run.py` lifespan)
+- Monitors: products, customers, vendors, stock, sales, purchases
 
-### Pre-push checklist
+**Sync Failures Do NOT Block Pharmacy:**
+- Soft failure: log the error, create an alert task, continue accepting sales
+- Dashboard shows sync status but doesn't wait on it (async in background)
+- Status endpoint `GET /api/sync/status` reveals health without blocking operations
 
-- Backend starts clean: `python run.py` → Uvicorn running; `/api/health` returns ok.
-- `python -m pytest` passes; `npm run build` succeeds (no hydration mismatches).
-- Bilingual UI checked (RTL layout intact).
-- If `SYNC_ENABLED`, `GET /api/sync/status` shows `"running": true` with a recent timestamp.
-- No secrets in code, logs, or config; DB backed up if the schema changed.
+### Feature Quality Standards
 
-### If something breaks
+**Fail-Soft Architecture:**
+- No single feature crash should bring down the pharmacy app
+- LLM calls fall back to keyword router if API key missing (see `services/llm.py`)
+- WhatsApp outage never blocks a sale or prescription workflow
+- Expired transfer requests don't prevent cashier operations
 
-1. Logs first: `.local-run/backend.log`, browser console, `GET /api/sync/status`.
-2. If DB corrupted: restore from backup (SQL Server `RESTORE DATABASE`, or the backed-up `.db` file).
-3. Don't hide errors — log fully, alert (WhatsApp) if critical.
-4. Commit a fix, not a workaround.
+**Role-Based Access:**
+- Cashier: sales, returns, view-only inventory
+- Manager: approvals (transfers, POs), reports, scheduling
+- CEO: full access including settings, user management, backups
 
-## Reference material
+**Accessibility:**
+- All UI fully bilingual (Arabic RTL + English LTR)
+- Arabic text never breaks layout; RTL mode tested
+- High contrast, keyboard navigable, mobile-friendly (PWA-installable)
 
-- `docs/01-architecture.md` — full architecture + security guardrails; `docs/02-eStock-database-reference.md` — legacy schema audit; `docs/06-roadmap.md` — phase plan.
-- `sql/` — canonical clean schema, stored procedures, dashboard queries that the services implement.
+**API Response Times:**
+- Dashboard: <500ms (KPI cards, charts, top products)
+- Sync-heavy endpoints: <2s
+- Monitor with `GET /api/health` timing
+
+### Development Practices
+
+**Commit Message Format:**
+```
+<Type>: <subject (50 chars max)>
+
+<Description (wrap at 72 chars)>
+
+<Breaking changes, related issues, testing notes>
+```
+
+Types: `fix`, `feat`, `refactor`, `test`, `docs`, `perf`
+
+**Never push to main directly** — always PR, always test on a feature branch.
+
+**Test Coverage:**
+- New features require `test_*.py` covering happy path + edge cases
+- Run `pytest app/tests/` before pushing
+- No test = no merge
+
+**Code Quality:**
+- Type hints on all Python functions: `def foo(x: str) -> dict:`
+- Check for SQL injection, XSS, CORS misconfig, credential leaks before merge
+- No `TODO`s in main — either fix it now or file an issue
+
+**Windows PC Compatibility:**
+- Backend must gracefully handle missing `python-dotenv` (optional import in `run.py`)
+- Seed must be idempotent — running twice = no errors, no duplicates
+- Batch scripts (`.bat`) use backslashes (`\`), not forward slashes
+- Clear success/failure messages and exit codes in `.bat` files
+- Always test on actual Windows PC before declaring support
+
+---
+
+## Architecture & File Map
+
+```
+[Pharmacy Windows PC or Linux/Mac Dev]
+  ├─ .env (git-ignored: ANTHROPIC_API_KEY, SYNC_ENABLED, SYNC_INTERVAL_SECONDS, etc.)
+  ├─ config/
+  │  ├─ connections.example.json (template for eStock credentials)
+  │  └─ connections.json (git-ignored; user fills in read-only eStock login)
+  ├─ src/backend/
+  │  ├─ run.py (FastAPI startup; lifespan: ensure_seeded, spawn sync thread, create daily tasks)
+  │  ├─ app/
+  │  │  ├─ main.py (route registration)
+  │  │  ├─ db/
+  │  │  │  ├─ models.py (SQLAlchemy: 20+ tables including Product, Customer, Sale, Prescription, EmployeeTask, StockTransfer, etc.)
+  │  │  │  ├─ seed.py (demo data, idempotent: safe to run twice)
+  │  │  │  └─ migrate.py (idempotent column adds via ensure_* pattern)
+  │  │  ├─ services/
+  │  │  │  ├─ llm.py (provider registry: anthropic, gemini, ollama/hermes, claude-cli; fail-soft)
+  │  │  │  ├─ etl.py (eStock→ProCare sync: read, validate, insert atomically per table)
+  │  │  │  ├─ prescriptions.py (capture → review → dispensed workflow)
+  │  │  │  ├─ transfers.py (stock transfer requests + approval + auto-task creation)
+  │  │  │  ├─ pos.py (cart, substitutions, out-of-stock → transfer, FEFO picker)
+  │  │  │  ├─ tasks.py (daily/weekly ops templates, auto-assign by role, priority/category)
+  │  │  │  ├─ whatsapp.py (manager alerts, invoice messages, return confirmations; swallow on fail)
+  │  │  │  ├─ scheduler.py (background jobs: reports, expiry alerts, PO drafts)
+  │  │  │  └─ inventory.py (forecasts, stock levels, product insights for dashboard)
+  │  │  ├─ api/
+  │  │  │  ├─ routes.py (all endpoints: /sales, /prescriptions, /transfers, /tasks, /inventory, /sync/status, /health)
+  │  │  │  └─ (structured by domain)
+  │  │  └─ tests/
+  │  │     ├─ test_daily_tasks.py (idempotency, priority, role assignment)
+  │  │     ├─ test_product_insight.py (dashboard drill-down data)
+  │  │     ├─ test_prescriptions_flow.py (capture → review → cart → dispensed)
+  │  │     ├─ test_transfer_requests.py (request → approve → stock moved)
+  │  │     └─ (pytest suite)
+  │  └─ requirements.txt (sqlalchemy, fastapi, python-dotenv, pyodbc for SQL Server, etc.; pinned versions)
+  ├─ src/frontend/
+  │  ├─ next.config.mjs (Proxy /api/* to backend:8000 server-side, no CORS)
+  │  ├─ app/
+  │  │  ├─ page.js (Dashboard: KPI cards, top-products drill-down modal, cashier list, branch breakdown)
+  │  │  ├─ pos/page.js (Cart, substitutions, out-of-stock → transfer request, ?rx= prescription seeding)
+  │  │  ├─ prescriptions/page.js (Capture, analyze, review step, product resolution, hand-off to POS)
+  │  │  ├─ tasks/page.js (Daily ops, grouped Overdue/Today/Week/Later, priority+category badges)
+  │  │  ├─ transfers/page.js (Pending transfer requests, approve/reject buttons)
+  │  │  ├─ i18n.js (Arabic/English strings, RTL logic)
+  │  │  ├─ api.js (HTTP client wrapping backend calls)
+  │  │  └─ components/DetailModal.js (Reusable product insight modal)
+  │  └─ public/manifest.json (PWA installable on mobile)
+  ├─ deploy/
+  │  ├─ ProCare-Connect-eStock.bat (User-facing: config → test connection → full sync → auto-enable continuous)
+  │  ├─ Dockerfile.backend (Python 3.11 + FastAPI)
+  │  ├─ Dockerfile.frontend (Node 22 + Next.js)
+  │  ├─ docker-compose.yml (full stack: backend, frontend, SQL Server, eStock seed)
+  │  └─ README.md (deployment guide: Multipass, Docker, Windows PC)
+  └─ CLAUDE_SYSTEM_PROMPT.md (long-form standards; CLAUDE.md is the working guide)
+
+[Runtime: Backend (run.py on :8000)]
+  ├─ Startup: load .env, ensure DB tables, seed demo data (idempotent), create today's daily ops tasks
+  ├─ Lifespan: spawn background ETL thread if SYNC_ENABLED=1
+  ├─ Sync Thread: every SYNC_INTERVAL_SECONDS (default 30), query eStock, transform, insert into ProCare DB (atomic per table)
+  └─ Routes: /api/* (REST), /docs (Swagger), /health, /sync/status
+
+[Runtime: Frontend (Next.js on :3000)]
+  ├─ Startup: load i18n, build SSR pages
+  ├─ Proxy: all /api/* → backend:8000 (server-side; users never see backend URL)
+  └─ Routes: / (dashboard), /pos, /prescriptions, /tasks, /transfers, /reports (all bilingual)
+
+[Database: SQLite (dev) or SQL Server (production)]
+  ├─ Tables: ~20 (products, customers, sales, purchases, stock, transfers, prescriptions, employee_tasks, vendors, etc.)
+  ├─ Constraints: foreign keys enforced, no orphans, FEFO sorting on stock dates
+  ├─ Triggers: none (app handles business logic)
+  └─ Backup: .db file or RESTORE DATABASE before sync runs
+```
+
+---
+
+## Pre-Push Checklist
+
+Before committing and pushing to main:
+
+- [ ] Backend starts cleanly: `python run.py` → `Uvicorn running on http://0.0.0.0:8000`
+- [ ] Frontend builds: `npm run build` (no hydration mismatches)
+- [ ] `/api/health` returns `{"status": "ok"}`
+- [ ] All tests pass: `pytest app/tests/` (green lights)
+- [ ] No hardcoded secrets, API keys, or credentials in code
+- [ ] Database integrity: no orphaned records, foreign keys intact
+- [ ] Bilingual UI tested (Arabic text rendering, RTL layout)
+- [ ] Sync status accessible at `GET /api/sync/status` (if SYNC_ENABLED)
+- [ ] Commit message follows format (Type: subject + description)
+
+---
+
+## If Something Breaks
+
+**1. Check logs first:**
+   - Backend: `.local-run/backend.log` or `docker logs <container>`
+   - Frontend: browser console (F12), terminal output
+   - Sync: `GET /api/sync/status` response shows error
+
+**2. Restore from backup (if DB corrupted):**
+   ```bash
+   # SQLite: restore from .db backup
+   cp backup.db procare.db
+   
+   # SQL Server: restore database
+   RESTORE DATABASE ProCare FROM DISK='\\path\to\backup.bak'
+   ```
+
+**3. Never hide errors:**
+   - Log fully with context, stack trace, user input
+   - Alert users via dashboard error banner + WhatsApp if critical
+
+**4. Post-mortem:**
+   - Commit a fix, not a workaround
+   - Document the root cause in the commit message
+   - Add a test to prevent regression
+
+---
+
+## Key Files to Monitor
+
+| File | Why | What to Watch |
+|------|-----|---------------|
+| `src/backend/app/db/seed.py` | Demo data | Running twice = no dupes, no errors |
+| `src/backend/app/services/etl.py` | eStock sync | Connection errors, partial syncs, data quality |
+| `src/backend/run.py` | Startup | Handles missing dotenv gracefully, lifespan errors |
+| `src/backend/requirements.txt` | Dependencies | Pin versions; keep sqlalchemy, fastapi, python-dotenv |
+| `src/frontend/next.config.mjs` | Build/proxy | /api proxy to backend, no accidental CORS |
+| `config/connections.json` | eStock creds | Git-ignored; read-only login validation on startup |
+| `.env` (repo root) | Runtime config | Git-ignored; ANTHROPIC_API_KEY, SYNC_ENABLED, SYNC_INTERVAL_SECONDS |
+| `deploy/ProCare-Connect-eStock.bat` | User workflow | Exit codes, Notepad close, sync logs readable |
+
+---
+
+## Context for Claude Instances
+
+When Claude works on this repo:
+- **This is production pharmacy software.** Every feature must handle failure gracefully.
+- **FEFO is non-negotiable.** Stock always picked by oldest expiry date first.
+- **Idempotency matters.** Seed, migrations, syncs, tasks must tolerate re-runs safely.
+- **Pharmacy never waits on sync.** Sync failures log + alert but don't block sales.
+- **Bilingual from day one.** Arabic RTL + English LTR, all strings in `i18n.js`.
+- **Windows PC deployment.** Backend handles missing python-dotenv; seeds are idempotent; batch scripts have clear exit codes.
+- **Read-only to eStock.** ProCare never writes to the source database, only reads.
+
+---
+
+## Success Criteria
+
+✅ Pharmacy operates all day without manual intervention or restarts  
+✅ Real eStock data syncs continuously; demo data never corrupts production  
+✅ All features accessible via Arabic UI; no English-only flows  
+✅ Every failed operation leaves traceable logs + user-facing alert  
+✅ Database stays consistent; no orphaned or duplicate records  
+✅ Backup exists before every breaking change; rollback is possible  
+✅ Code is clear enough that future developers (or you in 6 months) understand it  
+
+---
+
+**This system runs a real pharmacy. Quality is not optional.**
