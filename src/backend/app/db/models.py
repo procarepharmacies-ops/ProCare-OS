@@ -650,3 +650,62 @@ class Campaign(Base):
         CheckConstraint("audience IN ('all','debtors','top','inactive')", name="CK_campaign_audience"),
         CheckConstraint("status IN ('draft','sent')", name="CK_campaign_status"),
     )
+
+
+class StockCount(Base):
+    """Stocktaking session (الجرد) — eStock-style physical inventory count.
+
+    ``full`` counts every live batch at the branch; ``periodic`` (الجرد الدوري)
+    is the recurring spot-check of a subset (top movers / a shelf); ``partial``
+    is an ad-hoc count. Lines snapshot the expected quantity at creation;
+    posting applies counted quantities as adjustments (ضبط الأصناف) through the
+    normal stock-movement audit trail. New table — ``create_all`` adds it
+    automatically on existing databases.
+    """
+
+    __tablename__ = "stock_counts"
+
+    count_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    count_type: Mapped[str] = mapped_column(String(10), default="full")  # full/periodic/partial
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open/posted/cancelled
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("count_type IN ('full','periodic','partial')", name="CK_count_type"),
+        CheckConstraint("status IN ('open','posted','cancelled')", name="CK_count_status"),
+    )
+
+
+class StockCountLine(Base):
+    """One batch inside a stocktaking session: expected (snapshot) vs counted
+    (physical). ``posted_delta`` records the adjustment actually applied when
+    the session was posted (counted minus the batch's live amount at post time,
+    which may differ from the snapshot if sales happened during the count).
+
+    ``batch_id``/``product_id`` are deliberately NOT foreign keys: the eStock
+    mirror wipes and reloads batches/products every sync cycle, and جرد history
+    must survive that (it's pharmacy history eStock knows nothing about). The
+    count sheet outer-joins them and degrades gracefully when a reload removed
+    a row; ``name_ar`` snapshots the product name so posted reports stay
+    readable forever."""
+
+    __tablename__ = "stock_count_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.count_id"))
+    batch_id: Mapped[int] = mapped_column()
+    product_id: Mapped[int] = mapped_column()
+    name_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    expected_qty: Mapped[float] = mapped_column(Qty, default=0)
+    counted_qty: Mapped[float | None] = mapped_column(Qty, nullable=True)
+    posted_delta: Mapped[float | None] = mapped_column(Qty, nullable=True)
+
+    __table_args__ = (
+        Index("IX_count_lines_count", "count_id"),
+        Index("IX_count_lines_batch", "batch_id"),
+    )

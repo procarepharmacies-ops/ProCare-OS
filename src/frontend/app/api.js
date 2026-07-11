@@ -196,6 +196,16 @@ export const api = {
   approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
   rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
 
+  // Stocktaking (الجرد): count sessions, count sheet, posting adjustments.
+  stockCounts: (branch) => http(`/stocktaking${bq(branch)}`),
+  stockCountDetail: (countId) => http(`/stocktaking/${countId}`),
+  createStockCount: (payload) => http("/stocktaking", { method: "POST", body: JSON.stringify(payload) }),
+  saveStockCountLines: (countId, entries) =>
+    http(`/stocktaking/${countId}/lines`, { method: "POST", body: JSON.stringify({ entries }) }),
+  postStockCount: (countId, employee_id) =>
+    http(`/stocktaking/${countId}/post`, { method: "POST", body: JSON.stringify({ employee_id }) }),
+  cancelStockCount: (countId) => http(`/stocktaking/${countId}/cancel`, { method: "POST" }),
+
   // In-system cash-flow & inventory audit.
   auditReport: (months = 3, vendor = "") =>
     http(`/audit/cash-report?months=${months}${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`),

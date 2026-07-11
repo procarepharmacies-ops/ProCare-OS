@@ -12,6 +12,7 @@ import Wordmark from "./Wordmark";
 const NAV = [
   { href: "/", key: "nav_dashboard", ico: "dashboard", roles: null },
   { href: "/inventory", key: "nav_inventory", ico: "pill", roles: null },
+  { href: "/stocktaking", key: "nav_stocktaking", ico: "clipboard", roles: null },
   { href: "/pos", key: "nav_pos", ico: "receipt", roles: null },
   { href: "/customers", key: "nav_customers", ico: "customers", roles: null },
   { href: "/vendors", key: "nav_vendors", ico: "store", roles: ["ceo", "manager"] },

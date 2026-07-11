@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, tasks, transfers, treasury, vendors
+from app.api import accounting, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -116,6 +116,7 @@ def sync_preflight():
 router.include_router(auth.router)
 router.include_router(dashboard.router)
 router.include_router(inventory.router)
+router.include_router(stocktaking.router)
 router.include_router(parties.router)
 router.include_router(sales.router)
 router.include_router(cashdesk.router)
