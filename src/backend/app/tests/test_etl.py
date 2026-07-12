@@ -147,6 +147,68 @@ def test_mirror_transforms_and_cleans(estock_source):
         reset_and_seed()
 
 
+def test_product_deleted_flag_is_inverted():
+    """eStock ``Products.deleted`` audited 2026-07: '1' = live (53k selling
+    products), '0' = removed. Mirroring it literally hid the whole catalogue
+    from POS/inventory/prescriptions."""
+    assert etl._product_deleted("1") is False   # live product
+    assert etl._product_deleted("0") is True    # truly removed
+    assert etl._product_deleted("Y") is True    # legacy Y/N convention
+    assert etl._product_deleted("N") is False
+    assert etl._product_deleted(None) is False
+
+
+def test_mirror_products_with_real_world_deleted_values(estock_source):
+    """deleted='1' products (the live catalogue) must arrive is_deleted=False."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "INSERT INTO Products VALUES "
+                "(103,'C','ليفتروزول','Letrozol','Letrozole','N','Y',90,60,0,'1','1'),"
+                "(104,'D','منتج محذوف','Removed','','N','Y',5,3,0,'0','0')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            live = s.query(m.Product).filter(m.Product.code == "C").one()
+            assert live.is_deleted is False
+            removed = s.query(m.Product).filter(m.Product.code == "D").one()
+            assert removed.is_deleted is True
+    finally:
+        reset_and_seed()
+
+
+def test_update_on_match_preserves_enriched_scientific_name(estock_source):
+    """The branch-scoped sync refreshes matched products each cycle. A blank
+    eStock scientific name must NOT wipe ProCare's Titan/Drug-Eye enrichment
+    (docs/03 §4); a real eStock value still wins (owner cleanups propagate)."""
+    try:
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        # Simulate the Titan backfill + an owner cleanup landing on eStock.
+        with SessionLocal() as s:
+            p = s.query(m.Product).filter(m.Product.code == "A").one()
+            p.scientific_name = "PARACETAMOL+CAFFEINE"  # Titan enrichment
+            s.commit()
+        with estock_source.begin() as c:
+            c.execute(text("UPDATE Products SET product_scientific_name = '' WHERE product_id = 101"))
+            c.execute(text(
+                "UPDATE Products SET product_scientific_name = 'AMOXICILLIN+CLAVULANATE' WHERE product_id = 102"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(
+                estock_source, dst, store_branch_map={1: 1, 2: 2},
+                wipe=False, branch_scoped=True, dedup=True,
+            )
+        with SessionLocal() as s:
+            enriched = s.query(m.Product).filter(m.Product.code == "A").one()
+            assert enriched.scientific_name == "PARACETAMOL+CAFFEINE"  # kept
+            cleaned = s.query(m.Product).filter(m.Product.code == "B").one()
+            assert cleaned.scientific_name == "AMOXICILLIN+CLAVULANATE"  # refreshed
+    finally:
+        reset_and_seed()
+
+
 def test_unmapped_store_auto_creates_branch(estock_source):
     """A store_id with no mapping (e.g. a Mashal branch) gets its own ProCare
     branch instead of being merged into another."""

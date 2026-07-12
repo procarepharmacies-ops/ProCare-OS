@@ -116,6 +116,34 @@ class Product(Base):
     )
 
 
+class TitanDrug(Base):
+    """Read-only mirror of the Titan / Drug-Eye drug master (docs/03).
+
+    Loaded by ``tools/titan_extract.py`` from ``D:\\Labirdo\\TITAN.W1``'s
+    ``tar.phy`` fixed-width file. ``titan_drug_id`` is the 1-based record slot
+    in that file — Titan appends, so slots are stable between reloads.
+    ``products.titan_drug_id`` points here once the mapping job resolves it.
+    """
+
+    __tablename__ = "titan_drugs"
+
+    titan_drug_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name_en: Mapped[str] = mapped_column(String(60))
+    name_ar: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    manufacturer: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    scientific_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Pre-computed normalised join keys (see tools/titan_extract.py `norm`).
+    name_norm: Mapped[str] = mapped_column(String(80))
+    sci_norm: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    loaded_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_titan_drugs_name_norm", "name_norm"),
+        Index("IX_titan_drugs_sci_norm", "sci_norm"),
+    )
+
+
 class Customer(Base):
     __tablename__ = "customers"
 
