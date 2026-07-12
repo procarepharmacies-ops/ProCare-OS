@@ -1,0 +1,28 @@
+name = "procare-os"
+type = "javascript"
+account_id = ""  # Set your Cloudflare Account ID
+workers_dev = true
+main = "dist/index.js"
+compatibility_date = "2025-01-15"
+
+# Routes for Cloudflare Pages (optional)
+[env.production]
+routes = [
+  { pattern = "procare-os.pages.dev", zone_name = "pages.dev" }
+]
+
+# Environment variables for production
+[env.production.vars]
+API_BASE = "https://api.procare.local"  # Point to your backend
+SYNC_ENABLED = "0"  # Keep sync running on pharmacy PC only
+LOG_LEVEL = "info"
+
+# KV namespace for caching (optional)
+[[kv_namespaces]]
+binding = "CACHE"
+id = ""  # Set your KV namespace ID
+preview_id = ""
+
+# Environment-specific configurations
+[[triggers.crons]]
+cron = "0 */6 * * *"  # Cache warmup every 6 hours
