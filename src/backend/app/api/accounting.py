@@ -31,6 +31,12 @@ def trial_balance(
     return accounting.trial_balance(session, branch_id)
 
 
+@router.get("/chart")
+def chart_of_accounts(branch_id: int | None = Query(None), session: Session = Depends(get_session)):
+    """شجرة الحسابات: الحسابات مجمّعة بالنوع بأسمائها وأرصدتها."""
+    return accounting.chart_of_accounts(session, branch_id)
+
+
 @router.get("/account-balance")
 def account_balance(
     account_type: str = Query(...),

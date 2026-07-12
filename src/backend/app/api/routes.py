@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, tasks, transfers, treasury, vendors
+from app.api import accounting, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -112,10 +112,28 @@ def sync_preflight():
     return etl.preflight()
 
 
+@router.post("/backup", tags=["backup"], dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def backup_now():
+    """Take a database backup right now (نسخة احتياطية)."""
+    from app.services import backup
+
+    return backup.backup_now("manual")
+
+
+@router.get("/backup", tags=["backup"], dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def backup_list():
+    """List existing backups (newest first) + when the last one was taken."""
+    from app.services import backup
+
+    last = backup.last_backup_at()
+    return {"backups": backup.list_backups(), "last_backup_at": last.isoformat() if last else None}
+
+
 # Feature routers, all under /api.
 router.include_router(auth.router)
 router.include_router(dashboard.router)
 router.include_router(inventory.router)
+router.include_router(stocktaking.router)
 router.include_router(parties.router)
 router.include_router(sales.router)
 router.include_router(cashdesk.router)

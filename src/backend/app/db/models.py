@@ -101,6 +101,18 @@ class Product(Base):
     wholesale_price: Mapped[float | None] = mapped_column(Money, nullable=True)
 
     min_stock: Mapped[float] = mapped_column(Qty, default=0)
+    # Units (وحدات الصنف): the big unit (علبة) subdivides into ``unit_factor``
+    # small units (شريط/أمبول/كبسولة). Stock amounts are ALWAYS in big units;
+    # selling one small unit deducts 1/unit_factor of a big unit.
+    unit_big: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_small: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_factor: Mapped[float] = mapped_column(Qty, default=1)
+    # Classification (التصنيف): pharmaceutical form (أقراص/شراب/حقن/كريم…),
+    # OTC vs prescription, and free-text uses/indications (الاستخدامات) — the
+    # filter axes of the items screen alongside scientific name and shelf place.
+    dosage_form: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_otc: Mapped[bool] = mapped_column(default=False)
+    uses: Mapped[str | None] = mapped_column(String(300), nullable=True)
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
     shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -123,6 +135,7 @@ class Customer(Base):
     name_ar: Mapped[str] = mapped_column(String(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(300), nullable=True)
     customer_class_id: Mapped[int | None] = mapped_column(
         ForeignKey("customer_classes.customer_class_id"), nullable=True
     )
@@ -185,6 +198,14 @@ class Employee(Base):
     can_change_shift: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    # WhatsApp number for the self-service password reset (and future alerts).
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Pending reset code (hash only — the code itself is never stored) with a
+    # short expiry and an attempt counter to stop brute-forcing.
+    reset_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reset_code_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reset_attempts: Mapped[int] = mapped_column(default=0)
 
 
 class StockBatch(Base):
@@ -257,7 +278,9 @@ class Sale(Base):
     customer: Mapped[Customer | None] = relationship()
 
     __table_args__ = (
-        CheckConstraint("total_gross >= 0 AND total_net >= 0 AND total_discount >= 0", name="CK_sales_totals"),
+        # No totals CHECK: the eStock mirror must carry legacy correction rows
+        # verbatim (a handful of sales have small negative totals). Non-negative
+        # totals for ProCare-created sales are enforced in services/pos.py.
         Index("IX_sales_date", "sale_date"),
         Index("IX_sales_branch_date", "branch_id", "sale_date"),
     )
@@ -281,7 +304,9 @@ class SaleLine(Base):
     product: Mapped[Product] = relationship()
 
     __table_args__ = (
-        CheckConstraint("amount > 0", name="CK_saleline_amount"),
+        # >= 0 (not > 0): legacy eStock lines include zero-amount bonus/free
+        # items. New POS lines are validated > 0 in services/pos.py.
+        CheckConstraint("amount >= 0", name="CK_saleline_amount"),
         Index("IX_sale_lines_sale", "sale_id"),
         Index("IX_sale_lines_product", "product_id"),
     )
@@ -637,4 +662,63 @@ class Campaign(Base):
     __table_args__ = (
         CheckConstraint("audience IN ('all','debtors','top','inactive')", name="CK_campaign_audience"),
         CheckConstraint("status IN ('draft','sent')", name="CK_campaign_status"),
+    )
+
+
+class StockCount(Base):
+    """Stocktaking session (الجرد) — eStock-style physical inventory count.
+
+    ``full`` counts every live batch at the branch; ``periodic`` (الجرد الدوري)
+    is the recurring spot-check of a subset (top movers / a shelf); ``partial``
+    is an ad-hoc count. Lines snapshot the expected quantity at creation;
+    posting applies counted quantities as adjustments (ضبط الأصناف) through the
+    normal stock-movement audit trail. New table — ``create_all`` adds it
+    automatically on existing databases.
+    """
+
+    __tablename__ = "stock_counts"
+
+    count_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    count_type: Mapped[str] = mapped_column(String(10), default="full")  # full/periodic/partial
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open/posted/cancelled
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("count_type IN ('full','periodic','partial')", name="CK_count_type"),
+        CheckConstraint("status IN ('open','posted','cancelled')", name="CK_count_status"),
+    )
+
+
+class StockCountLine(Base):
+    """One batch inside a stocktaking session: expected (snapshot) vs counted
+    (physical). ``posted_delta`` records the adjustment actually applied when
+    the session was posted (counted minus the batch's live amount at post time,
+    which may differ from the snapshot if sales happened during the count).
+
+    ``batch_id``/``product_id`` are deliberately NOT foreign keys: the eStock
+    mirror wipes and reloads batches/products every sync cycle, and جرد history
+    must survive that (it's pharmacy history eStock knows nothing about). The
+    count sheet outer-joins them and degrades gracefully when a reload removed
+    a row; ``name_ar`` snapshots the product name so posted reports stay
+    readable forever."""
+
+    __tablename__ = "stock_count_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.count_id"))
+    batch_id: Mapped[int] = mapped_column()
+    product_id: Mapped[int] = mapped_column()
+    name_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    expected_qty: Mapped[float] = mapped_column(Qty, default=0)
+    counted_qty: Mapped[float | None] = mapped_column(Qty, nullable=True)
+    posted_delta: Mapped[float | None] = mapped_column(Qty, nullable=True)
+
+    __table_args__ = (
+        Index("IX_count_lines_count", "count_id"),
+        Index("IX_count_lines_batch", "batch_id"),
     )

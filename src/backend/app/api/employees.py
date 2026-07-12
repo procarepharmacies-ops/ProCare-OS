@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.auth import auth_guard
 from app.db.base import get_session
 from app.services import employees
 
@@ -77,6 +78,44 @@ def employee_detail(
     if not result:
         return {"error": "Employee not found"}
     return result
+
+
+class ContactIn(BaseModel):
+    phone: str | None = None
+
+
+@router.patch("/{employee_id}/contact", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def set_contact(employee_id: int, payload: ContactIn, session: Session = Depends(get_session)):
+    """Set the WhatsApp phone used for password reset (CEO/manager only)."""
+    from app.db import models as m
+
+    emp = session.get(m.Employee, employee_id)
+    if emp is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.phone = (payload.phone or "").strip() or None
+    session.commit()
+    return {"ok": True, "employee_id": employee_id, "phone": emp.phone}
+
+
+class AdminResetIn(BaseModel):
+    new_password: str = Field(min_length=8)
+
+
+@router.post("/{employee_id}/reset-password", dependencies=[Depends(auth_guard(("ceo",)))])
+def admin_reset_password(employee_id: int, payload: AdminResetIn, session: Session = Depends(get_session)):
+    """CEO fallback: set an employee's password directly (e.g. no WhatsApp)."""
+    from app.db import models as m
+    from app.services import auth as auth_svc
+
+    emp = session.get(m.Employee, employee_id)
+    if emp is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.password_hash = auth_svc.hash_password(payload.new_password)
+    emp.reset_code_hash = None
+    emp.reset_code_expires = None
+    emp.reset_attempts = 0
+    session.commit()
+    return {"ok": True}
 
 
 class GoalIn(BaseModel):

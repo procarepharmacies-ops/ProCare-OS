@@ -75,6 +75,10 @@ export const api = {
     login: (username, password) =>
       http("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
     me: () => http("/auth/me"),
+    forgotPassword: (username) =>
+      http("/auth/forgot-password", { method: "POST", body: JSON.stringify({ username }) }),
+    resetPassword: (username, code, new_password) =>
+      http("/auth/reset-password", { method: "POST", body: JSON.stringify({ username, code, new_password }) }),
   },
 
   dashboardSummary: (branch) => http(`/dashboard/summary${bq(branch)}`),
@@ -191,6 +195,45 @@ export const api = {
     http("/transfers/request", { method: "POST", body: JSON.stringify(payload) }),
   approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
   rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
+  shipTransfer: (transferId) => http(`/transfers/${transferId}/ship`, { method: "POST" }),
+  receiveTransfer: (transferId, lines) =>
+    http(`/transfers/${transferId}/receive`, { method: "POST", body: JSON.stringify({ lines }) }),
+
+  // Catalogue management + classification filters.
+  productFilters: () => http("/inventory/filters"),
+  createProduct: (payload) => http("/inventory/products", { method: "POST", body: JSON.stringify(payload) }),
+  productsFiltered: (branch, params = {}) => {
+    const extra = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join("&");
+    return http(`/inventory/products${bq(branch, extra)}`);
+  },
+
+  // Purchase planning (كشكول النواقص): priority + transfer-first + consolidated.
+  purchasePlan: (branchId) => http(`/purchasing/plan?branch_id=${branchId}`),
+  purchasePlanConsolidated: () => http("/purchasing/plan/consolidated"),
+
+  // Vendor account (كشف حساب مورد + سداد).
+  vendorStatement: (vendorId) => http(`/vendors/${vendorId}/statement`),
+  payVendor: (vendorId, payload) => http(`/vendors/${vendorId}/pay`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Backups (نسخ احتياطية).
+  backupNow: () => http("/backup", { method: "POST" }),
+  backupList: () => http("/backup"),
+
+  // Stagnant items (الأصناف الراكدة): stocked, no sale in N days.
+  stagnant: (branch, days = 90) => http(`/inventory/stagnant${bq(branch, `days=${days}`)}`),
+
+  // Stocktaking (الجرد): count sessions, count sheet, posting adjustments.
+  stockCounts: (branch) => http(`/stocktaking${bq(branch)}`),
+  stockCountDetail: (countId) => http(`/stocktaking/${countId}`),
+  createStockCount: (payload) => http("/stocktaking", { method: "POST", body: JSON.stringify(payload) }),
+  saveStockCountLines: (countId, entries) =>
+    http(`/stocktaking/${countId}/lines`, { method: "POST", body: JSON.stringify({ entries }) }),
+  postStockCount: (countId, employee_id) =>
+    http(`/stocktaking/${countId}/post`, { method: "POST", body: JSON.stringify({ employee_id }) }),
+  cancelStockCount: (countId) => http(`/stocktaking/${countId}/cancel`, { method: "POST" }),
 
   // In-system cash-flow & inventory audit.
   auditReport: (months = 3, vendor = "") =>
@@ -205,6 +248,9 @@ export const api = {
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),
+  customerProfile: (customerId) => http(`/customers/${customerId}/profile`),
+  updateCustomer: (customerId, payload) => http(`/customers/${customerId}`, { method: "POST", body: JSON.stringify(payload) }),
+  chartOfAccounts: (branch) => http(`/accounting/chart${bq(branch)}`),
   adjustLoyalty: (customerId, payload) =>
     http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
   saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),

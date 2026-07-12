@@ -161,6 +161,23 @@ def auto_proposal(
     return autopurchase.propose(session, branch_id or None, cover_days=cover_days)
 
 
+@router.get("/plan")
+def plan(branch_id: int = Query(...), session: Session = Depends(get_session)):
+    """كشكول نواقص الفرع بأولوية الشراء: رصيد صفر ← طلب عميل ← تحت الحد الأدنى.
+    Each row says transfer-from-branch (preferred) or buy."""
+    from app.services import autopurchase
+
+    return autopurchase.purchase_plan(session, branch_id)
+
+
+@router.get("/plan/consolidated")
+def plan_consolidated(session: Session = Depends(get_session)):
+    """طلبية شراء مجمعة لكل الفروع (transfer-first rows excluded) تحت ميزانية 80%."""
+    from app.services import autopurchase
+
+    return autopurchase.consolidated_plan(session)
+
+
 @router.post("/auto-generate")
 def auto_generate(
     branch_id: int = Query(...),

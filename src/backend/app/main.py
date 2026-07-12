@@ -22,9 +22,13 @@ from app.api.routes import router as api_router
 from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
+    ensure_employee_reset_columns,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
+    ensure_customer_address_column,
     ensure_prescription_status_columns,
+    ensure_product_classification_columns,
+    ensure_product_unit_columns,
     ensure_role_column,
     ensure_roster,
     ensure_shelf_location_column,
@@ -45,6 +49,14 @@ async def lifespan(_app: FastAPI):
     ensure_loyalty_points_column(engine)
     ensure_task_priority_columns(engine)
     ensure_prescription_status_columns(engine)
+    ensure_employee_reset_columns(engine)
+    ensure_product_unit_columns(engine)
+    ensure_product_classification_columns(engine)
+    ensure_customer_address_column(engine)
+    # Daily safety net: the pharmacy never opens without a fresh backup.
+    from app.services import backup
+
+    backup.backup_if_stale(24, "startup-daily")
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()

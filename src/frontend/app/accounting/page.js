@@ -12,15 +12,17 @@ export default function AccountingPage() {
   const [trialBalance, setTrialBalance] = useState(null);
   const [salesSummary, setSalesSummary] = useState(null);
   const [ledger, setLedger] = useState([]);
+  const [chart, setChart] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("trial");
+  const [activeTab, setActiveTab] = useState("chart");
   const [daysFilter, setDaysFilter] = useState(30);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [tbRes, ssRes, ledgerRes] = await Promise.all([
+        const [tbRes, ssRes, ledgerRes, chartRes] = await Promise.all([
           api.get("/accounting/trial-balance", { branch_id: branch || undefined }),
           api.get("/accounting/sales-summary", {
             branch_id: branch || undefined,
@@ -30,10 +32,12 @@ export default function AccountingPage() {
             branch_id: branch || undefined,
             days: daysFilter,
           }),
+          api.chartOfAccounts(branch).catch(() => null),
         ]);
         setTrialBalance(tbRes);
         setSalesSummary(ssRes);
         setLedger(ledgerRes.entries || []);
+        setChart(chartRes);
       } catch (e) {
         console.error(e);
       } finally {
@@ -76,6 +80,9 @@ export default function AccountingPage() {
         </div>
 
         <div className="tabs">
+          <button className={`tab ${activeTab === "chart" ? "active" : ""}`} onClick={() => setActiveTab("chart")}>
+            {L("coa_title")}
+          </button>
           <button className={`tab ${activeTab === "trial" ? "active" : ""}`} onClick={() => setActiveTab("trial")}>
             {L("trial_balance")}
           </button>
@@ -83,6 +90,51 @@ export default function AccountingPage() {
             {L("ledger")}
           </button>
         </div>
+
+        {activeTab === "chart" && chart && (
+          <>
+            <p style={{ marginBottom: 8 }}>
+              <span className={`badge ${chart.balanced ? "ok" : "danger"}`}>
+                {chart.balanced ? L("coa_balanced") : L("coa_unbalanced")}
+              </span>{" "}
+              <span className="muted">
+                {L("coa_debit")}: {parseFloat(chart.total_debit).toLocaleString("en-US")} · {L("coa_credit")}: {parseFloat(chart.total_credit).toLocaleString("en-US")}
+              </span>
+            </p>
+            <div className="table-wrapper">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>{L("account")}</th>
+                    <th className="num">{L("coa_debit")}</th>
+                    <th className="num">{L("coa_credit")}</th>
+                    <th className="num">{L("coa_balance")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(chart.groups || []).map((g) => (
+                    <>
+                      <tr key={g.type} style={{ cursor: "pointer", fontWeight: 700, background: "var(--surface)" }} onClick={() => setExpanded((x) => ({ ...x, [g.type]: !x[g.type] }))}>
+                        <td>{expanded[g.type] ? "▾" : "▸"} {g.label} <span className="muted" style={{ fontWeight: 400 }}>({g.accounts.length})</span></td>
+                        <td className="num">{parseFloat(g.debit).toLocaleString("en-US")}</td>
+                        <td className="num">{parseFloat(g.credit).toLocaleString("en-US")}</td>
+                        <td className="num">{parseFloat(g.balance).toLocaleString("en-US")}</td>
+                      </tr>
+                      {expanded[g.type] && g.accounts.map((a, i) => (
+                        <tr key={`${g.type}-${a.ref ?? i}`}>
+                          <td style={{ paddingInlineStart: 28 }} className="muted">{a.name}</td>
+                          <td className="num">{parseFloat(a.debit).toLocaleString("en-US")}</td>
+                          <td className="num">{parseFloat(a.credit).toLocaleString("en-US")}</td>
+                          <td className="num">{parseFloat(a.balance).toLocaleString("en-US")}</td>
+                        </tr>
+                      ))}
+                    </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
         {activeTab === "trial" && trialBalance && (
           <div className="table-wrapper">

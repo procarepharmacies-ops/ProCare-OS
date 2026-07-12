@@ -340,8 +340,10 @@ CREATE TABLE dbo.sales (
     change_given       MONEY NOT NULL CONSTRAINT DF_sales_chg   DEFAULT 0,  -- eStock money_change
     is_return          BIT   NOT NULL CONSTRAINT DF_sales_return DEFAULT 0, -- eStock back = 'Y'
     is_credit          BIT   NOT NULL CONSTRAINT DF_sales_credit DEFAULT 0, -- on-account (vs cash) sale
-    created_at         DATETIME2(0) NOT NULL CONSTRAINT DF_sales_created DEFAULT SYSDATETIME(),
-    CONSTRAINT CK_sales_totals CHECK (total_gross >= 0 AND total_net >= 0 AND total_discount >= 0)
+    created_at         DATETIME2(0) NOT NULL CONSTRAINT DF_sales_created DEFAULT SYSDATETIME()
+    -- no totals CHECK: the eStock mirror carries legacy correction rows verbatim
+    -- (a few sales have small negative totals); new-sale validity is enforced in
+    -- the POS service (src/backend/app/services/pos.py)
 );
 GO
 CREATE INDEX IX_sales_date          ON dbo.sales(sale_date);
@@ -360,7 +362,7 @@ CREATE TABLE dbo.sale_lines (
     disc_money         MONEY NOT NULL CONSTRAINT DF_saleline_disc DEFAULT 0, -- eStock disc_money
     total_sell         MONEY NOT NULL,                                -- eStock total_sell (line net)
     is_return          BIT   NOT NULL CONSTRAINT DF_saleline_return DEFAULT 0, -- eStock back = 'Y'
-    CONSTRAINT CK_saleline_amount CHECK (amount > 0)
+    CONSTRAINT CK_saleline_amount CHECK (amount >= 0) -- 0 = legacy bonus/free lines; POS enforces > 0 for new sales
 );
 GO
 CREATE INDEX IX_sale_lines_sale    ON dbo.sale_lines(sale_id);

@@ -57,6 +57,43 @@ def reject_transfer(transfer_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
 
 
+@router.post("/{transfer_id}/ship", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def ship_transfer(transfer_id: int, shipped_by: int | None = None, session: Session = Depends(get_session)):
+    """Source releases the goods (requested -> in_transit). Stock leaves the
+    source now; the destination must confirm receipt to complete it."""
+    try:
+        return transfers.ship_transfer(session, transfer_id, shipped_by=shipped_by)
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+class ReceiveLineIn(BaseModel):
+    line_id: int
+    amount: float = Field(ge=0)
+    exp_date: str | None = None
+
+
+class ReceiveIn(BaseModel):
+    received_by: int | None = None
+    lines: list[ReceiveLineIn] = []
+
+
+@router.post("/{transfer_id}/receive", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def receive_transfer(transfer_id: int, payload: ReceiveIn, session: Session = Depends(get_session)):
+    """Destination confirms receipt (استلام الإذن): review each line's expiry +
+    quantity, then the stock enters destination inventory (in_transit ->
+    received). Omitted lines are accepted as shipped."""
+    confirmations = {
+        l.line_id: {"amount": l.amount, "exp_date": l.exp_date} for l in payload.lines
+    }
+    try:
+        return transfers.receive_transfer(
+            session, transfer_id, confirmations, received_by=payload.received_by
+        )
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
 @router.get("/list")
 def transfer_list(
     branch_id: int | None = Query(None),

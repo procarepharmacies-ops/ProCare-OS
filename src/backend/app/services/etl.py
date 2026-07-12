@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import create_engine, insert, inspect, select, text
+from sqlalchemy import bindparam, create_engine, delete, insert, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -174,6 +174,7 @@ def mirror(
     store_branch_map: dict | None = None,
     *,
     wipe: bool = True,
+    branch_scoped: bool = False,
     force_branch_code: str | None = None,
     dedup: bool | None = None,
 ) -> dict:
@@ -183,6 +184,14 @@ def mirror(
     catalogue tables, then reloads from a single eStock source. This is the
     Phase-1 live mirror behaviour.
 
+    Multi-source sync (``branch_scoped=True``): refresh ONLY the branches this
+    source maps to — its transactional rows (stock, sales, purchases) are cleared
+    and reloaded, while every other branch (the other live server, imported
+    history) is left untouched. The shared catalogue / customers / vendors are
+    matched instead of duplicated AND updated in place, so owner data-cleaning on
+    eStock (e.g. scientific names) and live customer balances flow through on
+    every cycle. This is how two branch servers sync into one ProCare database.
+
     Multi-branch consolidation (``wipe=False`` + ``force_branch_code``): APPEND a
     restored branch backup (e.g. Elsanta, then Mashala) into ProCare WITHOUT
     clearing what's already there, mapping ALL of that source's rows to the named
@@ -190,7 +199,8 @@ def mirror(
     vendors are matched (by code / mobile / name) instead of duplicated across
     branches — run each backup once. Returns per-table row counts (rows added).
     """
-    dedup = (not wipe) if dedup is None else dedup
+    dedup = (branch_scoped or not wipe) if dedup is None else dedup
+    update_on_match = branch_scoped
     insp = inspect(source_engine)
 
     with source_engine.connect() as src:
@@ -206,12 +216,14 @@ def mirror(
             branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
             default_branch = next(iter(branch_map.values()))
 
-        if wipe:
+        if branch_scoped:
+            _wipe_branch_rows(dst, set(branch_map.values()) | {default_branch})
+        elif wipe:
             _wipe_destination(dst)
         counts: dict[str, int] = {}
 
-        product_map = _load_products(insp, src, dst, counts, dedup=dedup)
-        customer_map = _load_customers(insp, src, dst, counts, dedup=dedup)
+        product_map = _load_products(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
+        customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
         _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=False)
@@ -264,10 +276,20 @@ def _resolve_branch_map(
         raise RuntimeError("ProCare branches not seeded — run schema/seed first.")
     by_code = {code: b.branch_id for code, b in branches.items()}
 
+    # Proper bilingual display names for the branch codes we know, so an
+    # auto-created branch never shows its raw code in the Arabic UI.
+    known = {
+        "ELSANTA": ("السنطه", "Elsanta"),
+        "MASHALA": ("مسهله", "Mas-hala"),
+        "ELSANTA_EXP": ("مخزن منتهي الصلاحيه", "Expired depot"),
+    }
+
     def ensure_branch(code: str, name_ar: str | None = None, name_en: str | None = None) -> int:
+        code = code.strip().upper()
         if code in by_code:
             return by_code[code]
-        b = m.Branch(code=code, name_ar=name_ar or code, name_en=name_en or code)
+        default_ar, default_en = known.get(code, (code, code))
+        b = m.Branch(code=code, name_ar=name_ar or default_ar, name_en=name_en or default_en)
         dst.add(b)
         dst.flush()
         by_code[code] = b.branch_id
@@ -279,10 +301,13 @@ def _resolve_branch_map(
         for k, v in store_branch_map.items():
             out[int(k)] = ensure_branch(v) if isinstance(v, str) else int(v)
     else:
-        # Default (owner-confirmed): store_id 1 = Elsanta, 2 = Main.
+        # Default (owner-confirmed): store_id 1 = Elsanta السنطه, 2 = Mas-hala
+        # مسهله (MAIN kept as fallback for demo-seeded databases).
         if "ELSANTA" in by_code:
             out[1] = by_code["ELSANTA"]
-        if "MAIN" in by_code:
+        if "MASHALA" in by_code:
+            out[2] = by_code["MASHALA"]
+        elif "MAIN" in by_code:
             out[2] = by_code["MAIN"]
 
     # Auto-create a branch for any source store_id we don't have a mapping for.
@@ -294,15 +319,75 @@ def _resolve_branch_map(
 
 
 def _wipe_destination(dst: Session) -> None:
+    # The full wipe is the single most destructive operation in the system —
+    # make sure a recent backup exists first (throttled; fail-soft).
+    from app.services import backup
+
+    backup.backup_if_stale(6, "pre-sync-wipe")
     for model in _WIPE_ORDER:
         if model is not None:
             dst.execute(text(f"DELETE FROM {model.__tablename__}"))
     dst.flush()
 
 
-def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int]:
+def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
+    """Clear only ``branch_ids``' mirrored transactional rows (children first).
+
+    The shared catalogue (products/customers/vendors) stays — it is matched and
+    refreshed by the dedup loaders — and every other branch's rows survive, so
+    two live sources and the imported history can coexist in one database.
+    """
+    ids = [int(b) for b in branch_ids if b is not None]
+    if not ids:
+        return
+    sale_ids = select(m.Sale.sale_id).where(m.Sale.branch_id.in_(ids))
+    batch_ids = select(m.StockBatch.batch_id).where(m.StockBatch.branch_id.in_(ids))
+    dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
+    dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
+    # Returns first (self-FK sales.original_sale_id), then the originals.
+    dst.execute(
+        delete(m.Sale).where(m.Sale.branch_id.in_(ids), m.Sale.original_sale_id.is_not(None))
+    )
+    dst.execute(delete(m.Sale).where(m.Sale.branch_id.in_(ids)))
+    purchase_ids = select(m.Purchase.purchase_id).where(m.Purchase.branch_id.in_(ids))
+    dst.execute(delete(m.PurchaseLine).where(m.PurchaseLine.purchase_id.in_(purchase_ids)))
+    dst.execute(delete(m.Purchase).where(m.Purchase.branch_id.in_(ids)))
+    # Transfers touch batches on BOTH ends — any line touching a wiped batch
+    # goes, then every transfer with a wiped endpoint branch. Lines are matched
+    # by parent transfer too, not only by batch: a *requested* (not yet
+    # approved) transfer's lines have NULL batch ids and would otherwise
+    # survive, failing the parent delete with a FK error and killing the whole
+    # sync cycle.
+    dying_transfers = select(m.StockTransfer.transfer_id).where(
+        m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
+    )
+    dst.execute(
+        delete(m.StockTransferLine).where(
+            m.StockTransferLine.from_batch_id.in_(batch_ids)
+            | m.StockTransferLine.to_batch_id.in_(batch_ids)
+            | m.StockTransferLine.transfer_id.in_(dying_transfers)
+        )
+    )
+    dst.execute(
+        delete(m.StockTransfer).where(
+            m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
+        )
+    )
+    dst.execute(
+        delete(m.StockMovement).where(
+            m.StockMovement.branch_id.in_(ids) | m.StockMovement.batch_id.in_(batch_ids)
+        )
+    )
+    dst.execute(delete(m.StockBatch).where(m.StockBatch.branch_id.in_(ids)))
+    dst.flush()
+
+
+def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match: bool = False) -> dict[int, int]:
     """Returns src product_id -> dst product_id. With ``dedup`` (append mode),
-    a product whose code already exists in ProCare is reused, not duplicated."""
+    a product whose code already exists in ProCare is reused, not duplicated.
+    With ``update_on_match`` (continuous sync) a matched product's names, prices
+    and flags are refreshed from the source so owner edits on eStock (e.g.
+    scientific-name cleanups) propagate on every cycle."""
     cols = {c["name"] for c in insp.get_columns("Products")}
     pid = _pick(cols, "product_id")
     name_ar = _pick(cols, "product_name_ar", "name_ar")
@@ -317,21 +402,65 @@ def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int
     tax = _pick(cols, "tax_price")
     deleted = _pick(cols, "deleted")
     active = _pick(cols, "active")
+    # Units (وحدة كبرى/صغرى): eStock column names vary by version — try the
+    # known spellings; absent columns just leave the defaults (factor 1).
+    unit_big = _pick(cols, "product_unit1", "unit1", "product_unit", "unit_name", "product_unit_ar")
+    unit_small = _pick(cols, "product_unit2", "unit2", "sub_unit", "product_sub_unit")
+    unit_factor = _pick(
+        cols, "product_no2per1", "no2per1", "unit2_per_unit1", "product_unit2_count", "unit_factor"
+    )
+
+    def _factor(r) -> float:
+        f = _num(r.get(unit_factor), 1) if unit_factor else 1
+        return f if f and f > 0 else 1
+
+    def _pkey(code_val, nm):
+        # Codeless products fall back to the display name, otherwise a repeated
+        # branch-scoped sync (which never wipes the catalogue) would re-insert
+        # them on every cycle.
+        if code_val is not None and str(code_val).strip():
+            return "c:" + str(code_val).strip()
+        if nm and str(nm).strip():
+            return "n:" + str(nm).strip()
+        return None
 
     existing: dict[str, int] = {}
     if dedup:
-        for ex_pid, ex_code in dst.execute(select(m.Product.product_id, m.Product.code)).all():
-            if ex_code is not None:
-                existing[str(ex_code)] = ex_pid
+        rows_ex = dst.execute(select(m.Product.product_id, m.Product.code, m.Product.name_ar)).all()
+        for ex_pid, ex_code, ex_name in rows_ex:
+            key = _pkey(ex_code, ex_name)
+            if key and key not in existing:
+                existing[key] = ex_pid
 
     rows = src.execute(text("SELECT * FROM Products")).mappings().all()
     mapping: dict[int, int] = {}
     pairs = []  # (row, obj) for products we actually create
+    updates = []  # bulk field refresh for matched products (update_on_match)
     for r in rows:
-        code_val = str(r.get(code)) if code and r.get(code) is not None else None
+        code_val = _pkey(
+            r.get(code) if code else None,
+            _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+        )
         if dedup and code_val is not None and code_val in existing:
             if pid and r.get(pid) is not None:
                 mapping[int(r[pid])] = existing[code_val]
+            if update_on_match:
+                updates.append(
+                    {
+                        "product_id": existing[code_val],
+                        "name_ar": _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+                        "name_en": r.get(name_en) if name_en else None,
+                        "scientific_name": r.get(sci) if sci else None,
+                        "sell_price": _num(r.get(sell)) if sell else 0,
+                        "buy_price": _num(r.get(buy)) if buy else 0,
+                        "tax_price": _num(r.get(tax)) if tax else 0,
+                        "unit_big": r.get(unit_big) if unit_big else None,
+                        "unit_small": r.get(unit_small) if unit_small else None,
+                        "unit_factor": _factor(r),
+                        "is_active": _b(r.get(active)) if active else True,
+                        "is_deleted": _b(r.get(deleted)) if deleted else False,
+                    }
+                )
             continue
         pairs.append((
             r,
@@ -346,23 +475,30 @@ def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int
                 sell_price=_num(r.get(sell)) if sell else 0,
                 buy_price=_num(r.get(buy)) if buy else 0,
                 tax_price=_num(r.get(tax)) if tax else 0,
+                unit_big=r.get(unit_big) if unit_big else None,
+                unit_small=r.get(unit_small) if unit_small else None,
+                unit_factor=_factor(r),
                 is_active=_b(r.get(active)) if active else True,
                 is_deleted=_b(r.get(deleted)) if deleted else False,
             ),
         ))
     dst.add_all([obj for _, obj in pairs])
+    if updates:
+        stmt = m.Product.__table__.update().where(m.Product.product_id == bindparam("b_pid"))
+        dst.execute(stmt, [dict(u, b_pid=u.pop("product_id")) for u in updates])
     dst.flush()
     for r, obj in pairs:
         if pid and r.get(pid) is not None:
             mapping[int(r[pid])] = obj.product_id
-        cv = str(r.get(code)) if code and r.get(code) is not None else None
+        cv = _pkey(r.get(code) if code else None, obj.name_ar)
         if dedup and cv is not None:
             existing[cv] = obj.product_id
     counts["products"] = len(pairs)
+    counts["products_updated"] = len(updates)
     return mapping
 
 
-def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, int]:
+def _load_customers(insp, src, dst, counts, dedup: bool = False, update_on_match: bool = False) -> dict[int, int]:
     cols = {c["name"] for c in insp.get_columns("Customer")}
     cid = _pick(cols, "customer_id")
     name_ar = _pick(cols, "customer_name_ar", "name_ar")
@@ -391,6 +527,7 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
     rows = src.execute(text("SELECT * FROM Customer")).mappings().all()
     mapping: dict[int, int] = {}
     pairs = []
+    updates = []  # refresh matched customers' balances/limits (update_on_match)
     for r in rows:
         mob = r.get(mobile) if mobile else None
         nm = _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None)
@@ -398,6 +535,16 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
         if dedup and key is not None and key in existing:
             if cid and r.get(cid) is not None:
                 mapping[int(r[cid])] = existing[key]
+            if update_on_match:
+                updates.append(
+                    {
+                        "customer_id": existing[key],
+                        "credit_limit": _num(r.get(limit)) if limit else 0,
+                        "current_balance": _num(r.get(balance)) if balance else 0,
+                        "is_active": _b(r.get(active)) if active else True,
+                        "is_deleted": _b(r.get(deleted)) if deleted else False,
+                    }
+                )
             continue
         pairs.append((
             r,
@@ -413,6 +560,9 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
             ),
         ))
     dst.add_all([obj for _, obj in pairs])
+    if updates:
+        stmt = m.Customer.__table__.update().where(m.Customer.customer_id == bindparam("b_cid"))
+        dst.execute(stmt, [dict(u, b_cid=u.pop("customer_id")) for u in updates])
     dst.flush()
     for r, obj in pairs:
         if cid and r.get(cid) is not None:
@@ -424,6 +574,7 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
         if dedup and key is not None:
             existing[key] = obj.customer_id
     counts["customers"] = len(pairs)
+    counts["customers_updated"] = len(updates)
     return mapping
 
 

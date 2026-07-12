@@ -12,6 +12,22 @@ export default function SettingsPage() {
   const [health, setHealth] = useState(null);
   const [branches, setBranches] = useState([]);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [backups, setBackups] = useState(null);
+  const [backupMsg, setBackupMsg] = useState(null);
+
+  useEffect(() => {
+    api.backupList().then(setBackups).catch(() => {});
+  }, [backupMsg]);
+
+  async function takeBackup() {
+    setBackupMsg(null);
+    try {
+      const r = await api.backupNow();
+      setBackupMsg(r.ok ? { kind: "ok", text: t(lang, "backup_done") } : { kind: "danger", text: r.error });
+    } catch (e) {
+      setBackupMsg({ kind: "danger", text: e?.message || String(e) });
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -44,6 +60,18 @@ export default function SettingsPage() {
   return (
     <Shell titleKey="nav_settings">
       <div className="page">
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 className="section-title">💾 {L("backup_now")}</h3>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button className="btn primary" onClick={takeBackup}>{L("backup_now")}</button>
+            <span className="muted">
+              {L("backup_last")}: {backups?.last_backup_at ? backups.last_backup_at.slice(0, 16).replace("T", " ") : "—"}
+              {backups?.backups?.length ? ` · ${backups.backups.length} ${L("none") === "لا يوجد" ? "نسخة" : "backups"}` : ""}
+            </span>
+            {backupMsg && <span className={`badge ${backupMsg.kind === "ok" ? "ok" : "danger"}`}>{backupMsg.text}</span>}
+          </div>
+        </div>
+
         <div className="card" style={{ marginBottom: 16 }}>
           <h3 className="section-title">{L("branches_stores")}</h3>
           <table className="tbl" style={{ width: "100%" }}>

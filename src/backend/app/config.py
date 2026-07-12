@@ -22,6 +22,14 @@ _PLACEHOLDER_MARKERS = ("REPLACE_ME", "REPLACE_WITH", "TBD")
 
 
 def _load() -> tuple[dict, str]:
+    # PROCARE_CONFIG_FILE (env) pins the config — the test suite points it at
+    # the example file so tests never see (or touch) the operator's real
+    # servers, whatever is in connections.json on this machine.
+    override = os.environ.get("PROCARE_CONFIG_FILE")
+    if override:
+        p = Path(override)
+        with p.open(encoding="utf-8") as fh:
+            return json.load(fh), p.name
     real = CONFIG_DIR / "connections.json"
     example = CONFIG_DIR / "connections.example.json"
     path = real if real.exists() else example
@@ -164,7 +172,9 @@ class Settings:
     network_host: str = _data.get("network_host", "192.168.1.2")
 
     # Which data sources have real (non-placeholder) credentials.
-    estock_configured: bool = _source_configured(_data.get("estock_source", {}))
+    estock_configured: bool = _source_configured(_data.get("estock_source", {})) or any(
+        _source_configured(b) for b in (_data.get("estock_sources") or [])
+    )
     titan_configured: bool = _source_configured(_data.get("titan_drugeye_source", {}))
     procare_configured: bool = _source_configured(_data.get("procare_database", {}))
 
@@ -214,8 +224,45 @@ class Settings:
 
     @staticmethod
     def estock_sqlalchemy_url() -> str | None:
-        """Read-only SQL Server URL for the eStock mirror source, or None."""
-        return _odbc_url(_data.get("estock_source", {}))
+        """Read-only SQL Server URL for the eStock mirror source, or None.
+
+        Falls back to the first entry of ``estock_sources`` (multi-branch setups)
+        so single-source tools (preflight, --run, backup imports) keep working.
+        """
+        url = _odbc_url(_data.get("estock_source", {}))
+        if url:
+            return url
+        for block in _data.get("estock_sources") or []:
+            url = _odbc_url(block)
+            if url:
+                return url
+        return None
+
+    @staticmethod
+    def estock_sources() -> list[dict]:
+        """Every configured eStock mirror source (one per branch server).
+
+        Reads the ``estock_sources`` list — each entry a full connection block
+        plus its own ``store_branch_map`` — and falls back to the legacy single
+        ``estock_source`` block so existing configs keep working. Entries without
+        real credentials are skipped. Each item carries only what the sync needs:
+        ``{"name", "url", "store_branch_map"}``.
+        """
+        blocks = list(_data.get("estock_sources") or [])
+        if not blocks and _data.get("estock_source"):
+            blocks = [_data["estock_source"]]
+        out: list[dict] = []
+        for i, block in enumerate(blocks):
+            url = _odbc_url(block)
+            if url:
+                out.append(
+                    {
+                        "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
+                        "url": url,
+                        "store_branch_map": block.get("store_branch_map"),
+                    }
+                )
+        return out
 
     @staticmethod
     def titan_sqlalchemy_url() -> str | None:

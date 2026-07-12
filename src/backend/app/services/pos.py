@@ -20,7 +20,7 @@ Guardrails baked in (fixing the eStock issues named in the docs):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +28,20 @@ from sqlalchemy.orm import Session
 from app.db import models as m
 from app.services import loyalty as loyalty_svc
 from app.services.common import TODAY, money
+
+
+def _parse_date(value) -> date | None:
+    """Accept an ISO 'YYYY-MM-DD' string (or a date/datetime) and return a date."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
 
 
 class POSError(Exception):
@@ -617,3 +631,141 @@ def reject_transfer(session: Session, transfer_id: int) -> m.StockTransfer:
     session.commit()
     session.refresh(transfer)
     return transfer
+
+
+def _ship_transfer_lines(session: Session, transfer: m.StockTransfer, lines, actor: int | None) -> None:
+    """OUT side only: FEFO-decrement the source and record transfer_out. Each hit
+    batch becomes a transfer line carrying its expiry + cost (to_batch_id stays
+    NULL — the goods are in transit, not yet in destination stock)."""
+    from_branch_id = transfer.from_branch_id
+    for ln in lines:
+        src_batches = session.scalars(
+            select(m.StockBatch)
+            .where(
+                m.StockBatch.product_id == ln.product_id,
+                m.StockBatch.branch_id == from_branch_id,
+                m.StockBatch.amount > 0,
+                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            )
+            .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        ).all()
+        available = sum(float(b.amount) for b in src_batches)
+        if available < ln.amount:
+            raise POSError(
+                "insufficient_stock",
+                f"مخزون غير كافٍ للتحويل: متاح {money(available)} مطلوب {money(ln.amount)}",
+            )
+        remaining = float(ln.amount)
+        for src in src_batches:
+            if remaining <= 0:
+                break
+            take = min(float(src.amount), remaining)
+            src.amount = float(src.amount) - take
+            remaining -= take
+            session.add(
+                m.StockMovement(
+                    batch_id=src.batch_id, branch_id=from_branch_id, delta=-take,
+                    reason="transfer_out", ref_id=transfer.transfer_id, employee_id=actor,
+                )
+            )
+            session.add(
+                m.StockTransferLine(
+                    transfer_id=transfer.transfer_id, product_id=ln.product_id,
+                    from_batch_id=src.batch_id, to_batch_id=None,
+                    amount=take, buy_price=src.buy_price, exp_date=src.exp_date,
+                )
+            )
+
+
+def ship_transfer(session: Session, transfer_id: int, *, shipped_by: int | None = None) -> m.StockTransfer:
+    """Two-phase step 1 (صرف/شحن): the source releases the goods. Stock leaves
+    the source now (transfer_out); it is NOT yet in destination stock — the
+    destination must confirm receipt (expiry + quantity) to complete it."""
+    transfer = session.get(m.StockTransfer, transfer_id)
+    if transfer is None:
+        raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
+    if transfer.status != "requested":
+        raise POSError("bad_status", f"لا يمكن شحن تحويل حالته {transfer.status}")
+    requested = [SaleLineInput(product_id=l.product_id, amount=float(l.amount)) for l in transfer.lines]
+    try:
+        for l in list(transfer.lines):
+            session.delete(l)
+        session.flush()
+        transfer.status = "in_transit"
+        transfer.shipped_at = datetime.now()
+        _ship_transfer_lines(session, transfer, requested, actor=shipped_by)
+        session.commit()
+        session.refresh(transfer)
+        return transfer
+    except Exception:
+        session.rollback()
+        raise
+
+
+def receive_transfer(
+    session: Session,
+    transfer_id: int,
+    confirmations: dict | None = None,
+    *,
+    received_by: int | None = None,
+) -> m.StockTransfer:
+    """Two-phase step 2 (استلام الإذن): the destination reviews the in-transit
+    lines, confirms/corrects each line's received quantity and expiry date, and
+    only then does the stock enter destination inventory (transfer_in). A short
+    receipt (breakage in transit) simply adds less than was shipped — the
+    difference is visible in the movement ledger as shrinkage.
+
+    ``confirmations``: ``{line_id: {"amount": float, "exp_date": "YYYY-MM-DD"}}``.
+    Missing lines default to the shipped amount + expiry (accept as sent).
+    """
+    transfer = session.get(m.StockTransfer, transfer_id)
+    if transfer is None:
+        raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
+    if transfer.status != "in_transit":
+        raise POSError("bad_status", f"لا يمكن استلام تحويل حالته {transfer.status}")
+    confirmations = confirmations or {}
+    # Product sell prices for the new destination batches (destination sells at
+    # its own catalogue price).
+    prod_ids = {l.product_id for l in transfer.lines}
+    sell_prices = dict(
+        session.execute(
+            select(m.Product.product_id, m.Product.sell_price).where(m.Product.product_id.in_(prod_ids))
+        ).all()
+    ) if prod_ids else {}
+    try:
+        for line in transfer.lines:
+            conf = confirmations.get(line.line_id) or confirmations.get(str(line.line_id)) or {}
+            recv_amount = float(conf.get("amount", line.amount))
+            if recv_amount < 0:
+                raise POSError("bad_quantity", "الكمية لا يمكن أن تكون سالبة / amount cannot be negative")
+            exp = conf.get("exp_date", None)
+            exp_date = _parse_date(exp) if exp else line.exp_date
+            if recv_amount <= 0:
+                # Nothing arrived for this line (fully lost in transit) — leave
+                # the shipped record, create no destination batch.
+                continue
+            dst = m.StockBatch(
+                product_id=line.product_id, branch_id=transfer.to_branch_id,
+                amount=recv_amount, buy_price=line.buy_price,
+                sell_price=float(sell_prices.get(line.product_id, 0) or 0),
+                exp_date=exp_date,
+            )
+            session.add(dst)
+            session.flush()
+            line.to_batch_id = dst.batch_id
+            line.amount = recv_amount  # what was actually received
+            line.exp_date = exp_date
+            session.add(
+                m.StockMovement(
+                    batch_id=dst.batch_id, branch_id=transfer.to_branch_id, delta=recv_amount,
+                    reason="transfer_in", ref_id=transfer.transfer_id, employee_id=received_by,
+                )
+            )
+        transfer.status = "received"
+        transfer.received_at = datetime.now()
+        session.commit()
+        session.refresh(transfer)
+        return transfer
+    except Exception:
+        session.rollback()
+        raise
