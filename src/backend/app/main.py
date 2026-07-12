@@ -22,10 +22,10 @@ from app.api.routes import router as api_router
 from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
+    ensure_customer_address_column,
     ensure_employee_reset_columns,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
-    ensure_customer_address_column,
     ensure_prescription_status_columns,
     ensure_product_classification_columns,
     ensure_product_unit_columns,
@@ -33,6 +33,7 @@ from app.db.migrate import (
     ensure_roster,
     ensure_shelf_location_column,
     ensure_task_priority_columns,
+    ensure_titan_match_columns,
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
@@ -50,6 +51,7 @@ async def lifespan(_app: FastAPI):
     ensure_task_priority_columns(engine)
     ensure_prescription_status_columns(engine)
     ensure_employee_reset_columns(engine)
+    ensure_titan_match_columns(engine)
     ensure_product_unit_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)

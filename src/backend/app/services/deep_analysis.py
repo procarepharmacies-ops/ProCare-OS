@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import models as m
 from app.services import alerts, llm, performance
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, today
 
 
 def _pct(n, d):
@@ -35,7 +35,7 @@ def _pct(n, d):
 def _dead_stock(session: Session, branch_id, days: int = 180) -> dict:
     """Products holding stock but with no sale in the last ``days`` — cash frozen
     on the shelf. Value at cost."""
-    cutoff = datetime.combine(TODAY - timedelta(days=days), datetime.min.time())
+    cutoff = datetime.combine(today() - timedelta(days=days), datetime.min.time())
     sold_recently = (
         select(func.distinct(m.SaleLine.product_id))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
@@ -70,7 +70,7 @@ def _dead_stock(session: Session, branch_id, days: int = 180) -> dict:
 
 def _inventory_turnover(session: Session, branch_id, snapshot: dict) -> dict:
     """Days-of-stock cover = current stock value ÷ average daily COGS (90 days)."""
-    since = datetime.combine(TODAY - timedelta(days=89), datetime.min.time())
+    since = datetime.combine(today() - timedelta(days=89), datetime.min.time())
     cogs_90 = session.scalar(
         select(func.coalesce(func.sum(m.SaleLine.amount * m.SaleLine.buy_price), 0))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
@@ -105,8 +105,8 @@ def _customers(session: Session, branch_id, window_start: datetime) -> dict:
             .group_by(m.Sale.customer_id)
         ).all()
     )
-    active_90 = sum(1 for d in last_seen.values() if d and d >= datetime.combine(TODAY - timedelta(days=90), datetime.min.time()))
-    lapsed = sum(1 for d in last_seen.values() if d and d < datetime.combine(TODAY - timedelta(days=365), datetime.min.time()))
+    active_90 = sum(1 for d in last_seen.values() if d and d >= datetime.combine(today() - timedelta(days=90), datetime.min.time()))
+    lapsed = sum(1 for d in last_seen.values() if d and d < datetime.combine(today() - timedelta(days=365), datetime.min.time()))
 
     spend = session.execute(
         select(
@@ -190,7 +190,7 @@ def _build_findings(ov, audit, dead, turnover, cust, sup) -> list[dict]:
     snap = ov["snapshot"]
 
     # Growth trend (use full years; 2026 is partial so compare 2024→2025).
-    full = [y for y in yearly if y["year"] < TODAY.year]
+    full = [y for y in yearly if y["year"] < today().year]
     if len(full) >= 2:
         first, last = full[0], full[-1]
         n = last["year"] - first["year"]
@@ -388,7 +388,7 @@ def deep_analysis(session: Session, years: int = 5, branch_id: int | None = None
     recommendations = _recommendations(findings)
 
     summary = {
-        "as_of": TODAY.isoformat(),
+        "as_of": today().isoformat(),
         "branch_id": branch_id or 0,
         "period": {"years": years, "range": ov["year_range"]},
         "sales": {"yearly": ov["yearly"], "monthly": ov["monthly"], "totals": ov["totals"]},

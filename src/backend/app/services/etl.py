@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import bindparam, create_engine, delete, insert, inspect, select, text
+from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -120,6 +120,23 @@ def _b(value) -> bool:
         return False
     s = str(value).strip().upper()
     return s in ("Y", "1", "TRUE", "T")
+
+
+def _product_deleted(value) -> bool:
+    """eStock ``Products.deleted`` is INVERTED relative to its name.
+
+    Audited on both live branch DBs (2026-07): the ~53,400 products that sell
+    every day carry ``deleted='1'`` and the ~90 truly removed ones carry
+    ``deleted='0'`` (paired with ``active=0``, zero sales). Mirroring the flag
+    literally marked 99.7%% of the catalogue deleted, which hid it from POS,
+    inventory, prescriptions and the clinical layer. ``Customer.deleted`` has
+    normal semantics — this helper is for Products ONLY. 'Y' (the audit's
+    original Y/N reading) is still honoured as deleted in case an eStock
+    install uses that convention.
+    """
+    if value is None:
+        return False
+    return str(value).strip().upper() in ("0", "Y")
 
 
 def _as_date(value):
@@ -445,20 +462,25 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
             if pid and r.get(pid) is not None:
                 mapping[int(r[pid])] = existing[code_val]
             if update_on_match:
+                src_sci = r.get(sci) if sci else None
                 updates.append(
                     {
-                        "product_id": existing[code_val],
-                        "name_ar": _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
-                        "name_en": r.get(name_en) if name_en else None,
-                        "scientific_name": r.get(sci) if sci else None,
-                        "sell_price": _num(r.get(sell)) if sell else 0,
-                        "buy_price": _num(r.get(buy)) if buy else 0,
-                        "tax_price": _num(r.get(tax)) if tax else 0,
-                        "unit_big": r.get(unit_big) if unit_big else None,
-                        "unit_small": r.get(unit_small) if unit_small else None,
-                        "unit_factor": _factor(r),
-                        "is_active": _b(r.get(active)) if active else True,
-                        "is_deleted": _b(r.get(deleted)) if deleted else False,
+                        "b_pid": existing[code_val],
+                        "b_name_ar": _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+                        "b_name_en": r.get(name_en) if name_en else None,
+                        # NULL when the source field is blank so the COALESCE
+                        # in the update keeps ProCare's own value — otherwise
+                        # every sync cycle would wipe the Titan/Drug-Eye
+                        # scientific-name enrichment (docs/03 §4).
+                        "b_sci": src_sci if src_sci and str(src_sci).strip() else None,
+                        "b_sell": _num(r.get(sell)) if sell else 0,
+                        "b_buy": _num(r.get(buy)) if buy else 0,
+                        "b_tax": _num(r.get(tax)) if tax else 0,
+                        "b_unit_big": r.get(unit_big) if unit_big else None,
+                        "b_unit_small": r.get(unit_small) if unit_small else None,
+                        "b_unit_factor": _factor(r),
+                        "b_active": _b(r.get(active)) if active else True,
+                        "b_deleted": _product_deleted(r.get(deleted)) if deleted else False,
                     }
                 )
             continue
@@ -479,13 +501,30 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                 unit_small=r.get(unit_small) if unit_small else None,
                 unit_factor=_factor(r),
                 is_active=_b(r.get(active)) if active else True,
-                is_deleted=_b(r.get(deleted)) if deleted else False,
+                is_deleted=_product_deleted(r.get(deleted)) if deleted else False,
             ),
         ))
     dst.add_all([obj for _, obj in pairs])
     if updates:
-        stmt = m.Product.__table__.update().where(m.Product.product_id == bindparam("b_pid"))
-        dst.execute(stmt, [dict(u, b_pid=u.pop("product_id")) for u in updates])
+        stmt = (
+            m.Product.__table__.update()
+            .where(m.Product.product_id == bindparam("b_pid"))
+            .values(
+                name_ar=bindparam("b_name_ar"),
+                name_en=bindparam("b_name_en"),
+                # Keep ProCare's enrichment when eStock has no scientific name.
+                scientific_name=func.coalesce(bindparam("b_sci"), m.Product.scientific_name),
+                sell_price=bindparam("b_sell"),
+                buy_price=bindparam("b_buy"),
+                tax_price=bindparam("b_tax"),
+                unit_big=bindparam("b_unit_big"),
+                unit_small=bindparam("b_unit_small"),
+                unit_factor=bindparam("b_unit_factor"),
+                is_active=bindparam("b_active"),
+                is_deleted=bindparam("b_deleted"),
+            )
+        )
+        dst.execute(stmt, updates)
     dst.flush()
     for r, obj in pairs:
         if pid and r.get(pid) is not None:

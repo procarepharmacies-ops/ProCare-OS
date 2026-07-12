@@ -97,6 +97,22 @@ def ensure_prescription_status_columns(engine) -> None:
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN reviewed_by INTEGER NULL"))
 
 
+def ensure_titan_match_columns(engine) -> None:
+    """Add ``products.titan_match_method`` + ``.titan_match_score`` if the table
+    predates the Titan/Drug-Eye mapping job (docs/03 §4). Existing rows stay
+    NULL = unmapped; ``tools/titan_extract.py`` fills them."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "titan_match_method" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} titan_match_method VARCHAR(20) NULL"))
+        if "titan_match_score" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} titan_match_score INTEGER NULL"))
+
+
 def ensure_employee_reset_columns(engine) -> None:
     """Add the WhatsApp password-reset columns if the table predates them.
 
