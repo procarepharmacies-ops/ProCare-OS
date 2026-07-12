@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.services import loyalty as loyalty_svc
-from app.services.common import TODAY, money
+from app.services.common import money, today
 
 
 class POSError(Exception):
@@ -94,7 +94,7 @@ def deduct_stock_fefo(
             m.StockBatch.product_id == product_id,
             m.StockBatch.branch_id == branch_id,
             m.StockBatch.amount > 0,
-            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
         .order_by(m.StockBatch.exp_date.asc().nulls_last())
     ).all()
@@ -491,7 +491,7 @@ def _move_transfer_lines(session: Session, transfer: m.StockTransfer, lines, act
                 m.StockBatch.product_id == ln.product_id,
                 m.StockBatch.branch_id == from_branch_id,
                 m.StockBatch.amount > 0,
-                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
             )
             .order_by(m.StockBatch.exp_date.asc().nulls_last())
         ).all()

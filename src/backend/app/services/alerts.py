@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, sql_day, today
 
 
 def expiry_risk(session: Session, branch_id: int | None = None, horizon_days: int = 90) -> dict:
@@ -35,7 +35,7 @@ def expiry_risk(session: Session, branch_id: int | None = None, horizon_days: in
             m.StockBatch.amount > 0,
             m.StockBatch.exp_date != None,  # noqa: E711
             branch_filter(m.StockBatch, branch_id),
-            m.StockBatch.exp_date <= TODAY + timedelta(days=horizon_days),
+            m.StockBatch.exp_date <= today() + timedelta(days=horizon_days),
         )
         .order_by(m.StockBatch.exp_date.asc())
     ).all()
@@ -43,7 +43,7 @@ def expiry_risk(session: Session, branch_id: int | None = None, horizon_days: in
     buckets = {"expired": [], "d7": [], "d30": [], "d90": []}
     total_loss = 0.0
     for exp, amount, buy, name_ar, name_en, branch in rows:
-        days = (exp - TODAY).days
+        days = (exp - today()).days
         loss = float(amount) * float(buy)
         item = {
             "name_ar": name_ar,
@@ -113,14 +113,14 @@ def low_stock(session: Session, branch_id: int | None = None, limit: int = 100) 
 
 def _avg_daily_consumption(session: Session, branch_id: int | None, days: int = 30) -> dict[int, float]:
     """Average units sold per day per product over the trailing window."""
-    start = TODAY - timedelta(days=days)
+    start = today() - timedelta(days=days)
     rows = session.execute(
         select(m.SaleLine.product_id, func.sum(m.SaleLine.amount))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
         .group_by(m.SaleLine.product_id)
     ).all()
@@ -175,17 +175,17 @@ def forecast(session: Session, product_id: int, branch_id: int | None = None, da
     """Naive but honest forecast: trailing daily average projected forward, with
     a simple linear trend. Documented stand-in for Prophet."""
     window = 60
-    start = TODAY - timedelta(days=window)
+    start = today() - timedelta(days=window)
     rows = session.execute(
-        select(func.date(m.Sale.sale_date), func.sum(m.SaleLine.amount))
+        select(sql_day(m.Sale.sale_date), func.sum(m.SaleLine.amount))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
         .where(
             m.SaleLine.product_id == product_id,
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
-        .group_by(func.date(m.Sale.sale_date))
+        .group_by(sql_day(m.Sale.sale_date))
     ).all()
     by_day = {str(d): float(q) for d, q in rows}
     series = [by_day.get((start + timedelta(days=i)).isoformat(), 0.0) for i in range(window)]

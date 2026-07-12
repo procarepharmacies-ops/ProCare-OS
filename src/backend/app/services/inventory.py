@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, today
 
 
 def list_products(
@@ -79,7 +79,7 @@ def product_batches(session: Session, product_id: int, branch_id: int | None = N
     )
     out = []
     for batch, branch_name in session.execute(stmt):
-        expired = batch.exp_date is not None and batch.exp_date <= TODAY
+        expired = batch.exp_date is not None and batch.exp_date <= today()
         out.append(
             {
                 "batch_id": batch.batch_id,

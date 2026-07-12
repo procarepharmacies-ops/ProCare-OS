@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.db import models as m
 from app.services import loyalty, pos, whatsapp as wa
-from app.services.common import TODAY
+from app.services.common import today
 
 
 def _product_with_live_stock(session, branch_id):
@@ -16,7 +16,7 @@ def _product_with_live_stock(session, branch_id):
         .where(
             m.StockBatch.branch_id == branch_id,
             m.StockBatch.amount > 0,
-            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
         .group_by(m.StockBatch.product_id)
         .order_by(func.sum(m.StockBatch.amount).desc())

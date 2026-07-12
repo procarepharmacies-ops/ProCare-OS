@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import models as m
-from app.services.common import TODAY
+from app.services.common import sql_day, today
 
 _EXTRACT_PROMPT = (
     "You read a photo of a medical prescription from Egypt (Arabic and/or English). "
@@ -171,7 +171,7 @@ def _match_products(session: Session, name: str, branch_id: int | None) -> list[
     def on_hand(pid: int) -> float:
         q = select(func.coalesce(func.sum(m.StockBatch.amount), 0)).where(
             m.StockBatch.product_id == pid,
-            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
             m.StockBatch.amount > 0,
         )
         if branch_id:
@@ -295,8 +295,8 @@ def doctor_habits(session: Session, branch_id: int | None = None, days: int = 18
     """Prescribing habits per doctor in the area: how many prescriptions we
     captured, and which drugs each doctor writes most (with counts) — so the
     pharmacy stocks what local doctors actually prescribe."""
-    start = TODAY - timedelta(days=days)
-    q = select(m.Prescription).where(func.date(m.Prescription.created_at) >= start)
+    start = today() - timedelta(days=days)
+    q = select(m.Prescription).where(sql_day(m.Prescription.created_at) >= start)
     if branch_id:
         q = q.where(m.Prescription.branch_id == branch_id)
 
@@ -337,8 +337,8 @@ def doctor_habits(session: Session, branch_id: int | None = None, days: int = 18
 def demand_signal(session: Session, branch_id: int | None = None, days: int = 30) -> dict[str, int]:
     """Drug-name → mention count from recent prescriptions. Feeds the
     predictive auto-purchasing (drugs doctors prescribe are drugs to stock)."""
-    start = TODAY - timedelta(days=days)
-    q = select(m.Prescription.drugs_json).where(func.date(m.Prescription.created_at) >= start)
+    start = today() - timedelta(days=days)
+    q = select(m.Prescription.drugs_json).where(sql_day(m.Prescription.created_at) >= start)
     if branch_id:
         q = q.where(m.Prescription.branch_id == branch_id)
     counts: dict[str, int] = {}

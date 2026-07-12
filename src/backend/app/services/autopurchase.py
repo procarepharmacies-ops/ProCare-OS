@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.db import models as m
 from app.services import prescriptions as rx
 from app.services.alerts import _avg_daily_consumption
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, sql_day, today
 
 
 def budget_pct() -> float:
@@ -36,12 +36,12 @@ def budget_pct() -> float:
 
 def daily_budget(session: Session, branch_id: int | None = None, days: int = 30) -> dict:
     """The purchasing budget: 80% (configurable) of average daily sales."""
-    start = TODAY - timedelta(days=days - 1)
+    start = today() - timedelta(days=days - 1)
     revenue = session.execute(
         select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
     ).scalar_one()
     avg_daily = float(revenue) / days
@@ -51,7 +51,7 @@ def daily_budget(session: Session, branch_id: int | None = None, days: int = 30)
         select(func.coalesce(func.sum(m.Purchase.total_gross), 0)).where(
             m.Purchase.is_return == False,  # noqa: E712
             branch_filter(m.Purchase, branch_id),
-            m.Purchase.bill_date == TODAY,
+            m.Purchase.bill_date == today(),
         )
     ).scalar_one()
     budget = avg_daily * pct

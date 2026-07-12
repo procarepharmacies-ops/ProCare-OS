@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.db import models as m
 from app.services import ai, clinical, pos
-from app.services.common import TODAY
+from app.services.common import today
 
 
 def _by_en(session, name_en: str) -> m.Product:
@@ -28,7 +28,7 @@ def _fresh_product(session, name_ar, sci, branch_id=None, qty=0.0, price=10.0):
     if branch_id and qty > 0:
         session.add(
             m.StockBatch(product_id=p.product_id, branch_id=branch_id, amount=qty,
-                         sell_price=price, buy_price=5, exp_date=TODAY + timedelta(days=200))
+                         sell_price=price, buy_price=5, exp_date=today() + timedelta(days=200))
         )
         session.flush()
     return p
