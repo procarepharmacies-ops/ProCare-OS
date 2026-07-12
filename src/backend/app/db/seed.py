@@ -295,6 +295,7 @@ def _seed(s: Session) -> dict:
             m.Customer(
                 name_ar=name,
                 mobile="011" + "".join(str(RNG.randint(0, 9)) for _ in range(8)),
+                address=RNG.choice(["ش الجمهورية", "ش النصر", "ميدان المحطة", "ش سعد زغلول", "أمام المستشفى"]) + f" - عقار {RNG.randint(1, 90)}",
                 customer_class_id=classes[1 if is_org else 0].customer_class_id,
                 credit_limit=limit,
                 current_balance=balance,

@@ -74,6 +74,67 @@ def trial_balance(session: Session, branch_id: int | None = None) -> dict:
     }
 
 
+_ACCOUNT_TYPE_LABELS = {
+    "customer": "العملاء",
+    "vendor": "الموردون",
+    "cash": "النقدية (الخزينة)",
+    "bank": "البنوك",
+    "branch": "الفروع",
+    "general": "حسابات عامة",
+}
+
+
+def chart_of_accounts(session: Session, branch_id: int | None = None) -> dict:
+    """شجرة الحسابات — the account tree grouped by type, each type carrying its
+    sub-accounts with resolved names (customer/vendor/branch) and net balance.
+    Builds on the trial-balance aggregation, adding readable names + Arabic
+    group headers so it reads like eStock's chart of accounts."""
+    tb = trial_balance(session, branch_id)
+    # Resolve names for the ref-bearing account types in one pass each.
+    cust_names = dict(session.execute(select(m.Customer.customer_id, m.Customer.name_ar)).all())
+    vend_names = dict(session.execute(select(m.Vendor.vendor_id, m.Vendor.name_ar)).all())
+    branch_names = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_ar)).all())
+
+    groups: dict[str, dict] = {}
+    for acc in tb["accounts"].values():
+        atype = acc["type"]
+        g = groups.setdefault(
+            atype,
+            {
+                "type": atype,
+                "label": _ACCOUNT_TYPE_LABELS.get(atype, atype),
+                "debit": 0.0,
+                "credit": 0.0,
+                "balance": 0.0,
+                "accounts": [],
+            },
+        )
+        ref = acc["ref"]
+        name = None
+        if ref is not None:
+            if atype == "customer":
+                name = cust_names.get(ref)
+            elif atype == "vendor":
+                name = vend_names.get(ref)
+            elif atype == "branch":
+                name = branch_names.get(ref)
+        g["accounts"].append({**acc, "name": name or (f"#{ref}" if ref else g["label"])})
+        g["debit"] += acc["debit"]
+        g["credit"] += acc["credit"]
+        g["balance"] += acc["balance"]
+
+    ordered = [groups[k] for k in _ACCOUNT_TYPE_LABELS if k in groups]
+    ordered += [g for k, g in groups.items() if k not in _ACCOUNT_TYPE_LABELS]
+    for g in ordered:
+        g["accounts"].sort(key=lambda a: abs(a["balance"]), reverse=True)
+    return {
+        "groups": ordered,
+        "total_debit": tb["total_debit"],
+        "total_credit": tb["total_credit"],
+        "balanced": abs(tb["total_debit"] - tb["total_credit"]) < 0.01,
+    }
+
+
 def account_balance(session: Session, account_type: str, account_ref: int | None = None) -> dict:
     q = select(
         func.sum(m.LedgerEntry.debit).label("total_debit"),

@@ -195,6 +195,9 @@ export const api = {
     http("/transfers/request", { method: "POST", body: JSON.stringify(payload) }),
   approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
   rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
+  shipTransfer: (transferId) => http(`/transfers/${transferId}/ship`, { method: "POST" }),
+  receiveTransfer: (transferId, lines) =>
+    http(`/transfers/${transferId}/receive`, { method: "POST", body: JSON.stringify({ lines }) }),
 
   // Catalogue management + classification filters.
   productFilters: () => http("/inventory/filters"),
@@ -245,6 +248,9 @@ export const api = {
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),
+  customerProfile: (customerId) => http(`/customers/${customerId}/profile`),
+  updateCustomer: (customerId, payload) => http(`/customers/${customerId}`, { method: "POST", body: JSON.stringify(payload) }),
+  chartOfAccounts: (branch) => http(`/accounting/chart${bq(branch)}`),
   adjustLoyalty: (customerId, payload) =>
     http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
   saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),

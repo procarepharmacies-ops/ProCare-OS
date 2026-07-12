@@ -136,6 +136,20 @@ def ensure_product_unit_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE products {add} unit_factor NUMERIC(18,3) DEFAULT 1"))
 
 
+def ensure_customer_address_column(engine) -> None:
+    """Add ``customers.address`` (العنوان) if the table predates the customer
+    360 screen."""
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    if "address" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE customers {add} address VARCHAR(300) NULL"))
+
+
 def ensure_product_classification_columns(engine) -> None:
     """Add ``products.dosage_form/is_otc/uses`` (الشكل الصيدلاني / OTC /
     الاستخدامات) if the table predates the classification feature."""

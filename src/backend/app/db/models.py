@@ -135,6 +135,7 @@ class Customer(Base):
     name_ar: Mapped[str] = mapped_column(String(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(300), nullable=True)
     customer_class_id: Mapped[int | None] = mapped_column(
         ForeignKey("customer_classes.customer_class_id"), nullable=True
     )

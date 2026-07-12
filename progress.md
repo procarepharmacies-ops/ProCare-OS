@@ -60,3 +60,13 @@
   grouped رئيسي/فرعي nav, Settings backup card.
 - Tests: 174/174 (4 new in test_estock_parity3.py). next build clean.
 - Honest gaps queued in task_plan Phase 3 "Next".
+
+## 2026-07-11 (late) · Phase 4 — round 4 (finish owner's list)
+- BUILT the 4 queued gaps: two-phase transfer (ship+receive with expiry/qty
+  confirm), vendor statement+pay UI, customer 360 screen (+address column,
+  migration, seed), chart of accounts tab.
+- ERROR + FIX (self-annealing #3): parties.customer_profile used func without
+  importing it — NameError. Added `func` to the sqlalchemy import. Caught by
+  test_estock_parity4.
+- Tests: 181/181 (7 new across test_transfer_receive.py + test_estock_parity4.py).
+  next build clean.

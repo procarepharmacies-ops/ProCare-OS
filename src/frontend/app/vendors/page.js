@@ -7,13 +7,18 @@ import { t } from "../i18n";
 import { api } from "../api";
 
 export default function VendorsPage() {
-  const { lang } = useUI();
+  const { lang, branch, branches, user } = useUI();
   const L = (k) => t(lang, k);
   const [vendors, setVendors] = useState([]);
   const [summary, setSummary] = useState(null);
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [vendorPurchases, setVendorPurchases] = useState([]);
+  const [statement, setStatement] = useState(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMsg, setPayMsg] = useState(null);
+  const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(true);
+  const canPay = user && (user.role === "ceo" || user.role === "manager");
 
   useEffect(() => {
     const loadData = async () => {
@@ -36,16 +41,38 @@ export default function VendorsPage() {
 
   const viewVendorDetail = async (vendor) => {
     try {
-      const [detailRes, purchasesRes] = await Promise.all([
+      const [detailRes, purchasesRes, stmtRes] = await Promise.all([
         api.get(`/vendors/${vendor.vendor_id}`),
         api.get(`/vendors/${vendor.vendor_id}/purchases`),
+        api.vendorStatement(vendor.vendor_id).catch(() => null),
       ]);
       setSelectedVendor(detailRes);
       setVendorPurchases(purchasesRes.purchases || []);
+      setStatement(stmtRes);
+      setPayAmount("");
+      setPayMsg(null);
     } catch (e) {
       console.error(e);
     }
   };
+
+  async function payVendor() {
+    setPayMsg(null);
+    const branchId = Number(branch) || branches?.[0]?.branch_id || 1;
+    try {
+      const r = await api.payVendor(selectedVendor.vendor_id, {
+        branch_id: branchId,
+        amount: Number(payAmount),
+        employee_id: user?.employee_id ?? null,
+      });
+      setPayMsg({ ok: true, text: `${L("pay_vendor")} ✓ · ${L("current_balance")}: ${r.new_balance}` });
+      setPayAmount("");
+      viewVendorDetail({ vendor_id: selectedVendor.vendor_id });
+      setReload((n) => n + 1);
+    } catch (e) {
+      setPayMsg({ ok: false, text: e?.message || L("error") });
+    }
+  }
 
   if (loading) return <Shell titleKey="nav_vendors"><div className="page">{L("loading")}</div></Shell>;
 
@@ -102,7 +129,65 @@ export default function VendorsPage() {
               <div>
                 <strong>{L("total_spent")}:</strong> {parseFloat(selectedVendor.total_spent).toLocaleString("en-US")}
               </div>
+              <div>
+                <strong>{L("avg_discount")}:</strong> {selectedVendor.avg_discount_pct ?? 0}%
+              </div>
             </div>
+
+            {/* صرف / سداد للمورد */}
+            {canPay && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 16, padding: 10, background: "var(--surface)", borderRadius: 8 }}>
+                <strong>{L("pay_vendor")}:</strong>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder="0.00"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  style={{ width: 130 }}
+                />
+                <button className="btn primary" disabled={!(Number(payAmount) > 0)} onClick={payVendor}>
+                  💵 {L("pay_vendor")}
+                </button>
+                {payMsg && <span className={`badge ${payMsg.ok ? "ok" : "danger"}`}>{payMsg.text}</span>}
+              </div>
+            )}
+
+            {/* كشف حساب المورد */}
+            {statement && statement.rows && (
+              <>
+                <h4>{L("vendor_statement")}</h4>
+                <table className="tbl" style={{ width: "100%", marginBottom: 16 }}>
+                  <thead>
+                    <tr>
+                      <th>{L("date")}</th>
+                      <th>{L("type") || "النوع"}</th>
+                      <th>{L("bill_number")}</th>
+                      <th>مدين</th>
+                      <th>دائن</th>
+                      <th>{L("current_balance")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statement.rows.length === 0 ? (
+                      <tr><td colSpan="6" className="empty">{L("none")}</td></tr>
+                    ) : (
+                      statement.rows.map((r, i) => (
+                        <tr key={i}>
+                          <td className="muted">{r.date ? r.date.slice(0, 10) : "-"}</td>
+                          <td>{r.kind}</td>
+                          <td className="muted">{r.ref}</td>
+                          <td>{r.debit ? parseFloat(r.debit).toLocaleString("en-US") : "-"}</td>
+                          <td>{r.credit ? parseFloat(r.credit).toLocaleString("en-US") : "-"}</td>
+                          <td style={{ fontWeight: 600 }}>{parseFloat(r.balance).toLocaleString("en-US")}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </>
+            )}
 
             <h4>{L("purchases")}</h4>
             <table className="tbl" style={{ width: "100%" }}>

@@ -77,10 +77,17 @@ bilingual (Arabic RTL first).
 أداء الفروع بالسنوات (performance.overview); ميزان مراجعة + قائمة دخل
 (accounting); قاعدة 80% (autopurchase.daily_budget).
 
-**Next (not yet built):**
-- [ ] P4 Transfer receive review (استلام الإذن بتأكيد الصلاحية والكمية قبل الترحيل)
-- [ ] Vendor page UI: show statement + pay button (backend endpoints ready)
-- [ ] Customer 360 screen (كل العمليات + الأدوية + العنوان + النقاط + رسائل) — statement/loyalty exist, needs one screen
-- [ ] Chart of accounts screen (شجرة الحسابات) فوق دفتر القيود الموجود
-- [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync; local entry form exists؟ review
+## Phase 4 — round 4 (BUILT — same PR #17)
+- [x] P4 Two-phase transfer: request → ship (in_transit, stock leaves source) →
+      receive with per-line expiry+qty confirm (stock enters destination; short
+      receipt = shrinkage); receive task for destination manager; UI review modal
+- [x] Vendor page UI: avg discount, كشف حساب (statement), صرف/سداد form
+- [x] Customer 360 screen (👤 الملف): points+redeem, editable address, WhatsApp
+      message, medicines-they-take, full purchase history; customers.address
+      column + migration + seed; GET /customers/{id}/profile, POST /customers/{id}
+- [x] Chart of accounts (شجرة الحسابات) tab: grouped by type with resolved
+      customer/vendor/branch names, collapsible, balanced check; GET /accounting/chart
+
+## Backlog (not started)
+- [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
 - [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys

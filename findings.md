@@ -51,6 +51,13 @@
   transfer_id. Caught by running the full suite in order (test_transfer_requests
   leaves a pending request, then test_units_stagnant syncs).
 
+- 2026-07-11 · Two-phase transfer added alongside the one-step approve (kept
+  for the quick POS order-from-branch flow): request → ship (in_transit) →
+  receive. Ship moves stock OUT only (transfer_out); receive creates the
+  destination batch from the confirmed qty+expiry (transfer_in). A short
+  receipt is real shrinkage (out > in, visible in the ledger). Status CHECK
+  already allowed 'in_transit', so no migration needed.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the
