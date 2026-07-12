@@ -271,6 +271,95 @@ When Claude works on this repo:
 
 ---
 
+## Project Memory (B.L.A.S.T. protocol)
+
+This repo is run under the B.L.A.S.T. protocol (Blueprint → Link → Architect →
+Stylize → Trigger). CLAUDE.md is the **constitution** (schemas, rules,
+invariants — law). Working memory lives in:
+
+| File | Role |
+|------|------|
+| `task_plan.md` | Phases, goals, checklists (the approved Blueprint) |
+| `findings.md` | Research, discoveries, constraints |
+| `progress.md` | Run log: what was done, errors, test results |
+
+Rules: define the data schema here **before** coding a feature; update the
+plan/progress files after every meaningful task; amend CLAUDE.md only when a
+schema, rule, or architectural invariant changes. On tool failure: analyze the
+real stack trace, patch, re-test, then record the learning in `findings.md`.
+
+## Data Schemas
+
+### Stocktaking (الجرد) — `stock_counts` / `stock_count_lines`
+
+Count session (`POST /api/stocktaking` → `GET /api/stocktaking/{id}`):
+
+```json
+{
+  "count_id": 1,
+  "branch_id": 1,
+  "count_type": "full | periodic | partial",
+  "status": "open | posted | cancelled",
+  "note": "string?",
+  "created_at": "ISO", "posted_at": "ISO?",
+  "lines": [{
+    "line_id": 1, "batch_id": 10, "product_id": 5,
+    "name_ar": "…", "name_en": "…", "shelf_location": "A3?",
+    "exp_date": "2027-01-31?", "buy_price": 10.0, "sell_price": 15.0,
+    "expected_qty": 12.0,
+    "counted_qty": 11.0,
+    "variance": -1.0,
+    "variance_value": -10.0,
+    "posted_delta": -1.0
+  }],
+  "summary": {
+    "total_lines": 0, "counted_lines": 0, "variance_lines": 0,
+    "shortage_qty": 0, "shortage_value": 0,
+    "overage_qty": 0, "overage_value": 0
+  }
+}
+```
+
+Invariants: posting sets each counted batch to its **physical** quantity
+(delta computed against the LIVE amount at post time, not the snapshot); every
+non-zero delta writes a `stock_movements` row (`reason='adjust'`,
+`ref_id=count_id`); posting is atomic; `periodic` with no explicit product list
+scopes to the branch's 30-day top movers; sessions never block sales.
+
+### Units (وحدة كبرى/صغرى) — on `products`
+
+`unit_big` (علبة), `unit_small` (شريط/أمبول/كبسولة), `unit_factor` (small per
+big, >= 1). **Stock amounts are ALWAYS stored in big units**; selling n small
+units deducts n/`unit_factor`. POS sends cart amounts in big units — the unit
+selector is a display/entry convenience only. ETL maps eStock's
+product_unit1/product_unit2/product_no2per1 (graceful when absent → factor 1).
+
+### Stagnant items (الأصناف الراكدة)
+
+`GET /api/inventory/stagnant?days=90&branch_id=` → stocked items (on-hand > 0)
+with no sale in `days` days: on_hand, value (buy price), last_sale, idle_days +
+totals. `POST /api/stocktaking {scope:"stagnant"}` opens a partial count scoped
+to that list.
+
+### Cross-branch availability
+
+`list_products` with `branch_id` returns `other_branches: [{branch_id, branch,
+on_hand}]` per product (live, available stock only) — the POS shows it on
+out-of-stock rows so the cashier knows the other branch has it.
+
+### Sync wipe rule
+
+`etl._wipe_branch_rows` must delete children by BOTH batch linkage and parent
+transfer linkage — requested transfers have NULL-batch lines.
+
+### Product search
+
+`GET /api/inventory/products?search=<q>` ranks **prefix** matches on
+name_ar/name_en/code first, then scientific-name prefix, then contains-anywhere
+— one typed letter must list every product beginning with that letter.
+
+---
+
 ## Success Criteria
 
 ✅ Pharmacy operates all day without manual intervention or restarts  

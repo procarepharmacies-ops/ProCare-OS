@@ -20,7 +20,7 @@ export default function POSPage() {
 }
 
 function POSInner() {
-  const { lang, branch, branches, setBranch } = useUI();
+  const { lang, branch, branches, setBranch, user } = useUI();
   const L = (k) => t(lang, k);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -135,18 +135,61 @@ function POSInner() {
     setResult(null);
     setCart((c) => {
       const found = c.find((x) => x.product_id === p.product_id);
-      if (found) return c.map((x) => (x.product_id === p.product_id ? { ...x, amount: x.amount + 1 } : x));
-      return [...c, { product_id: p.product_id, name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar, sell_price: p.sell_price, amount: 1 }];
+      if (found)
+        return c.map((x) =>
+          x.product_id === p.product_id
+            ? { ...x, amount: x.amount + (x.unit === "small" ? 1 / (x.unit_factor || 1) : 1) }
+            : x
+        );
+      return [
+        ...c,
+        {
+          product_id: p.product_id,
+          name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
+          sell_price: p.sell_price,
+          buy_price: Number(p.buy_price) || 0,
+          amount: 1, // ALWAYS in big units (علبة) — the DB stock unit
+          unit: "big",
+          unit_big: p.unit_big || null,
+          unit_small: p.unit_small || null,
+          unit_factor: Number(p.unit_factor) > 1 ? Number(p.unit_factor) : 1,
+        },
+      ];
     });
   }
-  function setQty(pid, amount) {
-    setCart((c) => c.map((x) => (x.product_id === pid ? { ...x, amount: Math.max(1, amount) } : x)));
+  // qty is what the cashier typed, in the line's SELECTED unit; stock stays in
+  // big units, so a small-unit qty is divided by the factor (٢ شريط = ٠٫٦٦٧ علبة).
+  function setQty(pid, qty) {
+    setCart((c) =>
+      c.map((x) => {
+        if (x.product_id !== pid) return x;
+        const q = Math.max(1, qty);
+        return { ...x, amount: x.unit === "small" ? q / (x.unit_factor || 1) : q };
+      })
+    );
   }
+  function toggleUnit(pid) {
+    setCart((c) =>
+      c.map((x) => {
+        if (x.product_id !== pid || !x.unit_small || x.unit_factor <= 1) return x;
+        // Keep the physical quantity, flip only the display/entry unit.
+        return { ...x, unit: x.unit === "big" ? "small" : "big" };
+      })
+    );
+  }
+  const shownQty = (x) =>
+    x.unit === "small" ? Math.round(x.amount * (x.unit_factor || 1)) : Math.round(x.amount * 1000) / 1000;
   function removeItem(pid) {
     setCart((c) => c.filter((x) => x.product_id !== pid));
   }
 
   const total = useMemo(() => cart.reduce((s, x) => s + x.sell_price * x.amount, 0), [cart]);
+  // مكسب الفاتورة أثناء البيع — manager/CEO eyes only (buy prices are gated).
+  const invoiceProfit = useMemo(
+    () => cart.reduce((s, x) => s + (x.sell_price - (x.buy_price || 0)) * x.amount, 0),
+    [cart]
+  );
+  const canSeeProfit = user && (user.role === "ceo" || user.role === "manager");
 
   useEffect(() => {
     if (!posBranch) return;
@@ -447,8 +490,20 @@ function POSInner() {
               placeholder={L("search") + "…"}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter = take the top suggestion straight into the cart.
+                if (e.key === "Enter" && products.length > 0 && products[0].on_hand > 0) {
+                  addToCart(products[0]);
+                  setSearch("");
+                }
+              }}
               style={{ width: "100%" }}
             />
+            {search && (
+              <p className="muted" style={{ margin: "6px 2px 0", fontSize: 12 }}>
+                {products.length} {L("search_matches")} — Enter {L("search_enter_hint")}
+              </p>
+            )}
           </div>
           <div style={{ maxHeight: 460, overflowY: "auto" }}>
             <table className="tbl">
@@ -464,13 +519,28 @@ function POSInner() {
                     }
                     title={p.on_hand > 0 ? "" : L("oos_show_alts")}
                   >
-                    <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}</td>
+                    <td>
+                      {lang === "ar" ? p.name_ar : p.name_en || p.name_ar}
+                      {p.unit_small && p.unit_factor > 1 && (
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {" "}· {p.unit_big || ""} = {fmt(p.unit_factor)} {p.unit_small}
+                        </span>
+                      )}
+                    </td>
                     <td className="num muted">{fmt(p.sell_price)}</td>
                     <td className="num">
                       {p.on_hand > 0 ? (
                         <span className="muted">{fmt(p.on_hand)}</span>
                       ) : (
-                        <span className="badge danger">0</span>
+                        <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <span className="badge danger">0</span>
+                          {/* أثناء البيع: هل الصنف متوفر في الفرع الآخر؟ */}
+                          {(p.other_branches || []).map((b) => (
+                            <span key={b.branch_id} className="badge ok" style={{ fontSize: 11 }}>
+                              {L("available_in")} {b.branch}: {fmt(b.on_hand)}
+                            </span>
+                          ))}
+                        </span>
                       )}
                     </td>
                     <td>{p.on_hand > 0 ? "＋" : "⇄"}</td>
@@ -491,11 +561,22 @@ function POSInner() {
               <button className="btn icon" onClick={() => showSubs(x)} title={L("alternatives")}>
                 ⇄
               </button>
+              {/* Unit selector (وحدة كبرى/صغرى): sell by علبة or by شريط/أمبول. */}
+              {x.unit_small && x.unit_factor > 1 && (
+                <button
+                  className="btn"
+                  style={{ padding: "2px 8px", fontSize: 12 }}
+                  title={`1 ${x.unit_big || ""} = ${x.unit_factor} ${x.unit_small}`}
+                  onClick={() => toggleUnit(x.product_id)}
+                >
+                  {x.unit === "small" ? x.unit_small : x.unit_big || L("unit_lbl")} ▾
+                </button>
+              )}
               <input
                 className="input"
                 type="number"
                 min={1}
-                value={x.amount}
+                value={shownQty(x)}
                 onChange={(e) => setQty(x.product_id, Number(e.target.value))}
                 style={{ width: 64 }}
               />
@@ -562,6 +643,14 @@ function POSInner() {
                 {fmt(total)} {L("egp")}
               </span>
             </div>
+            {canSeeProfit && cart.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 4 }} className="muted">
+                <span>{L("invoice_profit")}</span>
+                <span className="num" style={{ color: invoiceProfit >= 0 ? "var(--ok)" : "var(--danger)" }}>
+                  {fmt(invoiceProfit)} {L("egp")}
+                </span>
+              </div>
+            )}
 
             {advisory.length > 0 && (
               <div

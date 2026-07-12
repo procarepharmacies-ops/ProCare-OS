@@ -336,6 +336,11 @@ def _resolve_branch_map(
 
 
 def _wipe_destination(dst: Session) -> None:
+    # The full wipe is the single most destructive operation in the system —
+    # make sure a recent backup exists first (throttled; fail-soft).
+    from app.services import backup
+
+    backup.backup_if_stale(6, "pre-sync-wipe")
     for model in _WIPE_ORDER:
         if model is not None:
             dst.execute(text(f"DELETE FROM {model.__tablename__}"))
@@ -365,11 +370,19 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
     dst.execute(delete(m.PurchaseLine).where(m.PurchaseLine.purchase_id.in_(purchase_ids)))
     dst.execute(delete(m.Purchase).where(m.Purchase.branch_id.in_(ids)))
     # Transfers touch batches on BOTH ends — any line touching a wiped batch
-    # goes, then every transfer with a wiped endpoint branch.
+    # goes, then every transfer with a wiped endpoint branch. Lines are matched
+    # by parent transfer too, not only by batch: a *requested* (not yet
+    # approved) transfer's lines have NULL batch ids and would otherwise
+    # survive, failing the parent delete with a FK error and killing the whole
+    # sync cycle.
+    dying_transfers = select(m.StockTransfer.transfer_id).where(
+        m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
+    )
     dst.execute(
         delete(m.StockTransferLine).where(
             m.StockTransferLine.from_batch_id.in_(batch_ids)
             | m.StockTransferLine.to_batch_id.in_(batch_ids)
+            | m.StockTransferLine.transfer_id.in_(dying_transfers)
         )
     )
     dst.execute(
@@ -406,6 +419,17 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
     tax = _pick(cols, "tax_price")
     deleted = _pick(cols, "deleted")
     active = _pick(cols, "active")
+    # Units (وحدة كبرى/صغرى): eStock column names vary by version — try the
+    # known spellings; absent columns just leave the defaults (factor 1).
+    unit_big = _pick(cols, "product_unit1", "unit1", "product_unit", "unit_name", "product_unit_ar")
+    unit_small = _pick(cols, "product_unit2", "unit2", "sub_unit", "product_sub_unit")
+    unit_factor = _pick(
+        cols, "product_no2per1", "no2per1", "unit2_per_unit1", "product_unit2_count", "unit_factor"
+    )
+
+    def _factor(r) -> float:
+        f = _num(r.get(unit_factor), 1) if unit_factor else 1
+        return f if f and f > 0 else 1
 
     def _pkey(code_val, nm):
         # Codeless products fall back to the display name, otherwise a repeated
@@ -452,6 +476,9 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                         "b_sell": _num(r.get(sell)) if sell else 0,
                         "b_buy": _num(r.get(buy)) if buy else 0,
                         "b_tax": _num(r.get(tax)) if tax else 0,
+                        "b_unit_big": r.get(unit_big) if unit_big else None,
+                        "b_unit_small": r.get(unit_small) if unit_small else None,
+                        "b_unit_factor": _factor(r),
                         "b_active": _b(r.get(active)) if active else True,
                         "b_deleted": _product_deleted(r.get(deleted)) if deleted else False,
                     }
@@ -470,6 +497,9 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                 sell_price=_num(r.get(sell)) if sell else 0,
                 buy_price=_num(r.get(buy)) if buy else 0,
                 tax_price=_num(r.get(tax)) if tax else 0,
+                unit_big=r.get(unit_big) if unit_big else None,
+                unit_small=r.get(unit_small) if unit_small else None,
+                unit_factor=_factor(r),
                 is_active=_b(r.get(active)) if active else True,
                 is_deleted=_product_deleted(r.get(deleted)) if deleted else False,
             ),
@@ -487,6 +517,9 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                 sell_price=bindparam("b_sell"),
                 buy_price=bindparam("b_buy"),
                 tax_price=bindparam("b_tax"),
+                unit_big=bindparam("b_unit_big"),
+                unit_small=bindparam("b_unit_small"),
+                unit_factor=bindparam("b_unit_factor"),
                 is_active=bindparam("b_active"),
                 is_deleted=bindparam("b_deleted"),
             )

@@ -234,6 +234,15 @@ def _seed(s: Session) -> dict:
             tax_price=0,
             wholesale_price=round(sell * 0.92, 2),
             min_stock=RNG.choice([10, 15, 20, 25, 30]),
+            unit_big="علبة",
+            unit_small=RNG.choice(["شريط", "شريط", "أمبول", "كبسولة"]),
+            unit_factor=RNG.choice([2, 3, 3, 6, 10]),
+            dosage_form=RNG.choice(["أقراص", "أقراص", "شراب", "حقن", "كريم", "نقط", "لبوس"]),
+            is_otc=(i % 3 == 0),
+            uses=RNG.choice([
+                "مسكن وخافض للحرارة", "مضاد حيوي واسع المجال", "مضاد للالتهاب",
+                "علاج البرد والاحتقان", "فيتامينات ومكملات", "علاج الحموضة والمعدة",
+            ]),
         )
         products.append(p)
     s.add_all(products)
@@ -286,6 +295,7 @@ def _seed(s: Session) -> dict:
             m.Customer(
                 name_ar=name,
                 mobile="011" + "".join(str(RNG.randint(0, 9)) for _ in range(8)),
+                address=RNG.choice(["ش الجمهورية", "ش النصر", "ميدان المحطة", "ش سعد زغلول", "أمام المستشفى"]) + f" - عقار {RNG.randint(1, 90)}",
                 customer_class_id=classes[1 if is_org else 0].customer_class_id,
                 credit_limit=limit,
                 current_balance=balance,

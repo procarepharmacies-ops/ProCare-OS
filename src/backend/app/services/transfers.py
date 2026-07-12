@@ -163,6 +163,66 @@ def reject_transfer(session: Session, transfer_id: int) -> dict:
     return {"transfer_id": t.transfer_id, "status": t.status}
 
 
+def ship_transfer(session: Session, transfer_id: int, shipped_by: int | None = None) -> dict:
+    """Source releases the goods (status -> in_transit). Closes the source's
+    approval task and raises a receive task for the DESTINATION manager, who
+    confirms expiry + quantity on arrival."""
+    t = pos.ship_transfer(session, transfer_id, shipped_by=shipped_by)
+    _close_approval_task(session, transfer_id)
+
+    names = _branch_map(session)
+    from_name = names.get(t.from_branch_id, "?")
+    to_name = names.get(t.to_branch_id, "?")
+    from app.services import tasks as tasks_svc
+
+    manager = _branch_manager(session, t.to_branch_id)
+    tasks_svc.create_task(
+        session,
+        title=f"استلام تحويل #{t.transfer_id} من فرع {from_name}",
+        details=(
+            f"وصلت بضاعة محوّلة من فرع {from_name}. راجع كل صنف وأكّد تاريخ "
+            "الصلاحية والكمية المستلمة من شاشة التحويلات لإتمام الإذن."
+        ),
+        assignee_id=manager.employee_id if manager else None,
+        branch_id=t.to_branch_id,
+        created_by=shipped_by,
+        priority="high",
+        category="approval",
+    )
+    from app.services import whatsapp as wa
+
+    wa.notify_manager(
+        wa.transfer_request_message(t.transfer_id, from_name, to_name, len(t.lines))
+    )
+    return {"transfer_id": t.transfer_id, "status": t.status}
+
+
+def receive_transfer(
+    session: Session, transfer_id: int, confirmations: dict | None = None, received_by: int | None = None
+) -> dict:
+    """Destination confirms receipt (expiry + quantity) — stock enters
+    destination inventory and the receive task is closed."""
+    t = pos.receive_transfer(session, transfer_id, confirmations, received_by=received_by)
+    _close_receive_task(session, transfer_id)
+    return {"transfer_id": t.transfer_id, "status": t.status}
+
+
+def _close_receive_task(session: Session, transfer_id: int) -> None:
+    tasks = session.scalars(
+        select(m.EmployeeTask).where(
+            m.EmployeeTask.title.like(f"استلام تحويل #{transfer_id} %"),
+            m.EmployeeTask.status == "pending",
+        )
+    ).all()
+    from datetime import datetime
+
+    for t in tasks:
+        t.status = "done"
+        t.completed_at = datetime.now()
+    if tasks:
+        session.commit()
+
+
 def _close_approval_task(session: Session, transfer_id: int) -> None:
     """Mark the matching approval task done once the request is resolved."""
     tasks = session.scalars(
