@@ -15,6 +15,7 @@ const NAV_GROUPS = [
     key: "navg_ops",
     items: [
       { href: "/", key: "nav_dashboard", ico: "dashboard", roles: null },
+      { href: "/operations", key: "nav_operations", ico: "chart", roles: ["ceo", "manager"] },
       { href: "/pos", key: "nav_pos", ico: "receipt", roles: null },
       { href: "/prescriptions", key: "nav_prescriptions", ico: "camera", roles: null },
       { href: "/tasks", key: "nav_tasks", ico: "clipboard", roles: null },
@@ -60,6 +61,14 @@ const NAV_GROUPS = [
       { href: "/clinical", key: "nav_clinical", ico: "mortar", roles: null },
       { href: "/assistant", key: "nav_assistant", ico: "sparkle", roles: null },
       { href: "/settings", key: "nav_settings", ico: "gear", roles: ["ceo", "manager"] },
+    ],
+  },
+  {
+    key: "navg_agentic",
+    items: [
+      { href: "/cockpit", key: "nav_cockpit", ico: "dashboard", roles: ["ceo", "manager"] },
+      { href: "/agents", key: "nav_agents", ico: "robot", roles: ["ceo", "manager"] },
+      { href: "/knowledge", key: "nav_knowledge", ico: "book", roles: ["ceo", "manager", "assistant"] },
     ],
   },
 ];

@@ -47,6 +47,12 @@ def _employee_out(emp: m.Employee) -> dict:
     }
 
 
+@router.options("/login")
+def login_options():
+    """CORS preflight handler."""
+    return {}
+
+
 @router.post("/login")
 def login(payload: LoginIn, session: Session = Depends(get_session)):
     emp = auth_svc.authenticate(session, payload.username.strip(), payload.password)
@@ -57,6 +63,12 @@ def login(payload: LoginIn, session: Session = Depends(get_session)):
 
 class ForgotPasswordIn(BaseModel):
     username: str
+
+
+@router.options("/forgot-password")
+def forgot_password_options():
+    """CORS preflight handler."""
+    return {}
 
 
 @router.post("/forgot-password")
@@ -76,6 +88,12 @@ class ResetPasswordIn(BaseModel):
     username: str
     code: str
     new_password: str
+
+
+@router.options("/reset-password")
+def reset_password_options():
+    """CORS preflight handler."""
+    return {}
 
 
 @router.post("/reset-password")

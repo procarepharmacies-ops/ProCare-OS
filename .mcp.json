@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "gemini-api-docs-mcp": {
+      "type": "http",
+      "url": "https://gemini-api-docs-mcp.dev"
+    },
+    "procare-os": {
+      "command": "python",
+      "args": ["src/backend/tools/mcp_server.py"]
+    }
+  }
+}

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import Date, and_, cast, func, or_
+from sqlalchemy import Date, and_, case, cast, func, or_
 from sqlalchemy.orm import Query
 
 from app.config import settings
@@ -37,6 +37,18 @@ def sql_day(col):
     Server's ``CAST(x AS DATE)`` degrades to a numeric cast on SQLite —
     so pick per dialect."""
     return func.date(col) if IS_SQLITE else cast(col, Date)
+
+
+def fefo_order(col=m.StockBatch.exp_date):
+    """Portable FEFO ordering: ascending expiry, NULLs last.
+
+    ``col.asc().nulls_last()`` emits ``ORDER BY ... NULLS LAST``, which is valid
+    on SQLite/Postgres but a syntax error on SQL Server (no NULLS clause). Emulate
+    it with a leading sort key that pushes NULLs to the end on every dialect.
+    Spread into order_by: ``.order_by(*fefo_order())``. FEFO is non-negotiable
+    (CLAUDE.md), so this MUST behave identically on SQLite and SQL Server.
+    """
+    return (case((col.is_(None), 1), else_=0), col.asc())
 
 
 def available_stock_filter():

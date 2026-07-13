@@ -80,11 +80,22 @@ def create_count(
 
 
 def list_counts(session: Session, branch_id: int | None = None, limit: int = 50) -> list[dict]:
+    # Line counts are aggregated in a subquery (grouped only by count_id, which
+    # is valid on every dialect) and then joined. Aggregating in the OUTER query
+    # while also selecting the whole StockCount row is a SQLite-only shortcut —
+    # SQL Server rejects it (every selected column must be in GROUP BY, err 8120).
+    line_counts = (
+        select(
+            m.StockCountLine.count_id.label("count_id"),
+            func.count(m.StockCountLine.line_id).label("n_lines"),
+        )
+        .group_by(m.StockCountLine.count_id)
+        .subquery()
+    )
     stmt = (
-        select(m.StockCount, m.Branch.name_ar, func.count(m.StockCountLine.line_id))
+        select(m.StockCount, m.Branch.name_ar, func.coalesce(line_counts.c.n_lines, 0))
         .join(m.Branch, m.Branch.branch_id == m.StockCount.branch_id)
-        .join(m.StockCountLine, m.StockCountLine.count_id == m.StockCount.count_id, isouter=True)
-        .group_by(m.StockCount.count_id, m.Branch.name_ar)
+        .join(line_counts, line_counts.c.count_id == m.StockCount.count_id, isouter=True)
         .order_by(m.StockCount.count_id.desc())
         .limit(limit)
     )
