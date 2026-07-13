@@ -12,10 +12,10 @@
     "password": "REPLACE_ME",
     "encrypt": "yes",
     "trust_server_certificate": "yes",
-    "_store_branch_map": "Maps eStock store_id -> ProCare branch code. Missing codes are auto-created on first sync. On the live Elsanta server store 1 = the pharmacy and store 2 = the expired-items depot.",
+    "_store_branch_map": "Maps eStock store_id -> ProCare branch code. Missing codes are auto-created on first sync. On the live Elsanta server store 1 = the pharmacy and store 2 = the expired-items depot; both fold into the single ELSANTA branch (Procare has only two pharmacies: Elsanta + Mas-hala).",
     "store_branch_map": {
       "1": "ELSANTA",
-      "2": "ELSANTA_EXP"
+      "2": "ELSANTA"
     }
   },
   "_estock_sources": "Multi-branch: one entry PER branch server, each with its own store_branch_map. When present this list replaces estock_source for the continuous sync; every source refreshes only its own branches in the one ProCare database.",
@@ -31,7 +31,7 @@
       "trust_server_certificate": "yes",
       "store_branch_map": {
         "1": "ELSANTA",
-        "2": "ELSANTA_EXP"
+        "2": "ELSANTA"
       }
     },
     {
@@ -72,10 +72,6 @@
     "titan_app_path": "D:\\downlod\\TITAN.W1B.exe"
   },
   "branches": {
-    "main": {
-      "name_ar": "الرئيسي",
-      "name_en": "Main"
-    },
     "elsanta": {
       "name_ar": "السنطه",
       "name_en": "Elsanta",

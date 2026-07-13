@@ -2,7 +2,7 @@
 
 The intelligence layer that makes ProCare OS more than a modern eStock. Arabic‑first; runs over
 ProCare's own clean database (and Titan/Drug‑Eye for clinical checks). Everything here is
-**multi‑branch** (Main / Elsanta / consolidated) and obeys the project guardrails: read‑only against
+**multi‑branch** (Elsanta / Mas-hala / consolidated) and obeys the project guardrails: read‑only against
 eStock, advisory clinical output, and no secrets in git.
 
 **Related docs:** [`01-architecture.md`](01-architecture.md) (where this layer sits) ·
@@ -72,7 +72,7 @@ class PharmacyAI:
 - `drug_interactions()` / dosing come from **Titan / Drug‑Eye** (`D:\Labirdo`); the Titan schema is
   not yet audited (**TBD**) — see [`03`](03-titan-drugeye-integration.md).
 - `sales_forecast()` uses **Prophet** on ProCare's own sales history (`sales` + `sale_lines`).
-- Every method accepts an implicit **branch scope** (Main / Elsanta / consolidated) via `context`;
+- Every method accepts an implicit **branch scope** (Elsanta / Mas-hala / consolidated) via `context`;
   results carry `branch_id` so the UI can filter or aggregate.
 
 ---
@@ -113,7 +113,7 @@ class PharmacyAutomation:
 
 - Scheduling via **APScheduler** inside the FastAPI service (Windows Task Scheduler is the fallback
   if the service is not run as a long‑lived daemon). Cron expressions above are the source of truth.
-- Alerts and reports are produced **per branch (Main, Elsanta) and consolidated** — see §4.5.
+- Alerts and reports are produced **per branch (Elsanta, Mas-hala) and consolidated** — see §4.5.
 - WhatsApp via the **WhatsApp Cloud API** (a gateway is an acceptable alternative; final choice is a
   config decision, not a code change). PDFs rendered with **WeasyPrint / ReportLab**.
 - **Expiry auto‑lock:** a product whose only on‑hand stock is expired is blocked from sale at the POS.
@@ -185,20 +185,20 @@ own DB only. All read‑query patterns are seeded in
 
 ## 4.5 Per‑branch + consolidated alerting
 
-ProCare runs two physical branches — **MAIN (الرئيسي)** and **ELSANTA (السنتا)** — and every
+ProCare runs two physical branches — **MASHALA (مسهله)** and **ELSANTA (السنطه)** — and every
 operational row carries a `branch_id` (see [`07-multi-branch.md`](07-multi-branch.md)). The
 intelligence layer respects that end to end:
 
 - **Per branch.** `expiry_alerts`, `auto_purchase_order`, low‑stock, debtors and `auto_reports` all
-  run **once per branch**, so Elsanta's manager gets Elsanta's numbers and Main's gets Main's.
+  run **once per branch**, so Elsanta's manager gets Elsanta's numbers and Mas-hala's gets Mas-hala's.
 - **Consolidated.** A group‑level roll‑up (mirroring eStock's branch ledger `Gedo_branches`, 9,271
   rows) combines both branches for the owner.
-- **Transfers.** Reorder logic is transfer‑aware: if Main is overstocked on an item Elsanta is short
+- **Transfers.** Reorder logic is transfer‑aware: if Mas-hala is overstocked on an item Elsanta is short
   on, the suggestion can be an **inter‑branch transfer** (`stock_transfers`) instead of a new PO
   (eStock: `Branch_order_header` 8,204 / `Branch_order_details` 61,872).
 - **Routing.** Which manager/phone/email receives which branch's alerts is configuration, not code.
 
-This matches the Phase‑2 plan to pilot on **Elsanta** first, then cut Main over — the same alerting
+This matches the Phase‑2 plan to pilot on **Elsanta** first, then cut Mas-hala over — the same alerting
 code serves one branch, the other, or both combined without change. See
 [`06-roadmap.md`](06-roadmap.md).
 

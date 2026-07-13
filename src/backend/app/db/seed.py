@@ -104,7 +104,7 @@ EMPLOYEES = [
     ("مدير النظام", "admin", "Admin", True, "ceo"),
     ("أحمد الكاشير", "ahmed", "Cashier", False, "assistant"),
     ("سارة الصيدلانية", "sara", "Pharmacist", False, "manager"),
-    ("محمد فرع السنتا", "mohamed", "Cashier", False, "assistant"),
+    ("محمد فرع مسهله", "mohamed", "Cashier", False, "assistant"),
 ]
 
 
@@ -158,26 +158,30 @@ def ensure_seeded() -> dict:
 
 
 def _ensure_branches(s: Session) -> list:
-    """The two founding branch rows, created only if missing (mirror needs ≥1)."""
-    main = s.scalars(select(m.Branch).where(m.Branch.code == "MAIN")).first()
-    if main is None:
-        main = m.Branch(code="MAIN", name_ar="الرئيسي", name_en="Main", is_pilot=False)
-        s.add(main)
+    """The two real pharmacy branches, created only if missing (mirror needs ≥1).
+
+    Procare runs exactly two locations: Elsanta (السنطه) and Mas-hala (مسهله).
+    There is no separate 'Main' branch — Elsanta is the primary.
+    """
     elsanta = s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first()
     if elsanta is None:
-        elsanta = m.Branch(code="ELSANTA", name_ar="السنتا", name_en="Elsanta", is_pilot=True)
+        elsanta = m.Branch(code="ELSANTA", name_ar="السنطه", name_en="Elsanta", is_pilot=True)
         s.add(elsanta)
+    mashala = s.scalars(select(m.Branch).where(m.Branch.code == "MASHALA")).first()
+    if mashala is None:
+        mashala = m.Branch(code="MASHALA", name_ar="مسهله", name_en="Mas-hala", is_pilot=False)
+        s.add(mashala)
     s.flush()
-    return [main, elsanta]
+    return [elsanta, mashala]
 
 
 def _seed(s: Session) -> dict:
     # --- Branches (the schema seeds these; we own them here on SQLite) --------
     # Check-before-insert: a partially-seeded DB (tables/branches already present
     # but zero products) must not crash ensure_seeded() with a duplicate-key
-    # error on MAIN/ELSANTA — reuse the existing rows instead of re-inserting.
-    main, elsanta = _ensure_branches(s)
-    branches = [main, elsanta]
+    # error on ELSANTA/MASHALA — reuse the existing rows instead of re-inserting.
+    elsanta, mashala = _ensure_branches(s)
+    branches = [elsanta, mashala]
 
     # --- Reference data -------------------------------------------------------
     companies = [m.Company(name_ar=n) for n in COMPANIES]
@@ -201,7 +205,7 @@ def _seed(s: Session) -> dict:
             password_hash=_hash("procare123"),
             role=login_role,
             job_id=jobs[0].job_id if is_admin else jobs[1].job_id,
-            branch_id=elsanta.branch_id if "السنتا" in name_ar else main.branch_id,
+            branch_id=mashala.branch_id if "مسهله" in name_ar else elsanta.branch_id,
             can_see_buy_price=is_admin,
             can_edit_sell_price=is_admin,
             can_sale_credit=is_admin or role_en == "Pharmacist",

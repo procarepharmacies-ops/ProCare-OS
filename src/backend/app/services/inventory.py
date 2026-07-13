@@ -86,7 +86,7 @@ def list_products(
 
     # Cross-branch availability (أثناء البيع): when the caller is scoped to one
     # branch, also report each product's live stock at the OTHER branches so the
-    # cashier instantly sees "متوفر في السنتا: ٩١" for an item that's out here.
+    # cashier instantly sees "متوفر في السنطه: ٩١" for an item that's out here.
     others: dict[int, list[dict]] = {}
     if branch_id and rows:
         ids = [p.product_id for p, _ in rows]
