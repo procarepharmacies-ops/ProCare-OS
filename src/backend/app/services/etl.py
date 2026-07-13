@@ -941,31 +941,32 @@ def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
     (positive → debit, negative → credit). ``_WIPE_ORDER`` clears LedgerEntry on
     every full refresh, so re-running never double-counts.
     """
-    if not insp.has_table("Cash_depots"):
-        counts.setdefault("treasury_depots", 0)
-        return
-    cols = {c["name"] for c in insp.get_columns("Cash_depots")}
-    name = _pick(cols, "cash_depot_name_ar", "cash_depot_name_en")
-    money_col = _pick(cols, "cash_depot_current_money")
-    bank = _pick(cols, "bank_id")
-    if not money_col:
-        counts.setdefault("treasury_depots", 0)
-        return
-    rows = src.execute(text("SELECT * FROM Cash_depots")).mappings().all()
+    # Head-office layout: Cash_depots = this branch's vaults; Branches_cash_depots
+    # = the other branches' vaults held at head office. Mirror BOTH so the
+    # treasury total matches eStock's "cash accounts by branch" report.
     entries = []
-    for r in rows:
-        bal = _num(r.get(money_col))
-        is_bank = bool(r.get(bank)) if bank else False
-        entries.append(
-            m.LedgerEntry(
-                branch_id=default_branch,
-                account_type="bank" if is_bank else "cash",
-                ref_type="depot",
-                debit=bal if bal >= 0 else 0,
-                credit=-bal if bal < 0 else 0,
-                note=(str(r.get(name)) if name else "depot"),
+    for tbl in ("Cash_depots", "Branches_cash_depots"):
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        name = _pick(cols, "cash_depot_name_ar", "cash_depot_name_en")
+        money_col = _pick(cols, "cash_depot_current_money")
+        bank = _pick(cols, "bank_id")
+        if not money_col:
+            continue
+        for r in src.execute(text(f"SELECT * FROM {tbl}")).mappings().all():
+            bal = _num(r.get(money_col))
+            is_bank = bool(r.get(bank)) if bank else False
+            entries.append(
+                m.LedgerEntry(
+                    branch_id=default_branch,
+                    account_type="bank" if is_bank else "cash",
+                    ref_type="depot",
+                    debit=bal if bal >= 0 else 0,
+                    credit=-bal if bal < 0 else 0,
+                    note=(str(r.get(name)) if name else "depot"),
+                )
             )
-        )
     if entries:
         dst.add_all(entries)
         dst.flush()
