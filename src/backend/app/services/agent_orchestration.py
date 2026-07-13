@@ -27,8 +27,33 @@ from app.config import settings
 from app.db import models as m
 
 HERMES_URL = os.environ.get("HERMES_URL", "http://127.0.0.1:5000")
+# Hermes runs as a LOCAL Ollama model (no data leaves the machine), so it works
+# offline and needs no API key. OLLAMA_URL is the daemon; HERMES_MODEL is the
+# model it drives (qwen2.5 handles Arabic well). If Ollama is reachable, Hermes
+# is online AND dispatchable.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+HERMES_MODEL = os.environ.get("HERMES_MODEL", "gemma3:1b-it-qat")
 DISPATCH_TIMEOUT = int(os.environ.get("DISPATCH_TIMEOUT", "300"))
 DRY_RUN_DEFAULT = os.environ.get("MCP_AGENT_DRY_RUN", "true").lower() != "false"
+
+
+def _ollama_up() -> bool:
+    return _http_ok(OLLAMA_URL.rstrip("/") + "/api/tags")
+
+
+def _run_hermes(task: str) -> str:
+    """Run a task on the local Ollama model (Hermes). Local + private: nothing
+    leaves the machine, so it is safe for sensitive pharmacy data."""
+    url = OLLAMA_URL.rstrip("/") + "/api/chat"
+    body = json.dumps({
+        "model": HERMES_MODEL,
+        "messages": [{"role": "user", "content": task}],
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=DISPATCH_TIMEOUT) as r:
+        data = json.loads(r.read())
+    return (data.get("message", {}) or {}).get("content", "") or "(no text)"
 
 
 def _http_ok(url: str, timeout: int = 3) -> bool:
@@ -52,13 +77,14 @@ def agent_status() -> dict:
     """Return the online/offline/dispatchable state of all registered agents."""
     agents = []
 
-    # Hermes (pharmacy ops stack)
-    hermes_up = _http_ok(HERMES_URL)
+    # Hermes = local Ollama model (private, offline, no key). Online AND
+    # dispatchable whenever the Ollama daemon is reachable.
+    hermes_up = _ollama_up()
     agents.append({
         "id": "hermes", "label": "Hermes Ops", "label_ar": "هيرمس العمليات",
         "kind": "ops", "online": hermes_up,
-        "detail": "http reachable on :5000" if hermes_up else "offline (:5000 not responding)",
-        "dispatchable": False,
+        "detail": f"local · {HERMES_MODEL}" if hermes_up else "offline (Ollama not running on :11434)",
+        "dispatchable": hermes_up,
     })
 
     # Claude Code CLI
@@ -164,20 +190,27 @@ def dispatch(
         return {**base, "status": "blocked", "output": f"{agent} not dispatchable. {hints.get(agent, '')}", "latency_ms": 0}
 
     cmd = _build_command(agent, task, workspace)
-    base["command"] = " ".join(cmd) if cmd else f"gemini REST · {task[:40]}…"
+    base["command"] = " ".join(cmd) if cmd else f"{agent} · {task[:40]}…"
 
-    if dry_run:
+    # Hermes is a LOCAL model (nothing leaves the machine, text-only output), so
+    # it is exempt from the dry-run / external-confirm guard that protects agents
+    # which write externally or send data off-device.
+    local_safe = agent == "hermes"
+
+    if dry_run and not local_safe:
         result = {**base, "status": "blocked", "output": "dry run — not executed", "latency_ms": 0}
         _audit(session, result)
         return result
 
-    if not confirm:
+    if not confirm and not local_safe:
         result = {**base, "status": "blocked", "output": "confirmation required — resend with confirm=true", "latency_ms": 0}
         _audit(session, result)
         return result
 
     try:
-        if agent == "gemini":
+        if agent == "hermes":
+            out = _run_hermes(task)
+        elif agent == "gemini":
             out = _run_gemini(task)
         else:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=DISPATCH_TIMEOUT, shell=False)
