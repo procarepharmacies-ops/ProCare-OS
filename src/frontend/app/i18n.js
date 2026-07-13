@@ -161,6 +161,7 @@ export const dict = {
     nav_clinical: "الدواء والتفاعلات",
     nav_assistant: "المساعد الذكي",
     nav_reports: "التقارير",
+    nav_reports_daily: "المبيعات اليومية",
     nav_settings: "الإعدادات",
     // kpis
     sales_today: "مبيعات اليوم",
@@ -885,6 +886,7 @@ export const dict = {
     nav_clinical: "Drug & Interactions",
     nav_assistant: "AI Assistant",
     nav_reports: "Reports",
+    nav_reports_daily: "Daily Sales",
     nav_settings: "Settings",
     sales_today: "Sales today",
     sales_month: "Sales this month",
