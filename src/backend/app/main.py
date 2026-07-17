@@ -22,6 +22,7 @@ from app.api.routes import router as api_router
 from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
+    ensure_assigned_agent_column,
     ensure_customer_address_column,
     ensure_employee_reset_columns,
     ensure_loyalty_points_column,
@@ -55,6 +56,7 @@ async def lifespan(_app: FastAPI):
     ensure_product_unit_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
+    ensure_assigned_agent_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 
@@ -83,6 +85,9 @@ async def lifespan(_app: FastAPI):
     # auto-reports) when AUTOMATION_ENABLED is set and APScheduler is installed;
     # otherwise it stays idle and jobs remain fireable on demand.
     scheduler.start()
+    # Index business knowledge graph (docs, schemas, findings).
+    from app.services import knowledge as knowledge_svc
+    knowledge_svc.refresh()
     try:
         yield
     finally:
@@ -101,16 +106,14 @@ app = FastAPI(
 # proxies /api to the backend server-side (same origin), so CORS isn't strictly
 # needed — but allow it to be configured for setups that call the API directly.
 # Set PROCARE_CORS_ORIGINS to a comma-separated list, or "*" to allow any origin.
-_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").strip()
+_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3100,http://localhost:3000,http://localhost:3001,http://127.0.0.1:3100,http://127.0.0.1:3000,http://127.0.0.1:3001").strip()
 _allow_all = _cors_env == "*"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if _allow_all else [o.strip() for o in _cors_env.split(",") if o.strip()],
-    # "*" origins and credentials can't be combined per the CORS spec; the app
-    # uses no cookies/auth, so dropping credentials in that mode is safe.
-    allow_credentials=not _allow_all,
+    allow_origin_regex=".*",  # Allow all origins (browser will include Origin header)
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,  # Cookies/auth not used
 )
 
 app.include_router(api_router, prefix="/api")

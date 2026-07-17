@@ -6,7 +6,7 @@ const nextConfig = {
     // `??` keeps an explicit empty string ("" = same-origin, used in Docker
     // where /api is proxied to the backend below).
     NEXT_PUBLIC_API_BASE:
-      process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000",
+      process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100",
   },
   // In the container deployment the browser calls the frontend's own origin and
   // Next.js proxies /api/* to the backend service (server-side, no CORS). Enabled

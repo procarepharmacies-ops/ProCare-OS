@@ -475,6 +475,7 @@ class EmployeeTask(Base):
     # daily plan (opening/closing/inventory/ordering/cleaning/approval/general).
     priority: Mapped[str] = mapped_column(String(10), default="normal")
     category: Mapped[str] = mapped_column(String(20), default="general")
+    assigned_agent: Mapped[str | None] = mapped_column(String(20), nullable=True)  # hermes|claude|gemini|antigravity|me
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -749,4 +750,33 @@ class StockCountLine(Base):
     __table_args__ = (
         Index("IX_count_lines_count", "count_id"),
         Index("IX_count_lines_batch", "batch_id"),
+    )
+
+
+class AgentRun(Base):
+    """Audit trail for AI agent dispatches (absorbed from AgenticOS v2.0).
+
+    Every agent task — whether dry-run, blocked, or executed — is recorded
+    here for compliance and debugging. Linked optionally to an employee_task
+    via ``task_id``.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(12), unique=True)
+    agent: Mapped[str] = mapped_column(String(20))
+    task: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(12))  # running|done|error|blocked
+    output: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(nullable=True, default=0)
+    task_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('running','done','error','blocked')", name="CK_agent_run_status"),
+        Index("IX_agent_runs_agent", "agent"),
+        Index("IX_agent_runs_created", "created_at"),
     )

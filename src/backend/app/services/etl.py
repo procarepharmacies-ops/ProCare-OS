@@ -173,6 +173,29 @@ def _num(value, default=0.0) -> float:
         return default
 
 
+def _str(value) -> str | None:
+    """Coerce a raw eStock source value to a SQLite-safe string.
+
+    pyodbc hands back some columns (e.g. ``product_unit1`` -> unit_big/unit_small,
+    which ProCare stores as ``String``) as ``decimal.Decimal``. SQLAlchemy's
+    SQLite dialect cannot bind a ``Decimal`` into a text column, so the whole
+    products load aborts with ``type 'decimal.Decimal' is not supported`` — even
+    though SQL Server (prod) binds it natively and never trips this. Stringifying
+    here keeps the unit name intact and makes the mirror dialect-agnostic.
+    """
+    if value is None:
+        return None
+    return str(value)
+
+
+def _price(value) -> float:
+    """A price/amount sanitised to be non-negative. eStock's product master
+    carries dirty rows (e.g. buy_price = -57.2) that violate ProCare's
+    CK_products_prices constraint and would abort the whole atomic product load
+    — clamp them to 0 so one bad row never blocks the mirror."""
+    return max(0.0, _num(value))
+
+
 def _ar(raw_ar, raw_en=None, placeholder: str = "بدون اسم") -> str:
     """Arabic display name: the source Arabic value, else the English name, else
     a clear Arabic placeholder. Never a bare ``"?"`` — that reads on screen as a
@@ -243,9 +266,39 @@ def mirror(
         customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
-        _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=False)
-        _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=True)
-        _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch)
+
+        # Cashier attribution: eStock stores the cashier as a username on each
+        # sale; map it to the ProCare employee so per-cashier reports work.
+        employee_map = {
+            (u or "").strip().lower(): eid
+            for eid, u in dst.execute(select(m.Employee.employee_id, m.Employee.username)).all()
+            if u
+        }
+
+        # eStock splits transactions across the head-office table AND the branch
+        # ("Branches_*") table — a head-office DB can hold MORE rows in the branch
+        # table than the main one. Mirror BOTH so totals match eStock's reports.
+        # (missing tables are skipped inside _load_sales / _load_purchases.)
+        sales_tables = [
+            ("Sales_header", "Sales_details", False, "sales"),
+            ("Branches_sales_header", "Branches_sales_details", False, "sales"),
+            ("Back_sales_header", "Back_Sales_details", True, "returns"),
+            ("Branches_back_sales_header", "Branches_back_sales_details", True, "returns"),
+        ]
+        for h, d, ret, ck in sales_tables:
+            _load_sales(
+                insp, src, dst, counts, product_map, customer_map, branch_map,
+                default_branch, employee_map, header_tbl=h, detail_tbl=d, returns=ret, count_key=ck,
+            )
+
+        for h, d in [
+            ("Purchase_header", "Purchase_details"),
+            ("Branches_purchase_header", "Branches_purchase_details"),
+        ]:
+            _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch,
+                            header_tbl=h, detail_tbl=d)
+
+        _load_treasury(insp, src, dst, counts, branch_map, default_branch)
 
         dst.commit()
     return counts
@@ -470,11 +523,11 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                         # every sync cycle would wipe the Titan/Drug-Eye
                         # scientific-name enrichment (docs/03 §4).
                         "b_sci": src_sci if src_sci and str(src_sci).strip() else None,
-                        "b_sell": _num(r.get(sell)) if sell else 0,
-                        "b_buy": _num(r.get(buy)) if buy else 0,
-                        "b_tax": _num(r.get(tax)) if tax else 0,
-                        "b_unit_big": r.get(unit_big) if unit_big else None,
-                        "b_unit_small": r.get(unit_small) if unit_small else None,
+                        "b_sell": _price(r.get(sell)) if sell else 0,
+                        "b_buy": _price(r.get(buy)) if buy else 0,
+                        "b_tax": _price(r.get(tax)) if tax else 0,
+                        "b_unit_big": _str(r.get(unit_big)) if unit_big else None,
+                        "b_unit_small": _str(r.get(unit_small)) if unit_small else None,
                         "b_unit_factor": _factor(r),
                         "b_active": _b(r.get(active)) if active else True,
                         "b_deleted": _product_deleted(r.get(deleted)) if deleted else False,
@@ -491,11 +544,11 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                 scientific_name=r.get(sci) if sci else None,
                 is_controlled=_b(r.get(drug)) if drug else False,
                 has_expiry=_b(r.get(has_exp)) if has_exp else True,
-                sell_price=_num(r.get(sell)) if sell else 0,
-                buy_price=_num(r.get(buy)) if buy else 0,
-                tax_price=_num(r.get(tax)) if tax else 0,
-                unit_big=r.get(unit_big) if unit_big else None,
-                unit_small=r.get(unit_small) if unit_small else None,
+                sell_price=_price(r.get(sell)) if sell else 0,
+                buy_price=_price(r.get(buy)) if buy else 0,
+                tax_price=_price(r.get(tax)) if tax else 0,
+                unit_big=_str(r.get(unit_big)) if unit_big else None,
+                unit_small=_str(r.get(unit_small)) if unit_small else None,
                 unit_factor=_factor(r),
                 is_active=_b(r.get(active)) if active else True,
                 is_deleted=_product_deleted(r.get(deleted)) if deleted else False,
@@ -692,18 +745,27 @@ def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
     counts["stock_batches"] = n
 
 
-def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, *, returns: bool) -> None:
-    header_tbl = "Back_sales_header" if returns else "Sales_header"
-    detail_tbl = "Back_Sales_details" if returns else "Sales_details"
-    key = "returns" if returns else "sales"
+def _load_sales(
+    insp, src, dst, counts, product_map, customer_map, branch_map, default_branch,
+    employee_map=None, *, header_tbl, detail_tbl, returns: bool, count_key: str,
+) -> None:
+    """Mirror one sales header/detail table pair into ProCare.
+
+    Called once per source table so the FULL eStock picture is captured: the
+    head-office ``Sales_header`` AND the branch ``Branches_sales_header`` (which
+    can hold MORE rows than the main table), plus the ``Back_*`` return variants.
+    Counts ACCUMULATE across calls under ``count_key`` (sales / returns).
+    """
+    employee_map = employee_map or {}
     if not insp.has_table(header_tbl):
-        counts[key] = 0
+        counts.setdefault(count_key, 0)
         return
 
     hcols = {c["name"] for c in insp.get_columns(header_tbl)}
     sid = _pick(hcols, "sales_id")
     store = _pick(hcols, "store_id")
     cust = _pick(hcols, "customer_id")
+    cashier = _pick(hcols, "cashier_id")
     bill_date = _pick(hcols, "bill_date")
     insert_date = _pick(hcols, "insert_date")
     gross = _pick(hcols, "total_bill")
@@ -724,10 +786,15 @@ def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, d
             r.get(insert_date) if insert_date else None
         ) or datetime.now()
         branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        # eStock cashier_id is a username (varchar) -> map to a ProCare employee.
+        cashier_id = None
+        if cashier and r.get(cashier) not in (None, "", 0):
+            cashier_id = employee_map.get(str(r[cashier]).strip().lower())
         sale_objs.append(
             m.Sale(
                 branch_id=branch_id or default_branch,
                 customer_id=customer_map.get(src_cust) if src_cust else None,
+                cashier_id=cashier_id,
                 sale_date=sale_dt,
                 total_gross=_num(r.get(gross)) if gross else 0,
                 total_discount=_num(r.get(disc)) if disc else 0,
@@ -743,11 +810,11 @@ def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, d
     for r, obj in zip(hrows, sale_objs):
         if sid and r.get(sid) is not None:
             sale_id_map[int(r[sid])] = obj.sale_id
-    counts[key] = len(sale_objs)
+    counts[count_key] = counts.get(count_key, 0) + len(sale_objs)
 
     # Lines
     if not insp.has_table(detail_tbl):
-        counts[key + "_lines"] = 0
+        counts.setdefault(count_key + "_lines", 0)
         return
     dcols = {c["name"] for c in insp.get_columns(detail_tbl)}
     d_sid = _pick(dcols, "sales_id")
@@ -785,14 +852,21 @@ def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, d
         )
     if line_rows:
         dst.execute(insert(m.SaleLine), line_rows)
-    counts[key + "_lines"] = len(line_rows)
+    counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0) + len(line_rows)
 
 
-def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
-    if not insp.has_table("Purchase_header"):
-        counts["purchases"] = 0
+def _load_purchases(
+    insp, src, dst, counts, product_map, branch_map, default_branch,
+    vendor_map=None, *, header_tbl="Purchase_header", detail_tbl="Purchase_details",
+) -> None:
+    """Mirror one purchase header/detail table pair. Called for both the
+    head-office ``Purchase_header`` and the branch ``Branches_purchase_header``
+    so purchase totals match eStock. Counts accumulate."""
+    vendor_map = vendor_map or {}
+    if not insp.has_table(header_tbl):
+        counts.setdefault("purchases", 0)
         return
-    hcols = {c["name"] for c in insp.get_columns("Purchase_header")}
+    hcols = {c["name"] for c in insp.get_columns(header_tbl)}
     pid = _pick(hcols, "purchase_id")
     vendor = _pick(hcols, "vendor_id")
     store = _pick(hcols, "store_id")
@@ -803,23 +877,23 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     tax = _pick(hcols, "bill_tax")
     back = _pick(hcols, "back")
 
-    # Vendors were loaded without preserving src ids; purchases need a vendor FK.
-    # Use the first vendor as a safe placeholder when the source vendor can't be
-    # resolved (vendor identity mapping is part of the deferred ledger audit).
+    # Resolve the real vendor per row from the mapping; fall back to the first
+    # vendor only when a row's vendor can't be resolved (keeps the FK valid).
     any_vendor = dst.scalars(select(m.Vendor.vendor_id)).first()
     if any_vendor is None:
-        counts["purchases"] = 0
+        counts.setdefault("purchases", 0)
         return
 
-    hrows = src.execute(text("SELECT * FROM Purchase_header")).mappings().all()
+    hrows = src.execute(text(f"SELECT * FROM {header_tbl}")).mappings().all()
     purch_map: dict[int, int] = {}
     objs = []
     for r in hrows:
         branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        src_vendor = int(r[vendor]) if vendor and r.get(vendor) not in (None, 0) else None
         objs.append(
             m.Purchase(
                 branch_id=branch_id or default_branch,
-                vendor_id=any_vendor,
+                vendor_id=vendor_map.get(src_vendor, any_vendor) if src_vendor else any_vendor,
                 bill_date=_as_date(r.get(bill_date)) if bill_date else date.today(),
                 bill_number=r.get(bill_num) if bill_num else None,
                 total_gross=_num(r.get(gross)) if gross else 0,
@@ -833,12 +907,12 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     for r, obj in zip(hrows, objs):
         if pid and r.get(pid) is not None:
             purch_map[int(r[pid])] = obj.purchase_id
-    counts["purchases"] = len(objs)
+    counts["purchases"] = counts.get("purchases", 0) + len(objs)
 
-    if not insp.has_table("Purchase_details"):
-        counts["purchase_lines"] = 0
+    if not insp.has_table(detail_tbl):
+        counts.setdefault("purchase_lines", 0)
         return
-    dcols = {c["name"] for c in insp.get_columns("Purchase_details")}
+    dcols = {c["name"] for c in insp.get_columns(detail_tbl)}
     d_pid = _pick(dcols, "purchase_id")
     d_prod = _pick(dcols, "product_id")
     d_amount = _pick(dcols, "amount")
@@ -847,7 +921,7 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     d_sell = _pick(dcols, "sell_price")
     d_exp = _pick(dcols, "exp_date")
 
-    drows = src.execute(text("SELECT * FROM Purchase_details")).mappings().all()
+    drows = src.execute(text(f"SELECT * FROM {detail_tbl}")).mappings().all()
     line_rows = []
     for r in drows:
         purch_pk = purch_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
@@ -868,7 +942,48 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
         )
     if line_rows:
         dst.execute(insert(m.PurchaseLine), line_rows)
-    counts["purchase_lines"] = len(line_rows)
+    counts["purchase_lines"] = counts.get("purchase_lines", 0) + len(line_rows)
+
+
+def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
+    """Mirror eStock cash vaults (``Cash_depots``) into ProCare's ledger so the
+    treasury screen shows real balances instead of zero.
+
+    Each depot's current balance becomes one ``cash``/``bank`` ledger entry
+    (positive → debit, negative → credit). ``_WIPE_ORDER`` clears LedgerEntry on
+    every full refresh, so re-running never double-counts.
+    """
+    # Treasury = the head-office server's own live vaults in ``Cash_depots``
+    # (verified against the owner's report: Elsanta Cash_depots reconciles to the
+    # "cash accounts by branch" total). ``Branches_cash_depots`` is a SEPARATE
+    # aggregation on the same server that overcounts — do NOT include it.
+    entries = []
+    for tbl in ("Cash_depots",):
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        name = _pick(cols, "cash_depot_name_ar", "cash_depot_name_en")
+        money_col = _pick(cols, "cash_depot_current_money")
+        bank = _pick(cols, "bank_id")
+        if not money_col:
+            continue
+        for r in src.execute(text(f"SELECT * FROM {tbl}")).mappings().all():
+            bal = _num(r.get(money_col))
+            is_bank = bool(r.get(bank)) if bank else False
+            entries.append(
+                m.LedgerEntry(
+                    branch_id=default_branch,
+                    account_type="bank" if is_bank else "cash",
+                    ref_type="depot",
+                    debit=bal if bal >= 0 else 0,
+                    credit=-bal if bal < 0 else 0,
+                    note=(str(r.get(name)) if name else "depot"),
+                )
+            )
+    if entries:
+        dst.add_all(entries)
+        dst.flush()
+    counts["treasury_depots"] = len(entries)
 
 
 def preflight() -> dict:

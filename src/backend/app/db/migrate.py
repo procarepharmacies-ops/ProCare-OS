@@ -178,7 +178,7 @@ def ensure_product_classification_columns(engine) -> None:
         if "dosage_form" not in columns:
             conn.execute(text(f"ALTER TABLE products {add} dosage_form VARCHAR(50) NULL"))
         if "is_otc" not in columns:
-            conn.execute(text(f"ALTER TABLE products {add} is_otc BOOLEAN DEFAULT 0"))
+            conn.execute(text(f"ALTER TABLE products {add} is_otc BIT DEFAULT 0"))
         if "uses" not in columns:
             conn.execute(text(f"ALTER TABLE products {add} uses VARCHAR(300) NULL"))
 
@@ -281,3 +281,16 @@ def bootstrap_ceo_if_configured(session: Session) -> None:
         )
     )
     session.commit()
+
+
+def ensure_assigned_agent_column(engine) -> None:
+    """Add ``employee_tasks.assigned_agent`` so tasks can be routed to AI agents."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    if "assigned_agent" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE employee_tasks ADD assigned_agent VARCHAR(20) NULL"))
+

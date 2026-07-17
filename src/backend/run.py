@@ -29,7 +29,7 @@ os.environ["PYTHONPATH"] = BASE + os.pathsep + os.environ.get("PYTHONPATH", "")
 import uvicorn  # noqa: E402  (import after sys.path is set)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PROCARE_API_PORT", "8000"))
+    port = int(os.environ.get("PROCARE_API_PORT", "8100"))
     uvicorn.run(
         "app.main:app",
         host="127.0.0.1",

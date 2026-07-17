@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.services import loyalty as loyalty_svc
-from app.services.common import money, today
+from app.services.common import fefo_order, money, today
 
 
 def _parse_date(value) -> date | None:
@@ -110,7 +110,7 @@ def deduct_stock_fefo(
             m.StockBatch.amount > 0,
             (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
     ).all()
 
     available = sum(float(b.amount) for b in batches)
@@ -507,7 +507,7 @@ def _move_transfer_lines(session: Session, transfer: m.StockTransfer, lines, act
                 m.StockBatch.amount > 0,
                 (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
             )
-            .order_by(m.StockBatch.exp_date.asc().nulls_last())
+            .order_by(*fefo_order())
         ).all()
         available = sum(float(b.amount) for b in src_batches)
         if available < ln.amount:
@@ -647,7 +647,7 @@ def _ship_transfer_lines(session: Session, transfer: m.StockTransfer, lines, act
                 m.StockBatch.amount > 0,
                 (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
             )
-            .order_by(m.StockBatch.exp_date.asc().nulls_last())
+            .order_by(*fefo_order())
         ).all()
         available = sum(float(b.amount) for b in src_batches)
         if available < ln.amount:
