@@ -4,7 +4,7 @@
 // containerized deployment, where Next.js proxies /api to the backend
 // server-side (see next.config.mjs), so the browser never needs the backend's
 // address and there is no CORS hop. `??` (not `||`) so an explicit "" is kept.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:7000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
 const SESSION_KEY = "procare.session";
 
