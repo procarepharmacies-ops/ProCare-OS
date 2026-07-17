@@ -25,7 +25,7 @@ SQL: [`../sql/procare-schema.sql`](../sql/procare-schema.sql) ·
 |-------|------|-------------|-------------------|
 | **0 — Foundation** | Build the clean DB + app skeleton; secure read‑only access. | Untouched. | Nothing yet. |
 | **1 — Mirror & read (shadow)** | Mirror eStock into ProCare's own DB; run dashboards/AI read‑only; reconcile daily. | Source of truth (read‑only). | ProCare DB (mirror only). |
-| **2 — Parallel pilot (Elsanta)** | Run ProCare as the real POS on **Elsanta**; eStock stays live on **Main**. | Still authoritative; cross‑checked. | ProCare DB (real ops, Elsanta). |
+| **2 — Parallel pilot (Elsanta)** | Run ProCare as the real POS on **Elsanta**; eStock stays live on **Mas-hala**. | Still authoritative; cross‑checked. | ProCare DB (real ops, Elsanta). |
 | **3 — Full cutover** | Both branches on ProCare; eStock retired to cold backup. | **Retired.** | ProCare DB — sole system of record. |
 
 ASCII timeline (mirrors [`00-CONCLUSION.md`](00-CONCLUSION.md)):
@@ -33,7 +33,7 @@ ASCII timeline (mirrors [`00-CONCLUSION.md`](00-CONCLUSION.md)):
 ```
  Phase 0:  —                 build schema + skeleton    (eStock untouched)
  Phase 1:  READ ──────────►  shadow / validate          (eStock untouched)
- Phase 2:  READ ──────────►  pilot POS on Elsanta        (eStock still live on Main)
+ Phase 2:  READ ──────────►  pilot POS on Elsanta        (eStock still live on Mas-hala)
  Phase 3:  (retired, cold)   BOTH branches, sole SoR     ← independent software
 ```
 
@@ -43,12 +43,12 @@ ASCII timeline (mirrors [`00-CONCLUSION.md`](00-CONCLUSION.md)):
 
 *eStock is not touched at all in this phase.*
 
-- [ ] Finalize ProCare's own clean schema (multi‑branch Main + Elsanta) — [`../sql/procare-schema.sql`](../sql/procare-schema.sql).
+- [ ] Finalize ProCare's own clean schema (multi‑branch Elsanta + Mas-hala) — [`../sql/procare-schema.sql`](../sql/procare-schema.sql).
   Real FKs, indexes from day one, **NON‑NULL** dates (`sale_date`), `CHECK (amount >= 0)`, no broken views.
-- [ ] Seed the two branches: `الرئيسي / Main` and `السنتا / Elsanta` (the schema already seeds both).
+- [ ] Seed the two branches: `مسهله / Mas-hala` and `السنطه / Elsanta` (the schema already seeds both).
 - [ ] Stand up FastAPI backend skeleton (pyodbc/SQLAlchemy) + React/Next.js UI skeleton.
 - [ ] UI defaults locked in: **Arabic / RTL default**, English toggle optional, **Light default**, Dark
-      toggle optional — both preferences persist per user. Branch switcher (Main / Elsanta / All) on every screen.
+      toggle optional — both preferences persist per user. Branch switcher (Elsanta / Mas-hala / All) on every screen.
 - [ ] Create a **read‑only** SQL login on `192.168.1.2` for the `stock` DB; fill
       `config/connections.json` (git‑ignored; only `connections.example.json` is committed). **Credentials = TBD.**
 - [ ] Confirm the read‑only login truly cannot write (try a blocked `UPDATE` and expect a permission error).
@@ -109,7 +109,7 @@ ProCare's own copy.
 
 ## Phase 2 — Parallel run (pilot on Elsanta)
 
-*ProCare becomes the real POS on **Elsanta only**; eStock keeps running on **Main**.*
+*ProCare becomes the real POS on **Elsanta only**; eStock keeps running on **Mas-hala**.*
 
 - [ ] Implement the hot‑path stored procedures (clean, testable — eStock had **0** SPs/functions):
       `sp_create_sale`, `sp_deduct_stock` (FEFO, never negative), `sp_calc_profit`, `sp_check_credit`,
@@ -123,18 +123,18 @@ ProCare's own copy.
       the **74 expired batches still sellable** in eStock); write‑off writes an audit row to `stock_movements`.
 - [ ] Employee permissions enforced (`can_sale_credit`, `can_return`, `can_void`, `can_edit_sell_price`,
       `max_disc_per`) — mirrors eStock's `Employee` permission flags.
-- [ ] eStock keeps running on **Main**, untouched; ProCare's read‑only mirror of Main continues.
+- [ ] eStock keeps running on **Mas-hala**, untouched; ProCare's read‑only mirror of Mas-hala continues.
 - [ ] **Daily reconciliation of Elsanta**: sales, returns, stock, cash (shift closures), profit — ProCare
       (live) vs the data the branch produces; investigate any mismatch before extending the pilot.
-- [ ] **Inter‑branch transfers across the split** (Main on eStock, Elsanta on ProCare):
-  - [ ] Stock transfers Main ↔ Elsanta via `stock_transfers` (+ lines), batch identity/expiry travels
+- [ ] **Inter‑branch transfers across the split** (Mas-hala on eStock, Elsanta on ProCare):
+  - [ ] Stock transfers Elsanta ↔ Mas-hala via `stock_transfers` (+ lines), batch identity/expiry travels
         with the transfer; bridge/reconcile against eStock `Branch_order_*` until both are on ProCare.
-  - [ ] Cash transfers Main ↔ Elsanta via `cash_transfers`; bridge against eStock `Branch_money_*`.
+  - [ ] Cash transfers Elsanta ↔ Mas-hala via `cash_transfers`; bridge against eStock `Branch_money_*`.
 - [ ] WhatsApp customer invoices (PDF) + debt reminders + supplier POs (draft → approved) live on Elsanta.
 - [ ] Sign‑off: owner + Elsanta staff confirm ProCare handles real daily operations without falling back to eStock.
 
 **Exit criteria:** Elsanta runs a full business cycle on ProCare (sales, returns, shift close, transfers,
-notifications); daily reconciliation is clean; owner approves promoting Main.
+notifications); daily reconciliation is clean; owner approves promoting Mas-hala.
 
 ---
 
@@ -142,13 +142,13 @@ notifications); daily reconciliation is clean; owner approves promoting Main.
 
 *Both branches on ProCare; eStock retired.*
 
-- [ ] Migrate **Main** onto ProCare OS too; both Main + Elsanta now transact on ProCare.
-- [ ] Final full mirror + reconciliation of Main before the switch; freeze eStock writes at cutover.
+- [ ] Migrate **Mas-hala** onto ProCare OS too; both Elsanta + Mas-hala now transact on ProCare.
+- [ ] Final full mirror + reconciliation of Mas-hala before the switch; freeze eStock writes at cutover.
 - [ ] Inter‑branch stock + cash transfers now fully internal to ProCare (`stock_transfers` /
       `cash_transfers`) — no eStock bridge.
 - [ ] Decommission the read‑only ETL and the eStock read‑only login.
 - [ ] **eStock retired** — kept as a **cold, read‑only backup** for historical reference only.
-- [ ] ProCare OS is the **sole, independent system of record** across Main + Elsanta.
+- [ ] ProCare OS is the **sole, independent system of record** across Elsanta + Mas-hala.
 - [ ] Post‑cutover backup/restore tested on the ProCare DB; runbook handed to the owner.
 
 **Exit criteria:** eStock is off the daily path; ProCare is the only system staff use on both branches;
@@ -162,7 +162,7 @@ Ongoing capabilities that run after a branch is live (full spec in
 [`04-ai-automation-spec.md`](04-ai-automation-spec.md)). Each runs **per branch and consolidated**.
 
 - [ ] **Smart reorder** automation — `auto_purchase_order`, hourly; consumption × lead time vs on‑hand;
-      transfer‑aware (suggest a Main↔Elsanta transfer before a new PO). Drafts only — a human approves.
+      transfer‑aware (suggest a Elsanta↔Mas-hala transfer before a new PO). Drafts only — a human approves.
 - [ ] **Sales forecasting (Prophet)** — `sales_forecast` per product/branch (weekly/monthly, seasonality)
       feeding the reorder logic. LSTM noted as a future option; Prophet is the default.
 - [ ] **Expiry risk** — daily `expiry_alerts` at 90/30/7 days + auto‑lock of expired‑only products.

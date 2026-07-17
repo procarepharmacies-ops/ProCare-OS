@@ -8,7 +8,7 @@ equivalents of the ``sp_*`` procedures sketched in ``sql/procare-schema.sql``):
   * ``deduct_stock_fefo`` — sp_deduct_stock: FEFO, never goes negative.
   * ``create_sale``     — sp_create_sale: atomic invoice (header + lines +
                           stock movements + ledger), credit-checked, expiry-locked.
-  * ``transfer_stock``  — sp_transfer_stock: atomic Main <-> Elsanta move.
+  * ``transfer_stock``  — sp_transfer_stock: atomic Elsanta <-> Mas-hala move.
 
 Guardrails baked in (fixing the eStock issues named in the docs):
   * a sale that would exceed the credit limit needs an explicit override by an

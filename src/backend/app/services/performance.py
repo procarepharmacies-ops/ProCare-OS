@@ -42,7 +42,7 @@ def overview(session: Session, years: int = 5, branch_id: int | None = None) -> 
     """Per-year and per-month pharmacy performance for the last ``years`` years.
 
     When run consolidated (``branch_id`` is None) the result also carries a
-    ``by_branch`` comparison so the owner can see each branch (Main vs Elsanta)
+    ``by_branch`` comparison so the owner can see each branch (Elsanta vs Mas-hala)
     side by side; when scoped to one branch it's that branch only.
     """
     result = _overview_core(session, years=years, branch_id=branch_id)
@@ -521,7 +521,7 @@ def vendor_purchasing(session: Session, query: str | int = "pharmaoverseas",
 
     vendor_spend = sum(y["spend"] for y in yearly)
 
-    # Spend from this supplier split by branch (Main vs Elsanta).
+    # Spend from this supplier split by branch (Elsanta vs Mas-hala).
     branch_names = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_ar)).all())
     branch_names_en = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_en)).all())
     by_branch = [

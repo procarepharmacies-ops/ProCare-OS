@@ -13,7 +13,7 @@ def test_health(client):
 def test_branches(client):
     r = client.get("/api/branches")
     codes = {b["code"] for b in r.json()["branches"]}
-    assert {"MAIN", "ELSANTA"} <= codes
+    assert {"ELSANTA", "MASHALA"} <= codes
 
 
 def test_dashboard_summary(client):

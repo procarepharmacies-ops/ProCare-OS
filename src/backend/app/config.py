@@ -289,7 +289,7 @@ class Settings:
         """Optional eStock store_id -> ProCare branch CODE/id map for the mirror.
 
         Configured under ``estock_source.store_branch_map`` (e.g.
-        ``{"1": "MAIN", "2": "ELSANTA"}``). None lets the ETL use its default.
+        ``{"1": "ELSANTA", "2": "MASHALA"}``). None lets the ETL use its default.
         """
         return _data.get("estock_source", {}).get("store_branch_map")
 

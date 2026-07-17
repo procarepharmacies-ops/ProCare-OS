@@ -48,7 +48,7 @@ Query patterns: [`../sql/dashboard-queries.sql`](../sql/dashboard-queries.sql).
 Supporting magnitude (for reconciliation scope): **53,474** products, **95,088** sales headers,
 **183,906** sale lines, **35,404** real-time batch rows (`Product_Amount`) plus **121,625**
 branch-level batch rows (`Branches_Product_Amount`), **1,197** customers, **87** vendors, **2**
-branches (MAIN / `الرئيسي`, ELSANTA / `السنتا`).
+branches (MASHALA / `مسهله`, ELSANTA / `السنطه`).
 
 ---
 
@@ -227,7 +227,7 @@ match eStock's stored totals before any cutover.
 the Python + FastAPI service layer, and hot-path stored procedures specified in the schema's TODO block
 for Phase 2+: `sp_create_sale` (atomic header + lines + FEFO deduction + audit), `sp_deduct_stock`
 (per-batch, never negative), `sp_calc_profit` (revenue − cost by period/branch), `sp_check_credit`
-(credit-limit enforcement), and `sp_transfer_stock` (atomic Main ↔ Elsanta transfer). Logic is no
+(credit-limit enforcement), and `sp_transfer_stock` (atomic Elsanta ↔ Mas-hala transfer). Logic is no
 longer locked in a binary.
 
 ---
@@ -292,7 +292,7 @@ several consecutive days. Reconciliation runs daily (APScheduler) and writes a p
 1. **Identical period, identical filters.** Both sides use `back <> 'Y'` to exclude returns and
    `COALESCE(bill_date, insert_date)` / `sale_date` as the date axis. The available-stock and FEFO
    rules from §2.2 and §2.4 are applied on both sides so like is compared with like.
-2. **Per-branch, not just total.** Every metric is computed per `branch_id` (MAIN and ELSANTA) and as a
+2. **Per-branch, not just total.** Every metric is computed per `branch_id` (ELSANTA and MASHALA) and as a
    grand total, since the whole point of the parallel run is one-branch validation.
 3. **Full row accounting.** Every source row is either *loaded* or *rejected-with-reason* (orphan FK,
    unparseable value). `loaded + rejected = source count` must hold — no silent drops.
