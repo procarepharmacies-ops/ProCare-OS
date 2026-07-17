@@ -69,11 +69,21 @@ engine = create_engine(
 
 if IS_SQLITE:
     # SQLite ignores foreign keys unless told otherwise; ProCare's whole premise
-    # is real referential integrity, so enforce it here too.
+    # is real referential integrity, so enforce it here too. WAL journaling +
+    # a busy_timeout let the lifespan seeding session, the background sync
+    # thread and concurrent HTTP requests share the single-file DB without
+    # tripping "database is locked" (the default rollback-journal allows only
+    # one writer and blocks readers mid-write).
     @event.listens_for(engine, "connect")
-    def _enable_sqlite_fk(dbapi_connection, _record):  # noqa: ANN001
+    def _enable_sqlite_pragmas(dbapi_connection, _record):  # noqa: ANN001
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # WAL: a writer never blocks readers, and concurrent connections can
+        # each make progress instead of serialising on a journal lock.
+        cursor.execute("PRAGMA journal_mode=WAL")
+        # Wait (ms) for a lock to clear instead of immediately raising
+        # OperationalError "database is locked" under contention.
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 
