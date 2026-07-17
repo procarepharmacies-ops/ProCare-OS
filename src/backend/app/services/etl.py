@@ -173,6 +173,21 @@ def _num(value, default=0.0) -> float:
         return default
 
 
+def _str(value) -> str | None:
+    """Coerce a raw eStock source value to a SQLite-safe string.
+
+    pyodbc hands back some columns (e.g. ``product_unit1`` -> unit_big/unit_small,
+    which ProCare stores as ``String``) as ``decimal.Decimal``. SQLAlchemy's
+    SQLite dialect cannot bind a ``Decimal`` into a text column, so the whole
+    products load aborts with ``type 'decimal.Decimal' is not supported`` — even
+    though SQL Server (prod) binds it natively and never trips this. Stringifying
+    here keeps the unit name intact and makes the mirror dialect-agnostic.
+    """
+    if value is None:
+        return None
+    return str(value)
+
+
 def _price(value) -> float:
     """A price/amount sanitised to be non-negative. eStock's product master
     carries dirty rows (e.g. buy_price = -57.2) that violate ProCare's
@@ -514,8 +529,8 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                         "b_sell": _price(r.get(sell)) if sell else 0,
                         "b_buy": _price(r.get(buy)) if buy else 0,
                         "b_tax": _price(r.get(tax)) if tax else 0,
-                        "b_unit_big": r.get(unit_big) if unit_big else None,
-                        "b_unit_small": r.get(unit_small) if unit_small else None,
+                        "b_unit_big": _str(r.get(unit_big)) if unit_big else None,
+                        "b_unit_small": _str(r.get(unit_small)) if unit_small else None,
                         "b_unit_factor": _factor(r),
                         "b_active": _b(r.get(active)) if active else True,
                         "b_deleted": _product_deleted(r.get(deleted)) if deleted else False,
@@ -535,8 +550,8 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                 sell_price=_price(r.get(sell)) if sell else 0,
                 buy_price=_price(r.get(buy)) if buy else 0,
                 tax_price=_price(r.get(tax)) if tax else 0,
-                unit_big=r.get(unit_big) if unit_big else None,
-                unit_small=r.get(unit_small) if unit_small else None,
+                unit_big=_str(r.get(unit_big)) if unit_big else None,
+                unit_small=_str(r.get(unit_small)) if unit_small else None,
                 unit_factor=_factor(r),
                 is_active=_b(r.get(active)) if active else True,
                 is_deleted=_product_deleted(r.get(deleted)) if deleted else False,
@@ -941,11 +956,12 @@ def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
     (positive → debit, negative → credit). ``_WIPE_ORDER`` clears LedgerEntry on
     every full refresh, so re-running never double-counts.
     """
-    # Head-office layout: Cash_depots = this branch's vaults; Branches_cash_depots
-    # = the other branches' vaults held at head office. Mirror BOTH so the
-    # treasury total matches eStock's "cash accounts by branch" report.
+    # Treasury = the head-office server's own live vaults in ``Cash_depots``
+    # (verified against the owner's report: Elsanta Cash_depots reconciles to the
+    # "cash accounts by branch" total). ``Branches_cash_depots`` is a SEPARATE
+    # aggregation on the same server that overcounts — do NOT include it.
     entries = []
-    for tbl in ("Cash_depots", "Branches_cash_depots"):
+    for tbl in ("Cash_depots",):
         if not insp.has_table(tbl):
             continue
         cols = {c["name"] for c in insp.get_columns(tbl)}
