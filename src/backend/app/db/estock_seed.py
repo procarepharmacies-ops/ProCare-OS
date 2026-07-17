@@ -83,6 +83,9 @@ Products = Table(
     Column("sell_price", Numeric(18, 3)),
     Column("buy_price", Numeric(18, 3)),
     Column("tax_price", Numeric(18, 3)),
+    Column("product_unit1", String(50)),   # وحدة كبرى (علبة)
+    Column("product_unit2", String(50)),   # وحدة صغرى (شريط/أمبول/كبسولة)
+    Column("product_no2per1", Numeric(18, 3)),  # عدد الصغرى داخل الكبرى
     Column("deleted", String(1)),
     Column("active", String(1)),
 )
@@ -194,10 +197,12 @@ def seed_estock_source(engine, *, days: int = 60, drop: bool = True) -> dict:
     for i, (ar, en, sci, drug) in enumerate(DRUGS):
         sell = RNG.choice([12, 18, 25, 35, 48, 60, 85, 120, 7.5, 22.5])
         buy = round(sell * RNG.uniform(0.55, 0.78), 2)
+        unit2, factor = RNG.choice([("شريط", 2), ("شريط", 3), ("أمبول", 6), ("كبسولة", 10)])
         products.append(dict(
             product_id=101 + i, product_code=f"P{1000 + i}", product_name_ar=ar,
             product_name_en=en, product_scientific_name=sci, product_drug=drug,
             product_has_expire="Y", sell_price=sell, buy_price=buy, tax_price=0,
+            product_unit1="علبة", product_unit2=unit2, product_no2per1=factor,
             deleted="N", active="Y",
         ))
     for i, name in enumerate(CUSTOMERS):

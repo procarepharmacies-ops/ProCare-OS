@@ -129,6 +129,66 @@ def invoice_whatsapp(session: Session, sale: m.Sale) -> dict:
     }
 
 
+# --- Operational alerts to the manager --------------------------------------
+def notify_manager(text: str) -> bool:
+    """Send an operational alert to the pharmacy manager's WhatsApp.
+
+    Fail-soft and self-gating: does nothing (returns False) unless a manager
+    phone is configured AND the Cloud API is set up. An outage never breaks the
+    operation that triggered it."""
+    from app.config import settings
+
+    if not settings.manager_phone or not is_configured():
+        return False
+    return send_text(settings.manager_phone, text)
+
+
+def return_message(session: Session, sale: m.Sale) -> str:
+    """Refund/return confirmation for the customer."""
+    total = money(sale.total_net)
+    return (
+        f"صيدليات بروكير 💚\n"
+        f"تم قبول مرتجع الفاتورة #{sale.original_sale_id or sale.sale_id}.\n"
+        f"قيمة المرتجع: {total} جنيه.\n"
+        f"شكراً لتفهمك 🙏"
+    )
+
+
+def daily_report_message(kpis: dict) -> str:
+    """Manager daily KPI pack (from dashboard.summary)."""
+    return (
+        "📊 تقرير بروكير اليومي\n"
+        f"مبيعات اليوم: {money(kpis.get('sales_today', 0))} ج ({kpis.get('bills_today', 0)} فاتورة)\n"
+        f"مبيعات الشهر: {money(kpis.get('sales_month', 0))} ج\n"
+        f"أصناف قرب الانتهاء (٣٠ يوم): {kpis.get('expiring_30', 0)}\n"
+        f"أصناف تحت الحد الأدنى: {kpis.get('low_stock', 0)}\n"
+        f"مدينون: {kpis.get('debtors', 0)}"
+    )
+
+
+def reorder_drafts_message(count: int, units: float) -> str:
+    return (
+        "🧾 مسودة طلب شراء بروكير\n"
+        f"{count} صنف بإجمالي {money(units)} وحدة مقترحة تحتاج مراجعة المدير واعتماده."
+    )
+
+
+def expiry_alert_message(counts: dict, loss: float) -> str:
+    return (
+        "⏰ تنبيه صلاحية بروكير\n"
+        f"خلال أسبوع: {counts.get('d7', 0)} صنف، خلال شهر: {counts.get('d30', 0)} صنف.\n"
+        f"منتهي بالفعل: {counts.get('expired', 0)}. الخسارة المتوقعة: {money(loss)} ج."
+    )
+
+
+def transfer_request_message(transfer_id: int, from_branch: str, to_branch: str, item_count: int) -> str:
+    return (
+        "🔄 طلب تحويل مخزون بروكير\n"
+        f"طلب #{transfer_id}: {item_count} صنف من فرع {from_branch} إلى فرع {to_branch}.\n"
+        "برجاء المراجعة والاعتماد من قائمة المهام."
+    )
+
+
 # --- Campaigns ----------------------------------------------------------------
 AUDIENCES = {
     "all": "كل العملاء / all active customers with a phone",

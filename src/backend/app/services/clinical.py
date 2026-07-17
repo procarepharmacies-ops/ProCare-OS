@@ -381,7 +381,7 @@ def substitutions(session: Session, product_id: int, branch_id: int | None = Non
     matches = [(p, qty) for p, qty in rows if ingredients_of(p.scientific_name) & ings]
 
     # Per-branch availability + soonest expiry for each alternative, so the
-    # POS can say "متوفر في السنطة، ينتهي 2026-11" and offer a transfer.
+    # POS can say "متوفر في السنطه، ينتهي 2026-11" and offer a transfer.
     branch_names = {b.branch_id: b.name_ar for b in session.scalars(select(m.Branch)).all()}
     detail: dict[int, dict[int, dict]] = {}
     if matches:

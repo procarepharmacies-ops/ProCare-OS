@@ -607,6 +607,111 @@ table.tbl tbody tr:hover {
   margin-bottom: 14px;
   filter: drop-shadow(0 6px 18px rgba(26, 118, 180, 0.35));
 }
+/* The living logo: a gentle float with a breathing halo behind it. */
+.login-mark-float {
+  position: relative;
+  animation: logo-float 4.5s ease-in-out infinite;
+}
+.login-mark-halo {
+  position: absolute;
+  inset: -26px;
+  margin: auto;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(26, 118, 180, 0.28), rgba(46, 178, 130, 0.14) 55%, transparent 72%);
+  animation: halo-breathe 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes logo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@keyframes halo-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+/* Ambient brand orbs drifting behind the glass card. */
+.login-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+.orb-a {
+  width: 380px;
+  height: 380px;
+  top: -90px;
+  inset-inline-start: -80px;
+  background: radial-gradient(circle, rgba(26, 118, 180, 0.55), transparent 70%);
+  animation: orb-drift-a 16s ease-in-out infinite;
+}
+.orb-b {
+  width: 320px;
+  height: 320px;
+  bottom: -70px;
+  inset-inline-end: -60px;
+  background: radial-gradient(circle, rgba(46, 178, 130, 0.5), transparent 70%);
+  animation: orb-drift-b 19s ease-in-out infinite;
+}
+.orb-c {
+  width: 220px;
+  height: 220px;
+  top: 55%;
+  inset-inline-start: 12%;
+  background: radial-gradient(circle, rgba(240, 180, 60, 0.32), transparent 70%);
+  animation: orb-drift-a 22s ease-in-out infinite reverse;
+}
+@keyframes orb-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(40px, 30px) scale(1.12);
+  }
+}
+@keyframes orb-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-36px, -26px) scale(1.08);
+  }
+}
+
+/* Stronger glass for the login card so it pops over the orbs. */
+.login-card.glass-strong {
+  position: relative;
+  z-index: 1;
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow:
+    0 18px 50px rgba(15, 40, 70, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+:root[data-theme="dark"] .login-card.glass-strong {
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
 .login-app-name {
   margin: 0;
   font-size: 22px;
@@ -644,6 +749,37 @@ table.tbl tbody tr:hover {
   font-size: 13px;
   color: var(--danger);
   text-align: center;
+}
+.login-notice {
+  margin: -4px 0 0;
+  font-size: 13px;
+  color: var(--success, #2eb282);
+  text-align: center;
+}
+.login-hint {
+  margin: -8px 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: center;
+}
+.login-link {
+  margin-top: 2px;
+  background: none;
+  border: none;
+  padding: 6px;
+  font-size: 13px;
+  color: var(--primary);
+  cursor: pointer;
+  text-align: center;
+}
+.login-link:hover {
+  text-decoration: underline;
+}
+.login-code {
+  letter-spacing: 8px;
+  text-align: center;
+  font-size: 20px !important;
+  font-variant-numeric: tabular-nums;
 }
 .login-submit {
   margin-top: 6px;

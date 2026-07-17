@@ -4,7 +4,7 @@
 // containerized deployment, where Next.js proxies /api to the backend
 // server-side (see next.config.mjs), so the browser never needs the backend's
 // address and there is no CORS hop. `??` (not `||`) so an explicit "" is kept.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:7000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
 const SESSION_KEY = "procare.session";
 
@@ -27,6 +27,32 @@ export const session = {
 async function http(path, options) {
   const token = session.get()?.token;
   const res = await fetch(`${API_BASE}/api${path}`, {
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    ...options,
+  });
+  if (!res.ok) {
+    let detail;
+    try {
+      detail = (await res.json()).detail;
+    } catch {
+      detail = res.statusText;
+    }
+    const err = new Error(typeof detail === "string" ? detail : detail?.message || "Request failed");
+    err.detail = detail;
+    throw err;
+  }
+  return res.json();
+}
+
+// Generic fetch helper for pages that pass the FULL path including the `/api`
+// prefix (e.g. apiFetch("/api/agents/status")). Unlike `http()` above it does
+// NOT prepend `/api`, so the two never collide. Same auth/error semantics.
+export async function apiFetch(path, options) {
+  const token = session.get()?.token;
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -75,11 +101,16 @@ export const api = {
     login: (username, password) =>
       http("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
     me: () => http("/auth/me"),
+    forgotPassword: (username) =>
+      http("/auth/forgot-password", { method: "POST", body: JSON.stringify({ username }) }),
+    resetPassword: (username, code, new_password) =>
+      http("/auth/reset-password", { method: "POST", body: JSON.stringify({ username, code, new_password }) }),
   },
 
   dashboardSummary: (branch) => http(`/dashboard/summary${bq(branch)}`),
   dailySales: (branch, days = 30) => http(`/dashboard/daily-sales${bq(branch, `days=${days}`)}`),
   topProducts: (branch, days = 30) => http(`/dashboard/top-products${bq(branch, `days=${days}`)}`),
+  productInsight: (productId, branch) => http(`/inventory/products/${productId}/insight${bq(branch)}`),
   cashiers: (branch) => http(`/dashboard/cashiers${bq(branch)}`),
 
   products: (branch, search = "") =>
@@ -160,6 +191,10 @@ export const api = {
   rxCreate: (payload) => http("/prescriptions", { method: "POST", body: JSON.stringify(payload) }),
   rxList: (branch) => http(`/prescriptions${bq(branch)}`),
   rxHabits: (branch, days = 180) => http(`/prescriptions/doctor-habits${bq(branch, `days=${days}`)}`),
+  rxResolve: (id, branch) => http(`/prescriptions/${id}/resolve${bq(branch)}`),
+  rxReview: (id, payload) => http(`/prescriptions/${id}/review`, { method: "POST", body: JSON.stringify(payload) }),
+  rxCart: (id, branch) => http(`/prescriptions/${id}/cart${bq(branch)}`),
+  rxDispensed: (id) => http(`/prescriptions/${id}/dispensed`, { method: "POST" }),
 
   // Shortage sheet.
   shortages: (branch, status) =>
@@ -175,6 +210,56 @@ export const api = {
   purchaseDetail: (purchaseId) => http(`/purchasing/purchases/${purchaseId}`),
   returnPurchase: (purchaseId, payload = {}) =>
     http(`/purchasing/purchases/${purchaseId}/return`, { method: "POST", body: JSON.stringify(payload) }),
+  purchaseDrafts: (branch) => http(`/purchasing/drafts${bq(branch)}`),
+  approveDraft: (draftId) => http(`/purchasing/drafts/${draftId}/approve`, { method: "POST" }),
+  rejectDraft: (draftId) => http(`/purchasing/drafts/${draftId}/reject`, { method: "POST" }),
+
+  // Inter-branch transfer requests + approval workflow.
+  transfersList: (branch, status) =>
+    http(`/transfers/list${bq(branch, status ? `status=${status}` : "")}`),
+  requestTransfer: (payload) =>
+    http("/transfers/request", { method: "POST", body: JSON.stringify(payload) }),
+  approveTransfer: (transferId) => http(`/transfers/${transferId}/approve`, { method: "POST" }),
+  rejectTransfer: (transferId) => http(`/transfers/${transferId}/reject`, { method: "POST" }),
+  shipTransfer: (transferId) => http(`/transfers/${transferId}/ship`, { method: "POST" }),
+  receiveTransfer: (transferId, lines) =>
+    http(`/transfers/${transferId}/receive`, { method: "POST", body: JSON.stringify({ lines }) }),
+
+  // Catalogue management + classification filters.
+  productFilters: () => http("/inventory/filters"),
+  createProduct: (payload) => http("/inventory/products", { method: "POST", body: JSON.stringify(payload) }),
+  productsFiltered: (branch, params = {}) => {
+    const extra = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join("&");
+    return http(`/inventory/products${bq(branch, extra)}`);
+  },
+
+  // Purchase planning (كشكول النواقص): priority + transfer-first + consolidated.
+  purchasePlan: (branchId) => http(`/purchasing/plan?branch_id=${branchId}`),
+  purchasePlanConsolidated: () => http("/purchasing/plan/consolidated"),
+
+  // Vendor account (كشف حساب مورد + سداد).
+  vendorStatement: (vendorId) => http(`/vendors/${vendorId}/statement`),
+  payVendor: (vendorId, payload) => http(`/vendors/${vendorId}/pay`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Backups (نسخ احتياطية).
+  backupNow: () => http("/backup", { method: "POST" }),
+  backupList: () => http("/backup"),
+
+  // Stagnant items (الأصناف الراكدة): stocked, no sale in N days.
+  stagnant: (branch, days = 90) => http(`/inventory/stagnant${bq(branch, `days=${days}`)}`),
+
+  // Stocktaking (الجرد): count sessions, count sheet, posting adjustments.
+  stockCounts: (branch) => http(`/stocktaking${bq(branch)}`),
+  stockCountDetail: (countId) => http(`/stocktaking/${countId}`),
+  createStockCount: (payload) => http("/stocktaking", { method: "POST", body: JSON.stringify(payload) }),
+  saveStockCountLines: (countId, entries) =>
+    http(`/stocktaking/${countId}/lines`, { method: "POST", body: JSON.stringify({ entries }) }),
+  postStockCount: (countId, employee_id) =>
+    http(`/stocktaking/${countId}/post`, { method: "POST", body: JSON.stringify({ employee_id }) }),
+  cancelStockCount: (countId) => http(`/stocktaking/${countId}/cancel`, { method: "POST" }),
 
   // In-system cash-flow & inventory audit.
   auditReport: (months = 3, vendor = "") =>
@@ -189,6 +274,9 @@ export const api = {
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),
+  customerProfile: (customerId) => http(`/customers/${customerId}/profile`),
+  updateCustomer: (customerId, payload) => http(`/customers/${customerId}`, { method: "POST", body: JSON.stringify(payload) }),
+  chartOfAccounts: (branch) => http(`/accounting/chart${bq(branch)}`),
   adjustLoyalty: (customerId, payload) =>
     http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
   saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),

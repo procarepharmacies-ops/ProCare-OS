@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import create_engine, insert, inspect, select, text
+from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -122,6 +122,23 @@ def _b(value) -> bool:
     return s in ("Y", "1", "TRUE", "T")
 
 
+def _product_deleted(value) -> bool:
+    """eStock ``Products.deleted`` is INVERTED relative to its name.
+
+    Audited on both live branch DBs (2026-07): the ~53,400 products that sell
+    every day carry ``deleted='1'`` and the ~90 truly removed ones carry
+    ``deleted='0'`` (paired with ``active=0``, zero sales). Mirroring the flag
+    literally marked 99.7%% of the catalogue deleted, which hid it from POS,
+    inventory, prescriptions and the clinical layer. ``Customer.deleted`` has
+    normal semantics — this helper is for Products ONLY. 'Y' (the audit's
+    original Y/N reading) is still honoured as deleted in case an eStock
+    install uses that convention.
+    """
+    if value is None:
+        return False
+    return str(value).strip().upper() in ("0", "Y")
+
+
 def _as_date(value):
     if value is None:
         return None
@@ -156,6 +173,29 @@ def _num(value, default=0.0) -> float:
         return default
 
 
+def _str(value) -> str | None:
+    """Coerce a raw eStock source value to a SQLite-safe string.
+
+    pyodbc hands back some columns (e.g. ``product_unit1`` -> unit_big/unit_small,
+    which ProCare stores as ``String``) as ``decimal.Decimal``. SQLAlchemy's
+    SQLite dialect cannot bind a ``Decimal`` into a text column, so the whole
+    products load aborts with ``type 'decimal.Decimal' is not supported`` — even
+    though SQL Server (prod) binds it natively and never trips this. Stringifying
+    here keeps the unit name intact and makes the mirror dialect-agnostic.
+    """
+    if value is None:
+        return None
+    return str(value)
+
+
+def _price(value) -> float:
+    """A price/amount sanitised to be non-negative. eStock's product master
+    carries dirty rows (e.g. buy_price = -57.2) that violate ProCare's
+    CK_products_prices constraint and would abort the whole atomic product load
+    — clamp them to 0 so one bad row never blocks the mirror."""
+    return max(0.0, _num(value))
+
+
 def _ar(raw_ar, raw_en=None, placeholder: str = "بدون اسم") -> str:
     """Arabic display name: the source Arabic value, else the English name, else
     a clear Arabic placeholder. Never a bare ``"?"`` — that reads on screen as a
@@ -174,6 +214,7 @@ def mirror(
     store_branch_map: dict | None = None,
     *,
     wipe: bool = True,
+    branch_scoped: bool = False,
     force_branch_code: str | None = None,
     dedup: bool | None = None,
 ) -> dict:
@@ -183,6 +224,14 @@ def mirror(
     catalogue tables, then reloads from a single eStock source. This is the
     Phase-1 live mirror behaviour.
 
+    Multi-source sync (``branch_scoped=True``): refresh ONLY the branches this
+    source maps to — its transactional rows (stock, sales, purchases) are cleared
+    and reloaded, while every other branch (the other live server, imported
+    history) is left untouched. The shared catalogue / customers / vendors are
+    matched instead of duplicated AND updated in place, so owner data-cleaning on
+    eStock (e.g. scientific names) and live customer balances flow through on
+    every cycle. This is how two branch servers sync into one ProCare database.
+
     Multi-branch consolidation (``wipe=False`` + ``force_branch_code``): APPEND a
     restored branch backup (e.g. Elsanta, then Mashala) into ProCare WITHOUT
     clearing what's already there, mapping ALL of that source's rows to the named
@@ -190,7 +239,8 @@ def mirror(
     vendors are matched (by code / mobile / name) instead of duplicated across
     branches — run each backup once. Returns per-table row counts (rows added).
     """
-    dedup = (not wipe) if dedup is None else dedup
+    dedup = (branch_scoped or not wipe) if dedup is None else dedup
+    update_on_match = branch_scoped
     insp = inspect(source_engine)
 
     with source_engine.connect() as src:
@@ -201,22 +251,54 @@ def mirror(
         else:
             # Discover the branches that actually exist on the source and ensure a
             # ProCare branch for each, so no branch's data is merged into another
-            # (the remote server may carry Main, Elsanta, Mashala, ...).
+            # (the remote server may carry Elsanta, Mashala, ...).
             store_ids = _distinct_store_ids(insp, src)
             branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
             default_branch = next(iter(branch_map.values()))
 
-        if wipe:
+        if branch_scoped:
+            _wipe_branch_rows(dst, set(branch_map.values()) | {default_branch})
+        elif wipe:
             _wipe_destination(dst)
         counts: dict[str, int] = {}
 
-        product_map = _load_products(insp, src, dst, counts, dedup=dedup)
-        customer_map = _load_customers(insp, src, dst, counts, dedup=dedup)
+        product_map = _load_products(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
+        customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
-        _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=False)
-        _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, returns=True)
-        _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch)
+
+        # Cashier attribution: eStock stores the cashier as a username on each
+        # sale; map it to the ProCare employee so per-cashier reports work.
+        employee_map = {
+            (u or "").strip().lower(): eid
+            for eid, u in dst.execute(select(m.Employee.employee_id, m.Employee.username)).all()
+            if u
+        }
+
+        # eStock splits transactions across the head-office table AND the branch
+        # ("Branches_*") table — a head-office DB can hold MORE rows in the branch
+        # table than the main one. Mirror BOTH so totals match eStock's reports.
+        # (missing tables are skipped inside _load_sales / _load_purchases.)
+        sales_tables = [
+            ("Sales_header", "Sales_details", False, "sales"),
+            ("Branches_sales_header", "Branches_sales_details", False, "sales"),
+            ("Back_sales_header", "Back_Sales_details", True, "returns"),
+            ("Branches_back_sales_header", "Branches_back_sales_details", True, "returns"),
+        ]
+        for h, d, ret, ck in sales_tables:
+            _load_sales(
+                insp, src, dst, counts, product_map, customer_map, branch_map,
+                default_branch, employee_map, header_tbl=h, detail_tbl=d, returns=ret, count_key=ck,
+            )
+
+        for h, d in [
+            ("Purchase_header", "Purchase_details"),
+            ("Branches_purchase_header", "Branches_purchase_details"),
+        ]:
+            _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch,
+                            header_tbl=h, detail_tbl=d)
+
+        _load_treasury(insp, src, dst, counts, branch_map, default_branch)
 
         dst.commit()
     return counts
@@ -264,10 +346,19 @@ def _resolve_branch_map(
         raise RuntimeError("ProCare branches not seeded — run schema/seed first.")
     by_code = {code: b.branch_id for code, b in branches.items()}
 
+    # Proper bilingual display names for the branch codes we know, so an
+    # auto-created branch never shows its raw code in the Arabic UI.
+    known = {
+        "ELSANTA": ("السنطه", "Elsanta"),
+        "MASHALA": ("مسهله", "Mas-hala"),
+    }
+
     def ensure_branch(code: str, name_ar: str | None = None, name_en: str | None = None) -> int:
+        code = code.strip().upper()
         if code in by_code:
             return by_code[code]
-        b = m.Branch(code=code, name_ar=name_ar or code, name_en=name_en or code)
+        default_ar, default_en = known.get(code, (code, code))
+        b = m.Branch(code=code, name_ar=name_ar or default_ar, name_en=name_en or default_en)
         dst.add(b)
         dst.flush()
         by_code[code] = b.branch_id
@@ -279,11 +370,12 @@ def _resolve_branch_map(
         for k, v in store_branch_map.items():
             out[int(k)] = ensure_branch(v) if isinstance(v, str) else int(v)
     else:
-        # Default (owner-confirmed): store_id 1 = Elsanta, 2 = Main.
+        # Default (owner-confirmed): store_id 1 = Elsanta السنطه, 2 = Mas-hala
+        # مسهله. Procare has exactly these two pharmacies.
         if "ELSANTA" in by_code:
             out[1] = by_code["ELSANTA"]
-        if "MAIN" in by_code:
-            out[2] = by_code["MAIN"]
+        if "MASHALA" in by_code:
+            out[2] = by_code["MASHALA"]
 
     # Auto-create a branch for any source store_id we don't have a mapping for.
     for sid in sorted(store_ids or []):
@@ -294,15 +386,75 @@ def _resolve_branch_map(
 
 
 def _wipe_destination(dst: Session) -> None:
+    # The full wipe is the single most destructive operation in the system —
+    # make sure a recent backup exists first (throttled; fail-soft).
+    from app.services import backup
+
+    backup.backup_if_stale(6, "pre-sync-wipe")
     for model in _WIPE_ORDER:
         if model is not None:
             dst.execute(text(f"DELETE FROM {model.__tablename__}"))
     dst.flush()
 
 
-def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int]:
+def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
+    """Clear only ``branch_ids``' mirrored transactional rows (children first).
+
+    The shared catalogue (products/customers/vendors) stays — it is matched and
+    refreshed by the dedup loaders — and every other branch's rows survive, so
+    two live sources and the imported history can coexist in one database.
+    """
+    ids = [int(b) for b in branch_ids if b is not None]
+    if not ids:
+        return
+    sale_ids = select(m.Sale.sale_id).where(m.Sale.branch_id.in_(ids))
+    batch_ids = select(m.StockBatch.batch_id).where(m.StockBatch.branch_id.in_(ids))
+    dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
+    dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
+    # Returns first (self-FK sales.original_sale_id), then the originals.
+    dst.execute(
+        delete(m.Sale).where(m.Sale.branch_id.in_(ids), m.Sale.original_sale_id.is_not(None))
+    )
+    dst.execute(delete(m.Sale).where(m.Sale.branch_id.in_(ids)))
+    purchase_ids = select(m.Purchase.purchase_id).where(m.Purchase.branch_id.in_(ids))
+    dst.execute(delete(m.PurchaseLine).where(m.PurchaseLine.purchase_id.in_(purchase_ids)))
+    dst.execute(delete(m.Purchase).where(m.Purchase.branch_id.in_(ids)))
+    # Transfers touch batches on BOTH ends — any line touching a wiped batch
+    # goes, then every transfer with a wiped endpoint branch. Lines are matched
+    # by parent transfer too, not only by batch: a *requested* (not yet
+    # approved) transfer's lines have NULL batch ids and would otherwise
+    # survive, failing the parent delete with a FK error and killing the whole
+    # sync cycle.
+    dying_transfers = select(m.StockTransfer.transfer_id).where(
+        m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
+    )
+    dst.execute(
+        delete(m.StockTransferLine).where(
+            m.StockTransferLine.from_batch_id.in_(batch_ids)
+            | m.StockTransferLine.to_batch_id.in_(batch_ids)
+            | m.StockTransferLine.transfer_id.in_(dying_transfers)
+        )
+    )
+    dst.execute(
+        delete(m.StockTransfer).where(
+            m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
+        )
+    )
+    dst.execute(
+        delete(m.StockMovement).where(
+            m.StockMovement.branch_id.in_(ids) | m.StockMovement.batch_id.in_(batch_ids)
+        )
+    )
+    dst.execute(delete(m.StockBatch).where(m.StockBatch.branch_id.in_(ids)))
+    dst.flush()
+
+
+def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match: bool = False) -> dict[int, int]:
     """Returns src product_id -> dst product_id. With ``dedup`` (append mode),
-    a product whose code already exists in ProCare is reused, not duplicated."""
+    a product whose code already exists in ProCare is reused, not duplicated.
+    With ``update_on_match`` (continuous sync) a matched product's names, prices
+    and flags are refreshed from the source so owner edits on eStock (e.g.
+    scientific-name cleanups) propagate on every cycle."""
     cols = {c["name"] for c in insp.get_columns("Products")}
     pid = _pick(cols, "product_id")
     name_ar = _pick(cols, "product_name_ar", "name_ar")
@@ -317,21 +469,70 @@ def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int
     tax = _pick(cols, "tax_price")
     deleted = _pick(cols, "deleted")
     active = _pick(cols, "active")
+    # Units (وحدة كبرى/صغرى): eStock column names vary by version — try the
+    # known spellings; absent columns just leave the defaults (factor 1).
+    unit_big = _pick(cols, "product_unit1", "unit1", "product_unit", "unit_name", "product_unit_ar")
+    unit_small = _pick(cols, "product_unit2", "unit2", "sub_unit", "product_sub_unit")
+    unit_factor = _pick(
+        cols, "product_no2per1", "no2per1", "unit2_per_unit1", "product_unit2_count", "unit_factor"
+    )
+
+    def _factor(r) -> float:
+        f = _num(r.get(unit_factor), 1) if unit_factor else 1
+        return f if f and f > 0 else 1
+
+    def _pkey(code_val, nm):
+        # Codeless products fall back to the display name, otherwise a repeated
+        # branch-scoped sync (which never wipes the catalogue) would re-insert
+        # them on every cycle.
+        if code_val is not None and str(code_val).strip():
+            return "c:" + str(code_val).strip()
+        if nm and str(nm).strip():
+            return "n:" + str(nm).strip()
+        return None
 
     existing: dict[str, int] = {}
     if dedup:
-        for ex_pid, ex_code in dst.execute(select(m.Product.product_id, m.Product.code)).all():
-            if ex_code is not None:
-                existing[str(ex_code)] = ex_pid
+        rows_ex = dst.execute(select(m.Product.product_id, m.Product.code, m.Product.name_ar)).all()
+        for ex_pid, ex_code, ex_name in rows_ex:
+            key = _pkey(ex_code, ex_name)
+            if key and key not in existing:
+                existing[key] = ex_pid
 
     rows = src.execute(text("SELECT * FROM Products")).mappings().all()
     mapping: dict[int, int] = {}
     pairs = []  # (row, obj) for products we actually create
+    updates = []  # bulk field refresh for matched products (update_on_match)
     for r in rows:
-        code_val = str(r.get(code)) if code and r.get(code) is not None else None
+        code_val = _pkey(
+            r.get(code) if code else None,
+            _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+        )
         if dedup and code_val is not None and code_val in existing:
             if pid and r.get(pid) is not None:
                 mapping[int(r[pid])] = existing[code_val]
+            if update_on_match:
+                src_sci = r.get(sci) if sci else None
+                updates.append(
+                    {
+                        "b_pid": existing[code_val],
+                        "b_name_ar": _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None),
+                        "b_name_en": r.get(name_en) if name_en else None,
+                        # NULL when the source field is blank so the COALESCE
+                        # in the update keeps ProCare's own value — otherwise
+                        # every sync cycle would wipe the Titan/Drug-Eye
+                        # scientific-name enrichment (docs/03 §4).
+                        "b_sci": src_sci if src_sci and str(src_sci).strip() else None,
+                        "b_sell": _price(r.get(sell)) if sell else 0,
+                        "b_buy": _price(r.get(buy)) if buy else 0,
+                        "b_tax": _price(r.get(tax)) if tax else 0,
+                        "b_unit_big": _str(r.get(unit_big)) if unit_big else None,
+                        "b_unit_small": _str(r.get(unit_small)) if unit_small else None,
+                        "b_unit_factor": _factor(r),
+                        "b_active": _b(r.get(active)) if active else True,
+                        "b_deleted": _product_deleted(r.get(deleted)) if deleted else False,
+                    }
+                )
             continue
         pairs.append((
             r,
@@ -343,26 +544,50 @@ def _load_products(insp, src, dst, counts, dedup: bool = False) -> dict[int, int
                 scientific_name=r.get(sci) if sci else None,
                 is_controlled=_b(r.get(drug)) if drug else False,
                 has_expiry=_b(r.get(has_exp)) if has_exp else True,
-                sell_price=_num(r.get(sell)) if sell else 0,
-                buy_price=_num(r.get(buy)) if buy else 0,
-                tax_price=_num(r.get(tax)) if tax else 0,
+                sell_price=_price(r.get(sell)) if sell else 0,
+                buy_price=_price(r.get(buy)) if buy else 0,
+                tax_price=_price(r.get(tax)) if tax else 0,
+                unit_big=_str(r.get(unit_big)) if unit_big else None,
+                unit_small=_str(r.get(unit_small)) if unit_small else None,
+                unit_factor=_factor(r),
                 is_active=_b(r.get(active)) if active else True,
-                is_deleted=_b(r.get(deleted)) if deleted else False,
+                is_deleted=_product_deleted(r.get(deleted)) if deleted else False,
             ),
         ))
     dst.add_all([obj for _, obj in pairs])
+    if updates:
+        stmt = (
+            m.Product.__table__.update()
+            .where(m.Product.product_id == bindparam("b_pid"))
+            .values(
+                name_ar=bindparam("b_name_ar"),
+                name_en=bindparam("b_name_en"),
+                # Keep ProCare's enrichment when eStock has no scientific name.
+                scientific_name=func.coalesce(bindparam("b_sci"), m.Product.scientific_name),
+                sell_price=bindparam("b_sell"),
+                buy_price=bindparam("b_buy"),
+                tax_price=bindparam("b_tax"),
+                unit_big=bindparam("b_unit_big"),
+                unit_small=bindparam("b_unit_small"),
+                unit_factor=bindparam("b_unit_factor"),
+                is_active=bindparam("b_active"),
+                is_deleted=bindparam("b_deleted"),
+            )
+        )
+        dst.execute(stmt, updates)
     dst.flush()
     for r, obj in pairs:
         if pid and r.get(pid) is not None:
             mapping[int(r[pid])] = obj.product_id
-        cv = str(r.get(code)) if code and r.get(code) is not None else None
+        cv = _pkey(r.get(code) if code else None, obj.name_ar)
         if dedup and cv is not None:
             existing[cv] = obj.product_id
     counts["products"] = len(pairs)
+    counts["products_updated"] = len(updates)
     return mapping
 
 
-def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, int]:
+def _load_customers(insp, src, dst, counts, dedup: bool = False, update_on_match: bool = False) -> dict[int, int]:
     cols = {c["name"] for c in insp.get_columns("Customer")}
     cid = _pick(cols, "customer_id")
     name_ar = _pick(cols, "customer_name_ar", "name_ar")
@@ -391,6 +616,7 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
     rows = src.execute(text("SELECT * FROM Customer")).mappings().all()
     mapping: dict[int, int] = {}
     pairs = []
+    updates = []  # refresh matched customers' balances/limits (update_on_match)
     for r in rows:
         mob = r.get(mobile) if mobile else None
         nm = _ar(r.get(name_ar) if name_ar else None, r.get(name_en) if name_en else None)
@@ -398,6 +624,16 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
         if dedup and key is not None and key in existing:
             if cid and r.get(cid) is not None:
                 mapping[int(r[cid])] = existing[key]
+            if update_on_match:
+                updates.append(
+                    {
+                        "customer_id": existing[key],
+                        "credit_limit": _num(r.get(limit)) if limit else 0,
+                        "current_balance": _num(r.get(balance)) if balance else 0,
+                        "is_active": _b(r.get(active)) if active else True,
+                        "is_deleted": _b(r.get(deleted)) if deleted else False,
+                    }
+                )
             continue
         pairs.append((
             r,
@@ -413,6 +649,9 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
             ),
         ))
     dst.add_all([obj for _, obj in pairs])
+    if updates:
+        stmt = m.Customer.__table__.update().where(m.Customer.customer_id == bindparam("b_cid"))
+        dst.execute(stmt, [dict(u, b_cid=u.pop("customer_id")) for u in updates])
     dst.flush()
     for r, obj in pairs:
         if cid and r.get(cid) is not None:
@@ -424,6 +663,7 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False) -> dict[int, in
         if dedup and key is not None:
             existing[key] = obj.customer_id
     counts["customers"] = len(pairs)
+    counts["customers_updated"] = len(updates)
     return mapping
 
 
@@ -505,18 +745,27 @@ def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
     counts["stock_batches"] = n
 
 
-def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, default_branch, *, returns: bool) -> None:
-    header_tbl = "Back_sales_header" if returns else "Sales_header"
-    detail_tbl = "Back_Sales_details" if returns else "Sales_details"
-    key = "returns" if returns else "sales"
+def _load_sales(
+    insp, src, dst, counts, product_map, customer_map, branch_map, default_branch,
+    employee_map=None, *, header_tbl, detail_tbl, returns: bool, count_key: str,
+) -> None:
+    """Mirror one sales header/detail table pair into ProCare.
+
+    Called once per source table so the FULL eStock picture is captured: the
+    head-office ``Sales_header`` AND the branch ``Branches_sales_header`` (which
+    can hold MORE rows than the main table), plus the ``Back_*`` return variants.
+    Counts ACCUMULATE across calls under ``count_key`` (sales / returns).
+    """
+    employee_map = employee_map or {}
     if not insp.has_table(header_tbl):
-        counts[key] = 0
+        counts.setdefault(count_key, 0)
         return
 
     hcols = {c["name"] for c in insp.get_columns(header_tbl)}
     sid = _pick(hcols, "sales_id")
     store = _pick(hcols, "store_id")
     cust = _pick(hcols, "customer_id")
+    cashier = _pick(hcols, "cashier_id")
     bill_date = _pick(hcols, "bill_date")
     insert_date = _pick(hcols, "insert_date")
     gross = _pick(hcols, "total_bill")
@@ -537,10 +786,15 @@ def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, d
             r.get(insert_date) if insert_date else None
         ) or datetime.now()
         branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        # eStock cashier_id is a username (varchar) -> map to a ProCare employee.
+        cashier_id = None
+        if cashier and r.get(cashier) not in (None, "", 0):
+            cashier_id = employee_map.get(str(r[cashier]).strip().lower())
         sale_objs.append(
             m.Sale(
                 branch_id=branch_id or default_branch,
                 customer_id=customer_map.get(src_cust) if src_cust else None,
+                cashier_id=cashier_id,
                 sale_date=sale_dt,
                 total_gross=_num(r.get(gross)) if gross else 0,
                 total_discount=_num(r.get(disc)) if disc else 0,
@@ -556,11 +810,11 @@ def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, d
     for r, obj in zip(hrows, sale_objs):
         if sid and r.get(sid) is not None:
             sale_id_map[int(r[sid])] = obj.sale_id
-    counts[key] = len(sale_objs)
+    counts[count_key] = counts.get(count_key, 0) + len(sale_objs)
 
     # Lines
     if not insp.has_table(detail_tbl):
-        counts[key + "_lines"] = 0
+        counts.setdefault(count_key + "_lines", 0)
         return
     dcols = {c["name"] for c in insp.get_columns(detail_tbl)}
     d_sid = _pick(dcols, "sales_id")
@@ -598,14 +852,21 @@ def _load_sales(insp, src, dst, counts, product_map, customer_map, branch_map, d
         )
     if line_rows:
         dst.execute(insert(m.SaleLine), line_rows)
-    counts[key + "_lines"] = len(line_rows)
+    counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0) + len(line_rows)
 
 
-def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
-    if not insp.has_table("Purchase_header"):
-        counts["purchases"] = 0
+def _load_purchases(
+    insp, src, dst, counts, product_map, branch_map, default_branch,
+    vendor_map=None, *, header_tbl="Purchase_header", detail_tbl="Purchase_details",
+) -> None:
+    """Mirror one purchase header/detail table pair. Called for both the
+    head-office ``Purchase_header`` and the branch ``Branches_purchase_header``
+    so purchase totals match eStock. Counts accumulate."""
+    vendor_map = vendor_map or {}
+    if not insp.has_table(header_tbl):
+        counts.setdefault("purchases", 0)
         return
-    hcols = {c["name"] for c in insp.get_columns("Purchase_header")}
+    hcols = {c["name"] for c in insp.get_columns(header_tbl)}
     pid = _pick(hcols, "purchase_id")
     vendor = _pick(hcols, "vendor_id")
     store = _pick(hcols, "store_id")
@@ -616,23 +877,23 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     tax = _pick(hcols, "bill_tax")
     back = _pick(hcols, "back")
 
-    # Vendors were loaded without preserving src ids; purchases need a vendor FK.
-    # Use the first vendor as a safe placeholder when the source vendor can't be
-    # resolved (vendor identity mapping is part of the deferred ledger audit).
+    # Resolve the real vendor per row from the mapping; fall back to the first
+    # vendor only when a row's vendor can't be resolved (keeps the FK valid).
     any_vendor = dst.scalars(select(m.Vendor.vendor_id)).first()
     if any_vendor is None:
-        counts["purchases"] = 0
+        counts.setdefault("purchases", 0)
         return
 
-    hrows = src.execute(text("SELECT * FROM Purchase_header")).mappings().all()
+    hrows = src.execute(text(f"SELECT * FROM {header_tbl}")).mappings().all()
     purch_map: dict[int, int] = {}
     objs = []
     for r in hrows:
         branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        src_vendor = int(r[vendor]) if vendor and r.get(vendor) not in (None, 0) else None
         objs.append(
             m.Purchase(
                 branch_id=branch_id or default_branch,
-                vendor_id=any_vendor,
+                vendor_id=vendor_map.get(src_vendor, any_vendor) if src_vendor else any_vendor,
                 bill_date=_as_date(r.get(bill_date)) if bill_date else date.today(),
                 bill_number=r.get(bill_num) if bill_num else None,
                 total_gross=_num(r.get(gross)) if gross else 0,
@@ -646,12 +907,12 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     for r, obj in zip(hrows, objs):
         if pid and r.get(pid) is not None:
             purch_map[int(r[pid])] = obj.purchase_id
-    counts["purchases"] = len(objs)
+    counts["purchases"] = counts.get("purchases", 0) + len(objs)
 
-    if not insp.has_table("Purchase_details"):
-        counts["purchase_lines"] = 0
+    if not insp.has_table(detail_tbl):
+        counts.setdefault("purchase_lines", 0)
         return
-    dcols = {c["name"] for c in insp.get_columns("Purchase_details")}
+    dcols = {c["name"] for c in insp.get_columns(detail_tbl)}
     d_pid = _pick(dcols, "purchase_id")
     d_prod = _pick(dcols, "product_id")
     d_amount = _pick(dcols, "amount")
@@ -660,7 +921,7 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
     d_sell = _pick(dcols, "sell_price")
     d_exp = _pick(dcols, "exp_date")
 
-    drows = src.execute(text("SELECT * FROM Purchase_details")).mappings().all()
+    drows = src.execute(text(f"SELECT * FROM {detail_tbl}")).mappings().all()
     line_rows = []
     for r in drows:
         purch_pk = purch_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
@@ -681,7 +942,48 @@ def _load_purchases(insp, src, dst, counts, product_map, branch_map, default_bra
         )
     if line_rows:
         dst.execute(insert(m.PurchaseLine), line_rows)
-    counts["purchase_lines"] = len(line_rows)
+    counts["purchase_lines"] = counts.get("purchase_lines", 0) + len(line_rows)
+
+
+def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
+    """Mirror eStock cash vaults (``Cash_depots``) into ProCare's ledger so the
+    treasury screen shows real balances instead of zero.
+
+    Each depot's current balance becomes one ``cash``/``bank`` ledger entry
+    (positive → debit, negative → credit). ``_WIPE_ORDER`` clears LedgerEntry on
+    every full refresh, so re-running never double-counts.
+    """
+    # Treasury = the head-office server's own live vaults in ``Cash_depots``
+    # (verified against the owner's report: Elsanta Cash_depots reconciles to the
+    # "cash accounts by branch" total). ``Branches_cash_depots`` is a SEPARATE
+    # aggregation on the same server that overcounts — do NOT include it.
+    entries = []
+    for tbl in ("Cash_depots",):
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        name = _pick(cols, "cash_depot_name_ar", "cash_depot_name_en")
+        money_col = _pick(cols, "cash_depot_current_money")
+        bank = _pick(cols, "bank_id")
+        if not money_col:
+            continue
+        for r in src.execute(text(f"SELECT * FROM {tbl}")).mappings().all():
+            bal = _num(r.get(money_col))
+            is_bank = bool(r.get(bank)) if bank else False
+            entries.append(
+                m.LedgerEntry(
+                    branch_id=default_branch,
+                    account_type="bank" if is_bank else "cash",
+                    ref_type="depot",
+                    debit=bal if bal >= 0 else 0,
+                    credit=-bal if bal < 0 else 0,
+                    note=(str(r.get(name)) if name else "depot"),
+                )
+            )
+    if entries:
+        dst.add_all(entries)
+        dst.flush()
+    counts["treasury_depots"] = len(entries)
 
 
 def preflight() -> dict:

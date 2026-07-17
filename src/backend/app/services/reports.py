@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, fefo_order, money, sql_day, today
 
 
 def stock_on_hand(session: Session, branch_id: int | None = None, limit: int = 2000) -> list[dict]:
@@ -68,7 +68,7 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .join(m.Branch, m.Branch.branch_id == m.StockBatch.branch_id)
         .where(m.StockBatch.amount > 0, branch_filter(m.StockBatch, branch_id))
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
         .limit(limit)
     ).all()
     return [
@@ -82,8 +82,8 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
             "buy_price": money(b.buy_price),
             "sell_price": money(b.sell_price),
             "exp_date": b.exp_date.isoformat() if b.exp_date else None,
-            "days_to_expiry": (b.exp_date - TODAY).days if b.exp_date else None,
-            "expired": bool(b.exp_date and b.exp_date <= TODAY),
+            "days_to_expiry": (b.exp_date - today()).days if b.exp_date else None,
+            "expired": bool(b.exp_date and b.exp_date <= today()),
         }
         for b, name_ar, name_en, branch in rows
     ]
@@ -92,13 +92,13 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
 def stock_movements(
     session: Session, branch_id: int | None = None, days: int = 30, limit: int = 1000
 ) -> list[dict]:
-    start = TODAY - timedelta(days=days)
+    start = today() - timedelta(days=days)
     rows = session.execute(
         select(m.StockMovement, m.StockBatch.product_id, m.Product.name_ar, m.Branch.name_ar.label("branch"))
         .join(m.StockBatch, m.StockBatch.batch_id == m.StockMovement.batch_id)
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .join(m.Branch, m.Branch.branch_id == m.StockMovement.branch_id)
-        .where(branch_filter(m.StockMovement, branch_id), func.date(m.StockMovement.created_at) >= start)
+        .where(branch_filter(m.StockMovement, branch_id), sql_day(m.StockMovement.created_at) >= start)
         .order_by(m.StockMovement.created_at.desc())
         .limit(limit)
     ).all()

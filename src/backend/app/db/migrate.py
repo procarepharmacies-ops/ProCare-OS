@@ -69,6 +69,120 @@ def ensure_loyalty_points_column(engine) -> None:
         conn.execute(text("ALTER TABLE customers ADD COLUMN loyalty_points NUMERIC(18,3) DEFAULT 0"))
 
 
+def ensure_task_priority_columns(engine) -> None:
+    """Add ``employee_tasks.priority`` and ``.category`` if the table predates
+    the professional daily-plan upgrade. Existing tasks default to normal/general."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    with engine.begin() as conn:
+        if "priority" not in columns:
+            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"))
+        if "category" not in columns:
+            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN category VARCHAR(20) DEFAULT 'general'"))
+
+
+def ensure_prescription_status_columns(engine) -> None:
+    """Add ``prescriptions.status`` + ``.reviewed_by`` if the table predates the
+    capture -> review -> dispense workflow. Existing rows become 'captured'."""
+    inspector = inspect(engine)
+    if "prescriptions" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("prescriptions")}
+    with engine.begin() as conn:
+        if "status" not in columns:
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN status VARCHAR(20) DEFAULT 'captured'"))
+        if "reviewed_by" not in columns:
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN reviewed_by INTEGER NULL"))
+
+
+def ensure_titan_match_columns(engine) -> None:
+    """Add ``products.titan_match_method`` + ``.titan_match_score`` if the table
+    predates the Titan/Drug-Eye mapping job (docs/03 §4). Existing rows stay
+    NULL = unmapped; ``tools/titan_extract.py`` fills them."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "titan_match_method" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} titan_match_method VARCHAR(20) NULL"))
+        if "titan_match_score" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} titan_match_score INTEGER NULL"))
+
+
+def ensure_employee_reset_columns(engine) -> None:
+    """Add the WhatsApp password-reset columns if the table predates them.
+
+    Dialect-aware: SQL Server wants ``ADD``, SQLite wants ``ADD COLUMN``.
+    """
+    inspector = inspect(engine)
+    if "employees" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employees")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "phone" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} phone VARCHAR(20) NULL"))
+        if "reset_code_hash" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_code_hash VARCHAR(255) NULL"))
+        if "reset_code_expires" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_code_expires DATETIME NULL"))
+        if "reset_attempts" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_attempts INTEGER DEFAULT 0"))
+
+
+def ensure_product_unit_columns(engine) -> None:
+    """Add ``products.unit_big/unit_small/unit_factor`` (وحدة كبرى/صغرى) if the
+    table predates the units feature. Existing products default to factor 1
+    (no subdivision) until the next eStock sync refreshes them."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "unit_big" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_big VARCHAR(50) NULL"))
+        if "unit_small" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_small VARCHAR(50) NULL"))
+        if "unit_factor" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_factor NUMERIC(18,3) DEFAULT 1"))
+
+
+def ensure_customer_address_column(engine) -> None:
+    """Add ``customers.address`` (العنوان) if the table predates the customer
+    360 screen."""
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    if "address" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE customers {add} address VARCHAR(300) NULL"))
+
+
+def ensure_product_classification_columns(engine) -> None:
+    """Add ``products.dosage_form/is_otc/uses`` (الشكل الصيدلاني / OTC /
+    الاستخدامات) if the table predates the classification feature."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "dosage_form" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} dosage_form VARCHAR(50) NULL"))
+        if "is_otc" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} is_otc BIT DEFAULT 0"))
+        if "uses" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} uses VARCHAR(300) NULL"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.
@@ -99,7 +213,7 @@ def _find_branch(session: Session, hint: str | None) -> int | None:
     from sqlalchemy import select
 
     hint = hint.lower()
-    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنتا")}
+    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنطه")}
     needles = aliases.get(hint, (hint,))
     for b in session.scalars(select(m.Branch)):
         haystack = " ".join(filter(None, (b.code, b.name_en, b.name_ar))).lower()
@@ -167,3 +281,16 @@ def bootstrap_ceo_if_configured(session: Session) -> None:
         )
     )
     session.commit()
+
+
+def ensure_assigned_agent_column(engine) -> None:
+    """Add ``employee_tasks.assigned_agent`` so tasks can be routed to AI agents."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    if "assigned_agent" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE employee_tasks ADD assigned_agent VARCHAR(20) NULL"))
+

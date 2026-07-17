@@ -1,4 +1,4 @@
-# Multi‑Branch Model — Main + Elsanta (الرئيسي + السنتا)
+# Multi‑Branch Model — Elsanta + Mas-hala (السنطه + مسهله)
 
 ProCare OS runs the same two physical branches as eStock and replicates exactly how eStock
 connects them — but on a **clean, independent database** that fixes every eStock data‑quality
@@ -18,8 +18,8 @@ never go negative).
 
 | Branch | Arabic | Role |
 |--------|--------|------|
-| **Main** | الرئيسي | Primary branch / main warehouse |
-| **Elsanta** | السنتا | Secondary branch — recommended **pilot** for the Phase‑2 parallel run |
+| **Mas-hala** | مسهله | Primary branch / main warehouse |
+| **Elsanta** | السنطه | Secondary branch — recommended **pilot** for the Phase‑2 parallel run |
 
 eStock confirms exactly **two** branches in its `Branches` table (2 rows, 52 columns of per‑branch
 config each). Both branches live on the same LAN host (`192.168.1.2`); eStock itself keeps a single
@@ -29,13 +29,13 @@ ProCare seeds these two branches deterministically so every operational row can 
 clean integer key (see [`../sql/procare-schema.sql`](../sql/procare-schema.sql)):
 
 ```sql
-INSERT INTO branches (name_ar, name_en) VALUES (N'الرئيسي', N'Main');     -- branch_id = 1
-INSERT INTO branches (name_ar, name_en) VALUES (N'السنتا',  N'Elsanta');  -- branch_id = 2
+INSERT INTO branches (name_ar, name_en) VALUES (N'مسهله', N'Mas-hala');     -- branch_id = 1
+INSERT INTO branches (name_ar, name_en) VALUES (N'السنطه',  N'Elsanta');  -- branch_id = 2
 ```
 
 > **TBD.** eStock's internal branch identifiers (its own numeric `branch_id` / `store_id` values
 > and the meaning of the 52 `Branches` columns) are read and confirmed during the Phase‑1 mirror.
-> Until then, ProCare treats `branch_id = 1` as Main and `branch_id = 2` as Elsanta and records the
+> Until then, ProCare treats `branch_id = 1` as Mas-hala and `branch_id = 2` as Elsanta and records the
 > eStock → ProCare key mapping in the ETL layer. The pilot recommendation (Elsanta) is an
 > operational choice, not anything encoded in eStock.
 
@@ -101,7 +101,7 @@ deliberately **not** branch‑scoped; only operational/transactional rows are.)
 
 ### 3.2 Stock is per‑branch **and** per‑batch
 A product can have different quantities — and even entirely different batches with different expiry
-dates — in Main vs Elsanta. The grain is one row per `(product_id, branch_id, exp_date)` in
+dates — in Elsanta vs Mas-hala. The grain is one row per `(product_id, branch_id, exp_date)` in
 `stock_batches`. Two invariants the eStock DB does not enforce but ProCare does:
 
 - **`amount` can never go negative** — `CHECK (amount >= 0)`. (eStock today has **33,249
@@ -112,7 +112,7 @@ dates — in Main vs Elsanta. The grain is one row per `(product_id, branch_id, 
   prevent that — see [`04-ai-automation-spec.md`](04-ai-automation-spec.md).)
 
 ### 3.3 Stock transfers are atomic and audited
-A Main → Elsanta transfer decrements the source branch and increments the destination branch under a
+A Mas-hala → Elsanta transfer decrements the source branch and increments the destination branch under a
 **single `transfer_id`**, inside one database transaction. Both legs are written to
 `stock_movements` (one `delta < 0` at the source, one `delta > 0` at the destination), each tagged
 with `reason = 'transfer'` and `ref_id = transfer_id`. If any step fails, the whole transfer rolls
@@ -128,29 +128,29 @@ credit at the receiver) so the two branch ledgers always reconcile.
 ### 3.5 Batch identity travels with every transfer
 `stock_transfer_lines` carries `exp_date` alongside `product_id` and `amount`. The expiry date moves
 with the goods, so FEFO and expiry tracking stay correct **across** branches — the units received at
-Elsanta keep the same expiry they had at Main and are not silently re‑dated.
+Elsanta keep the same expiry they had at Mas-hala and are not silently re‑dated.
 
 ### 3.6 Consolidated by default, drill‑down on demand
 Every report and dashboard can show a **single branch** or **both combined**. The UI carries a
-branch switcher — **Main / Elsanta / All** — and the selection persists per user alongside the
+branch switcher — **Elsanta / Mas-hala / All** — and the selection persists per user alongside the
 language (Arabic default / English) and theme (light default / dark) preferences described in
 [`01-architecture.md`](01-architecture.md).
 
 ---
 
-## 4. Stock‑transfer flow (Main → Elsanta)
+## 4. Stock‑transfer flow (Mas-hala → Elsanta)
 
 Tables touched: `stock_transfers`, `stock_transfer_lines`, `stock_batches`, `stock_movements`.
 
 ```
 1. Elsanta requests 50 units of product X
-   → stock_transfers (from=Main, to=Elsanta, status='requested')
+   → stock_transfers (from=Mas-hala, to=Elsanta, status='requested')
    → stock_transfer_lines (product_id=X, amount=50, exp_date=<batch>)
 
-2. Main approves & ships
+2. Mas-hala approves & ships
    → stock_transfers.status = 'in_transit'
-   → Main  stock_batches.amount −50   (FEFO: oldest exp_date at Main first)
-   → stock_movements (batch_id=<Main batch>, branch_id=Main,
+   → Mas-hala  stock_batches.amount −50   (FEFO: oldest exp_date at Mas-hala first)
+   → stock_movements (batch_id=<Mas-hala batch>, branch_id=Mas-hala,
                       delta=−50, reason='transfer', ref_id=transfer_id)
 
 3. Elsanta receives
@@ -199,12 +199,12 @@ eliminates.
 ## 6. Reporting
 
 ### 6.1 Per branch
-Filtered by `branch_id`: sales, gross profit, stock value, debtors, and expiry — for Main alone or
+Filtered by `branch_id`: sales, gross profit, stock value, debtors, and expiry — for Mas-hala alone or
 Elsanta alone. The supporting indexes (`IX_sales_branch`, `IX_ledger_branch_date`,
 `IX_stock_product_branch`) make these filters fast.
 
 ### 6.2 Consolidated (the group picture)
-Main + Elsanta combined — the owner's whole‑business view. This mirrors what eStock's
+Elsanta + Mas-hala combined — the owner's whole‑business view. This mirrors what eStock's
 `Gedo_branches` ledger was meant to provide, now backed by `ledger_entries` with explicit
 debit/credit columns. Sales/profit consolidations honour the eStock‑derived data‑quality rules:
 `COALESCE(bill_date, insert_date)` for dating, and **exclude returns** (`back <> 'Y'`) — see

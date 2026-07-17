@@ -6,7 +6,7 @@ enforces it at the POS (see ``app.services.pos.check_credit``).
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
@@ -82,6 +82,98 @@ def customer_statement(session: Session, customer_id: int, limit: int = 200) -> 
         "over_limit": limit_v > 0 and balance > limit_v,
         "entries": rows,
     }
+
+
+def customer_profile(session: Session, customer_id: int, limit: int = 100) -> dict | None:
+    """Customer 360 (شاشة العميل): identity + address + loyalty points, the
+    full purchase history, and the medicines they actually take (aggregated
+    products with times bought + last date) — everything the pharmacist needs
+    on one screen."""
+    c = session.get(m.Customer, customer_id)
+    if c is None or c.is_deleted:
+        return None
+
+    # Purchase history (their invoices).
+    sales = session.execute(
+        select(m.Sale.sale_id, m.Sale.sale_date, m.Sale.total_net, m.Sale.is_return)
+        .where(m.Sale.customer_id == customer_id)
+        .order_by(m.Sale.sale_date.desc())
+        .limit(limit)
+    ).all()
+    history = [
+        {
+            "sale_id": sid,
+            "date": d.isoformat() if d else None,
+            "total": money(tot),
+            "is_return": bool(ret),
+        }
+        for sid, d, tot, ret in sales
+    ]
+
+    # Medicines they take: aggregate sale lines by product.
+    meds = session.execute(
+        select(
+            m.Product.product_id,
+            m.Product.name_ar,
+            m.Product.name_en,
+            func.sum(m.SaleLine.amount).label("qty"),
+            func.count(func.distinct(m.SaleLine.sale_id)).label("times"),
+            func.max(m.Sale.sale_date).label("last"),
+        )
+        .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
+        .join(m.Product, m.Product.product_id == m.SaleLine.product_id)
+        .where(m.Sale.customer_id == customer_id, m.Sale.is_return == False)  # noqa: E712
+        .group_by(m.Product.product_id, m.Product.name_ar, m.Product.name_en)
+        .order_by(func.count(func.distinct(m.SaleLine.sale_id)).desc())
+        .limit(50)
+    ).all()
+    medicines = [
+        {
+            "product_id": pid,
+            "name_ar": nar,
+            "name_en": nen,
+            "total_qty": money(qty),
+            "times_bought": int(times),
+            "last_bought": last.isoformat() if last else None,
+        }
+        for pid, nar, nen, qty, times, last in meds
+    ]
+
+    total_spent = money(
+        session.scalar(
+            select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
+                m.Sale.customer_id == customer_id, m.Sale.is_return == False  # noqa: E712
+            )
+        )
+        or 0
+    )
+    return {
+        "customer_id": c.customer_id,
+        "name_ar": c.name_ar,
+        "name_en": c.name_en,
+        "mobile": c.mobile,
+        "address": c.address,
+        "loyalty_points": money(c.loyalty_points),
+        "current_balance": money(c.current_balance),
+        "credit_limit": money(c.credit_limit),
+        "total_spent": total_spent,
+        "visit_count": len(history),
+        "history": history,
+        "medicines": medicines,
+    }
+
+
+def update_customer(session: Session, customer_id: int, data: dict) -> dict | None:
+    """Edit editable customer fields (address, mobile) — تحديث بيانات العميل."""
+    c = session.get(m.Customer, customer_id)
+    if c is None or c.is_deleted:
+        return None
+    if "address" in data:
+        c.address = (data.get("address") or "").strip() or None
+    if "mobile" in data:
+        c.mobile = (data.get("mobile") or "").strip() or None
+    session.commit()
+    return {"customer_id": c.customer_id, "address": c.address, "mobile": c.mobile}
 
 
 def list_vendors(session: Session, limit: int = 200) -> list[dict]:

@@ -22,6 +22,14 @@ _PLACEHOLDER_MARKERS = ("REPLACE_ME", "REPLACE_WITH", "TBD")
 
 
 def _load() -> tuple[dict, str]:
+    # PROCARE_CONFIG_FILE (env) pins the config — the test suite points it at
+    # the example file so tests never see (or touch) the operator's real
+    # servers, whatever is in connections.json on this machine.
+    override = os.environ.get("PROCARE_CONFIG_FILE")
+    if override:
+        p = Path(override)
+        with p.open(encoding="utf-8") as fh:
+            return json.load(fh), p.name
     real = CONFIG_DIR / "connections.json"
     example = CONFIG_DIR / "connections.example.json"
     path = real if real.exists() else example
@@ -81,15 +89,33 @@ _ai = _data.get("ai", {})
 _notify = _data.get("notifications", {})
 
 # Per-provider defaults: which model to use and which env var holds the key.
+# ``keyless`` providers run locally (Ollama) or via a logged-in CLI (Claude
+# Code) and need NO API key — the assistant works fully offline on the LAN.
 _AI_PROVIDER_DEFAULTS = {
     "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
     "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+    # Ollama serves an OpenAI-compatible API at http://localhost:11434. "Hermes"
+    # is just a model served by Ollama (default hermes3), so hermes -> ollama.
+    "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True},
+    # Shell out to a locally installed & logged-in Claude Code CLI.
+    "claude-cli": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY", "keyless": True},
 }
+
+# Providers that need no API key to be considered "configured".
+_KEYLESS_PROVIDERS = {p for p, d in _AI_PROVIDER_DEFAULTS.items() if d.get("keyless")}
 
 
 def _norm_provider(p: str) -> str:
     p = (p or "").strip().lower()
-    return "gemini" if p in ("gemini", "google") else p
+    if p in ("gemini", "google"):
+        return "gemini"
+    if p in ("ollama", "hermes", "local"):
+        return "ollama"
+    if p in ("claude-cli", "claude_cli", "cli"):
+        return "claude-cli"
+    if p in ("claude",):
+        return "anthropic"
+    return p
 
 
 def _detect_ai_provider() -> str:
@@ -146,11 +172,14 @@ class Settings:
     network_host: str = _data.get("network_host", "192.168.1.2")
 
     # Which data sources have real (non-placeholder) credentials.
-    estock_configured: bool = _source_configured(_data.get("estock_source", {}))
+    estock_configured: bool = _source_configured(_data.get("estock_source", {})) or any(
+        _source_configured(b) for b in (_data.get("estock_sources") or [])
+    )
     titan_configured: bool = _source_configured(_data.get("titan_drugeye_source", {}))
     procare_configured: bool = _source_configured(_data.get("procare_database", {}))
 
-    # AI assistant. Supports Anthropic (Claude) and Google (Gemini). The key is
+    # AI assistant. Supports Anthropic (Claude API), Google (Gemini), Ollama /
+    # Hermes (local, no key), and the Claude Code CLI (local, no key). The key is
     # read from the environment, never from git — config only names which env var
     # holds it. Provider/model/key-env can be set in the config "ai" block OR via
     # environment (AI_PROVIDER / AI_MODEL), which is how the Docker stack sets it.
@@ -158,6 +187,14 @@ class Settings:
     ai_provider: str = _detect_ai_provider()
     ai_model: str = _ai_model_for(ai_provider)
     ai_api_key_env: str = _ai_key_env_for(ai_provider)
+    # Base URL for local/OpenAI-compatible providers (Ollama). Override with
+    # AI_BASE_URL (or OLLAMA_BASE_URL) to point at another host on the LAN.
+    ai_base_url: str = (
+        os.environ.get("AI_BASE_URL")
+        or os.environ.get("OLLAMA_BASE_URL")
+        or _ai.get("base_url")
+        or "http://localhost:11434"
+    )
 
     # Login gate (CEO/manager/assistant roles). Opt-in via env so existing
     # deployments and the test suite are unaffected until a pharmacy turns it
@@ -171,6 +208,15 @@ class Settings:
     loyalty_egp_per_point: float = float(os.environ.get("LOYALTY_EGP_PER_POINT", "10") or 10)
     loyalty_point_value: float = float(os.environ.get("LOYALTY_POINT_VALUE", "0.25") or 0.25)
 
+    # Manager phone for WhatsApp operational alerts (transfer requests, daily
+    # report, expiry/reorder summaries). Env wins, else the notifications config
+    # block. Empty/placeholder = those manager alerts are simply skipped.
+    manager_phone: str = (
+        (os.environ.get("MANAGER_PHONE") or _notify.get("manager_phone") or "").strip()
+        if _is_real(os.environ.get("MANAGER_PHONE") or _notify.get("manager_phone") or "")
+        else ""
+    )
+
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:
         """SQL Server URL for ProCare's own DB, or None to use SQLite dev DB."""
@@ -178,8 +224,45 @@ class Settings:
 
     @staticmethod
     def estock_sqlalchemy_url() -> str | None:
-        """Read-only SQL Server URL for the eStock mirror source, or None."""
-        return _odbc_url(_data.get("estock_source", {}))
+        """Read-only SQL Server URL for the eStock mirror source, or None.
+
+        Falls back to the first entry of ``estock_sources`` (multi-branch setups)
+        so single-source tools (preflight, --run, backup imports) keep working.
+        """
+        url = _odbc_url(_data.get("estock_source", {}))
+        if url:
+            return url
+        for block in _data.get("estock_sources") or []:
+            url = _odbc_url(block)
+            if url:
+                return url
+        return None
+
+    @staticmethod
+    def estock_sources() -> list[dict]:
+        """Every configured eStock mirror source (one per branch server).
+
+        Reads the ``estock_sources`` list — each entry a full connection block
+        plus its own ``store_branch_map`` — and falls back to the legacy single
+        ``estock_source`` block so existing configs keep working. Entries without
+        real credentials are skipped. Each item carries only what the sync needs:
+        ``{"name", "url", "store_branch_map"}``.
+        """
+        blocks = list(_data.get("estock_sources") or [])
+        if not blocks and _data.get("estock_source"):
+            blocks = [_data["estock_source"]]
+        out: list[dict] = []
+        for i, block in enumerate(blocks):
+            url = _odbc_url(block)
+            if url:
+                out.append(
+                    {
+                        "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
+                        "url": url,
+                        "store_branch_map": block.get("store_branch_map"),
+                    }
+                )
+        return out
 
     @staticmethod
     def titan_sqlalchemy_url() -> str | None:
@@ -206,7 +289,7 @@ class Settings:
         """Optional eStock store_id -> ProCare branch CODE/id map for the mirror.
 
         Configured under ``estock_source.store_branch_map`` (e.g.
-        ``{"1": "MAIN", "2": "ELSANTA"}``). None lets the ETL use its default.
+        ``{"1": "ELSANTA", "2": "MASHALA"}``). None lets the ETL use its default.
         """
         return _data.get("estock_source", {}).get("store_branch_map")
 
@@ -216,6 +299,15 @@ class Settings:
         import os
 
         return os.environ.get(Settings.ai_api_key_env)
+
+    @staticmethod
+    def ai_is_configured() -> bool:
+        """True when the active provider can actually run: a keyless local
+        provider (Ollama / Claude CLI) is always considered configured; hosted
+        providers (Anthropic / Gemini) need their API key present."""
+        if Settings.ai_provider in _KEYLESS_PROVIDERS:
+            return True
+        return bool(Settings.ai_api_key())
 
     @staticmethod
     def branch_list() -> list:

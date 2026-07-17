@@ -50,6 +50,22 @@ def purchasing_summary(
     return purchasing.purchase_summary(session, branch_id)
 
 
+@router.post("/drafts/{draft_id}/approve")
+def approve_draft(draft_id: int, session: Session = Depends(get_session)):
+    result = purchasing.set_draft_status(session, draft_id, "approved")
+    if result is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    return result
+
+
+@router.post("/drafts/{draft_id}/reject")
+def reject_draft(draft_id: int, session: Session = Depends(get_session)):
+    result = purchasing.set_draft_status(session, draft_id, "rejected")
+    if result is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    return result
+
+
 class PurchaseLineIn(BaseModel):
     product_id: int
     amount: float = Field(gt=0)
@@ -143,6 +159,23 @@ def auto_proposal(
     from app.services import autopurchase
 
     return autopurchase.propose(session, branch_id or None, cover_days=cover_days)
+
+
+@router.get("/plan")
+def plan(branch_id: int = Query(...), session: Session = Depends(get_session)):
+    """كشكول نواقص الفرع بأولوية الشراء: رصيد صفر ← طلب عميل ← تحت الحد الأدنى.
+    Each row says transfer-from-branch (preferred) or buy."""
+    from app.services import autopurchase
+
+    return autopurchase.purchase_plan(session, branch_id)
+
+
+@router.get("/plan/consolidated")
+def plan_consolidated(session: Session = Depends(get_session)):
+    """طلبية شراء مجمعة لكل الفروع (transfer-first rows excluded) تحت ميزانية 80%."""
+    from app.services import autopurchase
+
+    return autopurchase.consolidated_plan(session)
 
 
 @router.post("/auto-generate")

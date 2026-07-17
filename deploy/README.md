@@ -14,6 +14,7 @@ know the host's IP for the app to work.
 |---|---|
 | `ProCare-OneClick-Setup.bat` | **Fresh PC, one file**: installs Git/Python/Node (winget), downloads ProCare, creates the Desktop icon + autostart, builds and starts it |
 | `ProCare-Desktop-Icon.bat` | **Just the Desktop icon** (ProCare logo). One click on it starts backend + frontend and opens the app. No always-on server. |
+| `ProCare-Connect-eStock.bat` | **Connect the real eStock database**: creates `config\connections.json`, tests the read-only login, runs the full sync, optionally enables continuous background sync |
 | `ProCare-Autostart-Install.bat` | Same Desktop icon **plus** start on **login** (always-on server; repo already on the PC) |
 | `ProCare-Service-Install.bat` | Start on **Windows boot, before login** (Task Scheduler as SYSTEM) + optional **Cloudflare Tunnel as a Windows service** for a public https URL (phone access from anywhere) |
 | `SQL-SERVER-EXPRESS.md` | Move ProCare's database from SQLite to free **SQL Server Express** — config-only, step by step |

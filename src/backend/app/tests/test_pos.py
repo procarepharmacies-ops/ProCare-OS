@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.db import models as m
 from app.services import pos
-from app.services.common import TODAY
+from app.services.common import today
 
 
 def _product_with_live_stock(session, branch_id):
@@ -18,7 +18,7 @@ def _product_with_live_stock(session, branch_id):
         .where(
             m.StockBatch.branch_id == branch_id,
             m.StockBatch.amount > 0,
-            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
         .group_by(m.StockBatch.product_id)
         .order_by(func.sum(m.StockBatch.amount).desc())
@@ -40,7 +40,7 @@ def test_cash_sale_deducts_fefo_and_is_atomic(session):
             m.StockBatch.product_id == pid,
             m.StockBatch.branch_id == 1,
             m.StockBatch.amount > 0,
-            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
     ).scalar_one()
     assert float(after) == pytest.approx(before - 2)
@@ -60,9 +60,9 @@ def test_fefo_picks_earliest_expiry_first(session):
     session.add(p)
     session.flush()
     near = m.StockBatch(product_id=p.product_id, branch_id=1, amount=3, sell_price=10, buy_price=5,
-                        exp_date=TODAY + timedelta(days=10))
+                        exp_date=today() + timedelta(days=10))
     far = m.StockBatch(product_id=p.product_id, branch_id=1, amount=10, sell_price=10, buy_price=5,
-                       exp_date=TODAY + timedelta(days=300))
+                       exp_date=today() + timedelta(days=300))
     session.add_all([near, far])
     session.commit()
 
@@ -82,7 +82,7 @@ def test_expired_only_product_cannot_be_sold(session):
     session.flush()
     session.add(
         m.StockBatch(product_id=p.product_id, branch_id=1, amount=5, sell_price=10, buy_price=5,
-                     exp_date=TODAY - timedelta(days=3))
+                     exp_date=today() - timedelta(days=3))
     )
     session.commit()
     with pytest.raises(pos.POSError) as exc:
