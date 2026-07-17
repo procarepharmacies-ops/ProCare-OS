@@ -213,7 +213,7 @@ def _find_branch(session: Session, hint: str | None) -> int | None:
     from sqlalchemy import select
 
     hint = hint.lower()
-    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنتا")}
+    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنطه")}
     needles = aliases.get(hint, (hint,))
     for b in session.scalars(select(m.Branch)):
         haystack = " ".join(filter(None, (b.code, b.name_en, b.name_ar))).lower()

@@ -80,7 +80,7 @@ def _classify_anthropic(query, choices, branch_id):
             "type": "object",
             "properties": {
                 "intent": {"type": "string", "enum": list(choices)},
-                "branch_id": {"type": "integer", "description": "1=Main, 2=Elsanta, 0=all branches"},
+                "branch_id": {"type": "integer", "description": "1=Elsanta, 2=Mas-hala, 0=all branches"},
             },
             "required": ["intent"],
         },
@@ -115,7 +115,7 @@ def _classify_gemini(query, choices, branch_id):
             "type": "object",
             "properties": {
                 "intent": {"type": "string", "enum": list(choices)},
-                "branch_id": {"type": "integer", "description": "1=Main, 2=Elsanta, 0=all branches"},
+                "branch_id": {"type": "integer", "description": "1=Elsanta, 2=Mas-hala, 0=all branches"},
             },
             "required": ["intent"],
         },
@@ -154,7 +154,7 @@ def _classify_ollama(query, choices, branch_id):
                 "type": "object",
                 "properties": {
                     "intent": {"type": "string", "enum": list(choices)},
-                    "branch_id": {"type": "integer", "description": "1=Main, 2=Elsanta, 0=all branches"},
+                    "branch_id": {"type": "integer", "description": "1=Elsanta, 2=Mas-hala, 0=all branches"},
                 },
                 "required": ["intent"],
             },

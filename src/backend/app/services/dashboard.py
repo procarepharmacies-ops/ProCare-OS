@@ -3,7 +3,7 @@ expressed over ProCare's own clean schema.
 
 Every metric obeys the data-quality rules in ``common``: returns excluded,
 available stock only, FEFO. All accept an optional ``branch_id`` (None =
-consolidated across Main + Elsanta).
+consolidated across Elsanta + Mas-hala).
 """
 from __future__ import annotations
 

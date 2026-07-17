@@ -49,11 +49,11 @@ def test_overview_branch_scoped_is_subset(session):
 
 def test_overview_by_branch_reconciles(session):
     ov = perf.overview(session)
-    assert len(ov["by_branch"]) == 2  # Main + Elsanta
+    assert len(ov["by_branch"]) == 2  # Elsanta + Mas-hala
     # Per-branch invoices sum to the consolidated total.
     assert sum(b["totals"]["invoices"] for b in ov["by_branch"]) == ov["totals"]["invoices"]
     for b in ov["by_branch"]:
-        assert b["code"] in ("MAIN", "ELSANTA")
+        assert b["code"] in ("ELSANTA", "MASHALA")
         assert b["totals"]["revenue"] > 0
         assert len(b["yearly"]) == 5
 

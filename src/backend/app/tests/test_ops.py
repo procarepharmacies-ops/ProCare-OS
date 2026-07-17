@@ -30,7 +30,7 @@ def test_treasury_pay_cannot_overdraw(session):
 def test_treasury_transfer_moves_between_branches(session):
     treasury.receive_voucher(session, 1, 300.0, note="seed for transfer")
     b1, b2 = treasury.branch_balance(session, 1), treasury.branch_balance(session, 2)
-    out = treasury.transfer_money(session, 1, 2, 250.0, note="تغذية خزينة السنطة")
+    out = treasury.transfer_money(session, 1, 2, 250.0, note="تغذية خزينة السنطه")
     assert out["amount"] == 250.0
     assert treasury.branch_balance(session, 1) == pytest.approx(b1 - 250.0)
     assert treasury.branch_balance(session, 2) == pytest.approx(b2 + 250.0)

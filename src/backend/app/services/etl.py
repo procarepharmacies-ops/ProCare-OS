@@ -228,7 +228,7 @@ def mirror(
         else:
             # Discover the branches that actually exist on the source and ensure a
             # ProCare branch for each, so no branch's data is merged into another
-            # (the remote server may carry Main, Elsanta, Mashala, ...).
+            # (the remote server may carry Elsanta, Mashala, ...).
             store_ids = _distinct_store_ids(insp, src)
             branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
             default_branch = next(iter(branch_map.values()))
@@ -298,7 +298,6 @@ def _resolve_branch_map(
     known = {
         "ELSANTA": ("السنطه", "Elsanta"),
         "MASHALA": ("مسهله", "Mas-hala"),
-        "ELSANTA_EXP": ("مخزن منتهي الصلاحيه", "Expired depot"),
     }
 
     def ensure_branch(code: str, name_ar: str | None = None, name_en: str | None = None) -> int:
@@ -319,13 +318,11 @@ def _resolve_branch_map(
             out[int(k)] = ensure_branch(v) if isinstance(v, str) else int(v)
     else:
         # Default (owner-confirmed): store_id 1 = Elsanta السنطه, 2 = Mas-hala
-        # مسهله (MAIN kept as fallback for demo-seeded databases).
+        # مسهله. Procare has exactly these two pharmacies.
         if "ELSANTA" in by_code:
             out[1] = by_code["ELSANTA"]
         if "MASHALA" in by_code:
             out[2] = by_code["MASHALA"]
-        elif "MAIN" in by_code:
-            out[2] = by_code["MAIN"]
 
     # Auto-create a branch for any source store_id we don't have a mapping for.
     for sid in sorted(store_ids or []):

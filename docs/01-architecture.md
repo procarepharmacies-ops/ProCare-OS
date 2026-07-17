@@ -1,7 +1,7 @@
 # ProCare OS — Architecture
 
 ProCare OS is a **standalone system with its own clean SQL Server database** — the new system of
-record for Procare Pharmacies (two branches: **Main / الرئيسي** and **Elsanta / السنتا**). It reads
+record for Procare Pharmacies (two branches: **Mas-hala / مسهله** and **Elsanta / السنطه**). It reads
 from the legacy eStock database and Titan/Drug‑Eye **only during the transition**, then becomes fully
 independent and eStock is retired.
 
@@ -20,7 +20,7 @@ data‑quality problems being fixed.
 |-------|-----------|-------------|
 | **Phase 1 — Mirror & validate** | ProCare reads the original eStock DB read‑only, mirrors data into its own clean DB, and reconciles totals. | Source of truth (read‑only). |
 | **Phase 2 — Parallel pilot** | ProCare runs **in parallel on one branch** to test against reality. **Elsanta is the recommended pilot.** | Still authoritative; ProCare cross‑checked against it. |
-| **Phase 3 — Cutover** | ProCare is the **sole production system** across Main + Elsanta. ETL is decommissioned. | **Retired.** |
+| **Phase 3 — Cutover** | ProCare is the **sole production system** across Elsanta + Mas-hala. ETL is decommissioned. | **Retired.** |
 
 See [`06-roadmap.md`](06-roadmap.md) for the phased rollout and [`00-CONCLUSION.md`](00-CONCLUSION.md)
 for the executive summary.
@@ -31,10 +31,10 @@ for the executive summary.
                          ┌─────────────────────────────────────────────┐
    Manager phone  ─────► │              ProCare OS                      │
    Counter PC     ─────► │                                              │
-   (Main + Elsanta)      │   Web UI (React / Next.js)                   │
+   (Elsanta + Mas-hala)      │   Web UI (React / Next.js)                   │
    over the LAN          │   • Arabic default (RTL) • English optional  │
                          │   • Light default • Dark mode optional       │
-                         │   • Branch switcher: Main / Elsanta / All    │
+                         │   • Branch switcher: Elsanta / Mas-hala / All    │
                          │        │                                     │
                          │        ▼                                     │
                          │   FastAPI backend (Python 3.12)              │
@@ -43,7 +43,7 @@ for the executive summary.
                          │   ├── AI assistant (Arabic, NL → read‑SQL)   │
                          │   ├── Automation scheduler (APScheduler)     │
                          │   ├── Drug service (Titan / Drug‑Eye)        │
-                         │   ├── Multi‑branch (Main + Elsanta)          │
+                         │   ├── Multi‑branch (Elsanta + Mas-hala)          │
                          │   └── Notifications (WhatsApp / SMTP email)  │
                          │        │                                     │
                          │        ▼                                     │
@@ -78,7 +78,7 @@ read‑only; its database schema is **not yet audited (TBD)** — see
 ### 1. ProCare own database (SQL Server)
 - The new **system of record**. Clean schema defined in
   [`../sql/procare-schema.sql`](../sql/procare-schema.sql).
-- **Multi‑branch from day one** (Main + Elsanta) — every operational table carries `branch_id`. See
+- **Multi‑branch from day one** (Elsanta + Mas-hala) — every operational table carries `branch_id`. See
   [`07-multi-branch.md`](07-multi-branch.md).
 - Fixes every eStock data problem catalogued in
   [`05-data-quality-and-fixes.md`](05-data-quality-and-fixes.md):
@@ -117,14 +117,14 @@ read‑only; its database schema is **not yet audited (TBD)** — see
 - **Decommissioned at cutover** (Phase 3).
 
 ### 3. Web UI (React / Next.js)
-- Arabic‑first, **RTL by default**. Runs on the LAN; reachable from counter PCs (Main + Elsanta) and
+- Arabic‑first, **RTL by default**. Runs on the LAN; reachable from counter PCs (Elsanta + Mas-hala) and
   the manager's phone.
 - **English** is an optional language toggle (full i18n, all strings externalized; direction flips
   with the language).
 - **Dark mode** is an optional theme toggle (**light is default**). Both preferences persist per user.
 - Screens mirror eStock's 9 functional modules — Sales/POS, Purchasing, Inventory, Customers, Vendors,
   HR, Accounts, Reports, Settings — see [`02-eStock-database-reference.md`](02-eStock-database-reference.md).
-- A **branch switcher** (Main / Elsanta / consolidated) is present on every screen.
+- A **branch switcher** (Elsanta / Mas-hala / consolidated) is present on every screen.
 
 ### 4. FastAPI backend (Python 3.12)
 - One API serving UI, ETL, automation, and AI. Organized as a module per domain (sales, inventory,
@@ -170,7 +170,7 @@ read‑only; its database schema is **not yet audited (TBD)** — see
 |-----------|---------|--------|----------------|
 | Language | **Arabic** (RTL) | English (LTR) | i18n dictionaries (`ar.json`, `en.json`); page `dir` flips with the language. |
 | Theme | **Light** | Dark | CSS variables / theme tokens; toggle persisted per user. |
-| Branch | **Last used** | Main / Elsanta / All | Branch switcher on every screen; selection scopes all queries by `branch_id`. |
+| Branch | **Last used** | Elsanta / Mas-hala / All | Branch switcher on every screen; selection scopes all queries by `branch_id`. |
 
 Language and theme are **user‑level toggles, remembered across sessions**. All product data is stored
 bilingually (`name_ar`, `name_en`) so every screen renders correctly in either language. Arabic is the
@@ -190,10 +190,10 @@ primary working language; English is purely an optional convenience.
    `sale_lines`, deduct stock per batch via `sp_deduct_stock` (FEFO, never below zero), write
    `stock_movements` audit rows, and post `ledger_entries`. All FK‑checked — no orphan rows possible.
 
-### B. Inter‑branch stock transfer (Main → Elsanta)
+### B. Inter‑branch stock transfer (Mas-hala → Elsanta)
 1. Elsanta requests 50 units of product X → `stock_transfers` header (`status = 'requested'`) +
    `stock_transfer_lines`.
-2. Main approves & ships → `status = 'in_transit'`; Main stock −50 from the FEFO batch
+2. Mas-hala approves & ships → `status = 'in_transit'`; Mas-hala stock −50 from the FEFO batch
    (`sp_transfer_stock`).
 3. Elsanta receives → `status = 'received'`; Elsanta stock +50, with the **same batch identity and
    expiry** preserved so FEFO/expiry stay correct across branches.
@@ -247,7 +247,7 @@ primary working language; English is purely an optional convenience.
 |-------------|-------|-------|--------|
 | **Dev** | Developer machine | Restored eStock backup (read‑only) | A dev ProCare DB only. |
 | **Phase 1–2** | LAN box (can be `192.168.1.2` or a dedicated machine) | eStock `stock` + Titan (read‑only) | ProCare's own DB only. |
-| **Phase 3 (prod)** | LAN production host | — (eStock retired) | ProCare DB — sole system across Main + Elsanta. |
+| **Phase 3 (prod)** | LAN production host | — (eStock retired) | ProCare DB — sole system across Elsanta + Mas-hala. |
 
 ---
 
