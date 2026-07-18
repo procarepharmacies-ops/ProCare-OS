@@ -431,6 +431,8 @@ def return_sale(
                 )
             )
 
+        session.flush()
+
         if original.is_credit and original.customer_id is not None:
             customer = session.get(m.Customer, original.customer_id)
             customer.current_balance = float(customer.current_balance or 0) - total_refund

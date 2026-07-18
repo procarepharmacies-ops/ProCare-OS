@@ -1,6 +1,24 @@
 """Phase 2 tests: POS revenue engine — upsell/cross-sell, OTC incentives."""
 from __future__ import annotations
 
+import pytest
+from sqlalchemy import delete
+
+from app.db import models as m
+from app.db.base import SessionLocal
+
+
+@pytest.fixture(autouse=True)
+def clear_incentive_ledger():
+    """Clear the incentive ledger before each test to ensure isolation."""
+    session = SessionLocal()
+    try:
+        session.execute(delete(m.IncentiveLedger))
+        session.commit()
+    finally:
+        session.close()
+    yield
+
 
 def test_incentive_points_tracking(client):
     """Selling an incentivized product credits the cashier's points."""
@@ -122,7 +140,7 @@ def test_pos_suggestions_endpoint(client):
 def test_employee_incentive_history(client):
     """Employee incentive history shows monthly totals + per-sale breakdown."""
     products = client.get("/api/inventory/products?branch_id=1").json()["products"]
-    target = products[0]
+    target = next(p for p in products if p["on_hand"] >= 1)
 
     # Configure incentive.
     client.post(
@@ -131,7 +149,7 @@ def test_employee_incentive_history(client):
     )
 
     # Make a sale.
-    client.post(
+    sale_r = client.post(
         "/api/sales",
         json={
             "branch_id": 1,
@@ -139,6 +157,7 @@ def test_employee_incentive_history(client):
             "lines": [{"product_id": target["product_id"], "amount": 1}],
         },
     )
+    assert sale_r.status_code == 200
 
     # Fetch history for the cashier (employee 1).
     r = client.get("/api/incentives/employee/1")
