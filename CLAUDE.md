@@ -6,8 +6,8 @@
 
 **Local development (Windows/Mac/Linux):**
 ```bash
-cd src/backend && pip install -r requirements.txt && python run.py   # :8000
-cd src/frontend && npm install && npm run dev                        # :3000
+cd src/backend && pip install -r requirements.txt && python run.py   # :8100
+cd src/frontend && npm install && npm run dev                        # :3100
 ```
 
 **Production (Docker):**
@@ -180,15 +180,15 @@ Types: `fix`, `feat`, `refactor`, `test`, `docs`, `perf`
   │  └─ README.md (deployment guide: Multipass, Docker, Windows PC)
   └─ CLAUDE_SYSTEM_PROMPT.md (long-form standards; CLAUDE.md is the working guide)
 
-[Runtime: Backend (run.py on :8000)]
+[Runtime: Backend (run.py on :8100)]
   ├─ Startup: load .env, ensure DB tables, seed demo data (idempotent), create today's daily ops tasks
   ├─ Lifespan: spawn background ETL thread if SYNC_ENABLED=1
   ├─ Sync Thread: every SYNC_INTERVAL_SECONDS (default 30), query eStock, transform, insert into ProCare DB (atomic per table)
   └─ Routes: /api/* (REST), /docs (Swagger), /health, /sync/status
 
-[Runtime: Frontend (Next.js on :3000)]
+[Runtime: Frontend (Next.js on :3100)]
   ├─ Startup: load i18n, build SSR pages
-  ├─ Proxy: all /api/* → backend:8000 (server-side; users never see backend URL)
+  ├─ Proxy: all /api/* → backend:8100 (server-side; users never see backend URL)
   └─ Routes: / (dashboard), /pos, /prescriptions, /tasks, /transfers, /reports (all bilingual)
 
 [Database: SQLite (dev) or SQL Server (production)]
