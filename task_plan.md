@@ -113,6 +113,19 @@ bilingual (Arabic RTL first).
 - [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
 - [ ] Jobs master mirror + employee.job_id linkage
 
+### From CLAUDE_CODE_ESTOCK_FEATURES.md (behavioral parity)
+- [ ] Mirror `Shortcoming`/`Branches_shortcoming` history into كشكول النواقص
+      (ProCare ShortageItem screen already exists); POS auto-insert on unmet
+      qty after FEFO allocation (sell what's available, log the rest)
+- [ ] Notification center + ribbon: News_bar feed (respect deleted) +
+      Flag categories (نقطة البيع/الخزينة/البنك/مصروفات/مورد); post
+      expiry/low-stock/shortage events there
+- [ ] F2 branch-stock popup at POS (cross-branch data already in
+      list_products.other_branches — bind the hotkey + modal)
+- [ ] Visible hotkey map strip at POS (search/F2/discount/customer/hold/cash)
+- [ ] Permissions discovery screen: all role flags for current user, ON/OFF —
+      "hidden features" become visible
+
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
 - [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys

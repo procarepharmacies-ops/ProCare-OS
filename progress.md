@@ -88,3 +88,22 @@
   flaky-WAN retry completes with identical counts, exhausted retries soft-fail
   per source). Live elsanta verified: all big tables carry sales_id/purchase_id
   chunk keys; Branches_back_sales_* absent (skipped).
+- Committed 716a090 (WAN-resilient chunked mirror + KPI fix + employee mirror).
+
+## 2026-07-18 (later) · Incremental window sync (owner: "WAN pull too slow")
+- Owner rejected the multi-minute WAN full pull; killed it (atomic, no partial
+  writes). Root cause: wipe+reload re-pulls ALL history every cycle.
+- BUILT: incremental window sync — sync_state table (full_synced_at gate),
+  SYNC_INCREMENTAL_DAYS (default 7) trailing re-pull of sales/purchases,
+  window-scoped wipe (_wipe_branch_sales_window), Python-side date guard,
+  detail fetch bounded to the window's id range. First load stays full.
+- FIXED pre-existing bug: treasury Cash_depots snapshot stacked duplicates on
+  every branch-scoped cycle (LedgerEntry never cleared) — now replaced per
+  cycle (ref_type='depot' only).
+- Tests: 195/195 (2 new: incremental window end-to-end, treasury snapshot
+  not double-counted).
+- 3rd spec file docs/CLAUDE_CODE_ESTOCK_FEATURES.md received (shortage
+  notebook auto-insert, News_bar/Flag notifications, F2, hotkey strip,
+  permissions discovery) — added to task_plan Phase 6.
+- Elsanta initial fill decision pending: fresh .bak restore locally (needs
+  MSSQLSERVER started + backup file) vs one overnight chunked WAN pull.

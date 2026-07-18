@@ -71,6 +71,23 @@
   succeeds. Non-network errors are never retried. Live elsanta tables all carry
   the chunk keys (sales_id/purchase_id); `Branches_back_sales_*` don't exist
   there (skipped by has_table).
+- 2026-07-18 · Full wipe+reload can't be the continuous-sync shape: even
+  chunked, every cycle drags ~1.1M elsanta rows over the WAN. Fix: incremental
+  window sync — once a source completes ONE full load (recorded in the new
+  `sync_state` table, so demo data or a restart can never suppress the initial
+  history pull), each cycle re-pulls only the last `SYNC_INCREMENTAL_DAYS`
+  (default 7) of sales/purchases + the small live-state tables. A trailing
+  WINDOW, not append: returns/edits mutate recent source rows. Window delete
+  and window fetch use the same COALESCE(bill_date,insert_date) boundary; a
+  Python-side date guard stops a dateless fallback fetch from re-inserting
+  history. Stock/catalogue/customers/vendors/employees still refresh fully
+  (current-state, small). RULE: sales older than the window are treated as
+  immutable — backdated source entries need a manual full resync.
+- 2026-07-18 · Treasury double-count bug (pre-existing): _load_treasury
+  appended Cash_depots snapshot entries every cycle but _wipe_branch_rows
+  never cleared LedgerEntry — branch-scoped sync stacked another copy of every
+  depot balance each cycle. Fix: delete ref_type='depot' rows for the branch
+  before re-adding; ProCare-native vouchers (other ref_types) untouched.
 - 2026-07-18 · Dashboard KPI mislabel: `summary()` computed the month bill
   count but discarded it, and the UI showed `sales_month` (REVENUE, sum of
   total_net — 26,261.25 EGP for July) under a label that read as a sales count.

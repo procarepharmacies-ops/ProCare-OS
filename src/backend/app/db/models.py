@@ -780,3 +780,23 @@ class AgentRun(Base):
         Index("IX_agent_runs_agent", "agent"),
         Index("IX_agent_runs_created", "created_at"),
     )
+
+
+class SyncState(Base):
+    """Per-source sync bookkeeping for the eStock mirror.
+
+    ``full_synced_at`` records that this source completed a FULL branch load —
+    the gate that lets later cycles run the fast incremental window instead of
+    re-pulling all history. Kept in the database (not process memory) so a
+    backend restart never silently re-triggers a multi-minute WAN full pull,
+    and cleared naturally whenever the database is reset.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "sync_state"
+
+    source_name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    full_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)

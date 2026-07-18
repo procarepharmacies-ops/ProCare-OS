@@ -110,6 +110,8 @@ def test_sync_survives_flaky_wan(estock_source, monkeypatch):
 
     monkeypatch.setattr(etl, "_CHUNK_ROWS", 5)  # force many chunk queries
     monkeypatch.setattr(etl, "_RETRY_BACKOFF_SECONDS", 0.0)
+    # Both runs must be FULL loads so their counts are comparable 1:1.
+    monkeypatch.setenv("SYNC_INCREMENTAL_DAYS", "0")
 
     flakes = {"n": 0}
 
@@ -174,6 +176,75 @@ def test_sync_soft_fails_when_source_keeps_dropping(estock_source, monkeypatch):
         assert sync.status()["last_status"] == "error"
     finally:
         event.remove(estock_source, "before_cursor_execute", _always_drop)
+        reset_and_seed()
+
+
+def test_incremental_sync_window(estock_source, monkeypatch):
+    """After the initial full load, a cycle re-pulls only the trailing window:
+    a fresh source sale still lands, all older history survives untouched, and
+    nothing is duplicated. This is the fast path for the flaky Elsanta WAN."""
+    monkeypatch.setenv("SYNC_INCREMENTAL_DAYS", "7")
+    try:
+        res1 = sync.run_once(source_engine=estock_source)
+        assert res1["counts"]["source"]["sync_mode"] == "branch_full"  # first fill
+        with SessionLocal() as s:
+            before_total = s.scalar(select(func.count()).select_from(m.Sale))
+            before_lines = s.scalar(select(func.count()).select_from(m.SaleLine))
+
+        estock_seed.add_live_sale(estock_source)
+        res2 = sync.run_once(source_engine=estock_source)
+        c2 = res2["counts"]["source"]
+        assert c2["sync_mode"] == "incremental(7d)"
+        # Only the window crossed the wire — far fewer rows than the full load.
+        assert c2["sales"] < res1["counts"]["source"]["sales"]
+
+        with SessionLocal() as s:
+            assert s.scalar(select(func.count()).select_from(m.Sale)) == before_total + 1
+            assert s.scalar(select(func.count()).select_from(m.SaleLine)) == before_lines + 1
+
+        # A third cycle with no source activity is a no-op growthwise.
+        sync.run_once(source_engine=estock_source)
+        with SessionLocal() as s:
+            assert s.scalar(select(func.count()).select_from(m.Sale)) == before_total + 1
+    finally:
+        reset_and_seed()
+
+
+def test_treasury_snapshot_not_double_counted(estock_source):
+    """Cash_depots is a balance SNAPSHOT — repeated branch-scoped cycles must
+    replace it, never stack copies (the treasury total crept up every cycle)."""
+    from sqlalchemy import text as sql_text
+
+    with estock_source.begin() as c:
+        c.execute(sql_text(
+            "CREATE TABLE Cash_depots (cash_depot_id INTEGER PRIMARY KEY, "
+            "cash_depot_name_ar TEXT, cash_depot_current_money REAL, bank_id INTEGER)"
+        ))
+        c.execute(sql_text(
+            "INSERT INTO Cash_depots VALUES (1, 'الخزنة الرئيسية', 5000, NULL), "
+            "(2, 'حساب البنك', 12000, 1)"
+        ))
+
+    def depot_totals():
+        with SessionLocal() as s:
+            n = s.scalar(select(func.count()).select_from(m.LedgerEntry)
+                         .where(m.LedgerEntry.ref_type == "depot"))
+            total = s.scalar(
+                select(func.coalesce(func.sum(m.LedgerEntry.debit - m.LedgerEntry.credit), 0))
+                .where(m.LedgerEntry.ref_type == "depot")
+            )
+            return n, float(total)
+
+    try:
+        sync.run_once(source_engine=estock_source)
+        n1, total1 = depot_totals()
+        assert n1 == 2 and total1 == 17000.0
+
+        sync.run_once(source_engine=estock_source)
+        sync.run_once(source_engine=estock_source)
+        n3, total3 = depot_totals()
+        assert (n3, total3) == (n1, total1)  # replaced, not stacked
+    finally:
         reset_and_seed()
 
 
