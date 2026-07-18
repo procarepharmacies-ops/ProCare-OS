@@ -101,7 +101,7 @@ app = FastAPI(
 # proxies /api to the backend server-side (same origin), so CORS isn't strictly
 # needed — but allow it to be configured for setups that call the API directly.
 # Set PROCARE_CORS_ORIGINS to a comma-separated list, or "*" to allow any origin.
-_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").strip()
+_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3100,http://127.0.0.1:3100,http://localhost:3000,http://127.0.0.1:3000").strip()
 _allow_all = _cors_env == "*"
 app.add_middleware(
     CORSMiddleware,
