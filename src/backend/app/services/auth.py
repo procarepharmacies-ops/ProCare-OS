@@ -45,12 +45,42 @@ def _secret() -> bytes:
     return os.environ.get("AUTH_SECRET", _DEV_SECRET).encode()
 
 
+# Salted PBKDF2 (stdlib, no new deps). Legacy unsalted "sha256$…" hashes from
+# earlier deployments still verify, and authenticate() transparently re-hashes
+# them to PBKDF2 on the next successful login.
+PBKDF2_ITERATIONS = 200_000
+
+
 def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
+    return f"pbkdf2${PBKDF2_ITERATIONS}${_b64(salt)}${_b64(dk)}"
+
+
+def _legacy_sha256(password: str) -> str:
     return "sha256$" + hashlib.sha256(password.encode()).hexdigest()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return hmac.compare_digest(hash_password(password), password_hash or "")
+    if not password_hash:
+        return False
+    if password_hash.startswith("pbkdf2$"):
+        try:
+            _, iters, salt_b64, dk_b64 = password_hash.split("$", 3)
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), _unb64(salt_b64), int(iters))
+            return hmac.compare_digest(_b64(dk), dk_b64)
+        except (ValueError, TypeError):
+            return False
+    return hmac.compare_digest(_legacy_sha256(password), password_hash)
+
+
+def needs_rehash(password_hash: str) -> bool:
+    if not password_hash or not password_hash.startswith("pbkdf2$"):
+        return True
+    try:
+        return int(password_hash.split("$", 3)[1]) < PBKDF2_ITERATIONS
+    except (ValueError, IndexError):
+        return True
 
 
 def _b64(data: bytes) -> str:
@@ -99,6 +129,11 @@ def authenticate(session: Session, username: str, password: str) -> m.Employee |
     )
     if emp is None or not verify_password(password, emp.password_hash):
         return None
+    # Transparent hash upgrade: legacy sha256$ (or weaker-iteration) hashes are
+    # re-written as salted PBKDF2 the moment the password is proven correct.
+    if needs_rehash(emp.password_hash):
+        emp.password_hash = hash_password(password)
+        session.commit()
     return emp
 
 
@@ -156,7 +191,7 @@ def reset_password(session: Session, username: str, code: str, new_password: str
     if emp.reset_attempts >= RESET_MAX_ATTEMPTS:
         _clear_reset(session, emp)
         return False, "too_many_attempts"
-    if not hmac.compare_digest(hash_password(code.strip()), emp.reset_code_hash):
+    if not verify_password(code.strip(), emp.reset_code_hash):
         emp.reset_attempts += 1
         session.commit()
         return False, "invalid_code"

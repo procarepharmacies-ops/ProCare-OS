@@ -234,18 +234,32 @@ def create_sale(
                 employee_id=cashier_id,
             )
             primary_batch = taken[0][0] if taken else None
-            session.add(
-                m.SaleLine(
-                    sale_id=sale.sale_id,
-                    product_id=product.product_id,
-                    batch_id=primary_batch,
-                    amount=float(ln.amount),
-                    sell_price=price,
-                    buy_price=float(product.buy_price),
-                    disc_money=float(ln.disc_money),
-                    total_sell=line_total,
-                )
+            sale_line = m.SaleLine(
+                sale_id=sale.sale_id,
+                product_id=product.product_id,
+                batch_id=primary_batch,
+                amount=float(ln.amount),
+                sell_price=price,
+                buy_price=float(product.buy_price),
+                disc_money=float(ln.disc_money),
+                total_sell=line_total,
             )
+            session.add(sale_line)
+            session.flush()  # assign line_id
+
+            # Incentives: track employee points for incentivized products sold.
+            if cashier_id is not None and float(product.incentive_points) > 0:
+                points = float(ln.amount) * float(product.incentive_points)
+                session.add(
+                    m.IncentiveLedger(
+                        employee_id=cashier_id,
+                        sale_id=sale.sale_id,
+                        sale_line_id=sale_line.line_id,
+                        product_id=product.product_id,
+                        branch_id=branch_id,
+                        points=points,
+                    )
+                )
 
         # Ledger + customer balance for on-account sales.
         if is_credit and customer_id is not None:
@@ -445,6 +459,26 @@ def return_sale(
 
         # Loyalty: claw back the points the refunded amount had earned.
         loyalty_svc.clawback_for_return(session, ret)
+
+        # Incentives: claw back the employee points for refunded items.
+        if original.cashier_id is not None:
+            for orig_line, qty_returned, refund in resolved:
+                product = session.get(m.Product, orig_line.product_id)
+                if product and float(product.incentive_points) > 0:
+                    points = float(qty_returned) * float(product.incentive_points)
+                    # Find the corresponding return line to link to.
+                    ret_line = next((l for l in ret.lines if l.product_id == orig_line.product_id), None)
+                    if ret_line:
+                        session.add(
+                            m.IncentiveLedger(
+                                employee_id=original.cashier_id,
+                                sale_id=ret.sale_id,
+                                sale_line_id=ret_line.line_id,
+                                product_id=orig_line.product_id,
+                                branch_id=original.branch_id,
+                                points=-points,
+                            )
+                        )
 
         session.commit()
         session.refresh(ret)
