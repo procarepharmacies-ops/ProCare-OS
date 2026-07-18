@@ -4,7 +4,7 @@
 // containerized deployment, where Next.js proxies /api to the backend
 // server-side (see next.config.mjs), so the browser never needs the backend's
 // address and there is no CORS hop. `??` (not `||`) so an explicit "" is kept.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:7000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
 const SESSION_KEY = "procare.session";
 
@@ -27,6 +27,32 @@ export const session = {
 async function http(path, options) {
   const token = session.get()?.token;
   const res = await fetch(`${API_BASE}/api${path}`, {
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    ...options,
+  });
+  if (!res.ok) {
+    let detail;
+    try {
+      detail = (await res.json()).detail;
+    } catch {
+      detail = res.statusText;
+    }
+    const err = new Error(typeof detail === "string" ? detail : detail?.message || "Request failed");
+    err.detail = detail;
+    throw err;
+  }
+  return res.json();
+}
+
+// Generic fetch helper for pages that pass the FULL path including the `/api`
+// prefix (e.g. apiFetch("/api/agents/status")). Unlike `http()` above it does
+// NOT prepend `/api`, so the two never collide. Same auth/error semantics.
+export async function apiFetch(path, options) {
+  const token = session.get()?.token;
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),

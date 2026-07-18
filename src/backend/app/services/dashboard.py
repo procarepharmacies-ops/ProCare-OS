@@ -3,7 +3,7 @@ expressed over ProCare's own clean schema.
 
 Every metric obeys the data-quality rules in ``common``: returns excluded,
 available stock only, FEFO. All accept an optional ``branch_id`` (None =
-consolidated across Main + Elsanta).
+consolidated across Elsanta + Mas-hala).
 """
 from __future__ import annotations
 
@@ -121,13 +121,20 @@ def _profit(session: Session, branch_id, start, end) -> float:
 
 
 def daily_sales(session: Session, branch_id: int | None = None, days: int = 30) -> list[dict]:
-    """Revenue + bill count per day for the last ``days`` (for the trend chart)."""
+    """Per-day sales, matching eStock's daily-sales report (sales_daily_rpt):
+    bills, items, gross, discount, net, cash, non-cash. ``revenue`` is kept as an
+    alias of ``net`` so the existing trend chart keeps working."""
     start = today() - timedelta(days=days - 1)
-    stmt = (
+    # Header aggregates per day.
+    hdr = session.execute(
         select(
             sql_day(m.Sale.sale_date).label("d"),
             func.count().label("bills"),
-            func.coalesce(func.sum(m.Sale.total_net), 0).label("revenue"),
+            func.coalesce(func.sum(m.Sale.total_gross), 0).label("gross"),
+            func.coalesce(func.sum(m.Sale.total_discount), 0).label("discount"),
+            func.coalesce(func.sum(m.Sale.total_net), 0).label("net"),
+            func.coalesce(func.sum(m.Sale.cash_paid), 0).label("cash"),
+            func.coalesce(func.sum(m.Sale.card_paid), 0).label("card"),
         )
         .where(
             m.Sale.is_return == False,  # noqa: E712
@@ -135,15 +142,37 @@ def daily_sales(session: Session, branch_id: int | None = None, days: int = 30) 
             sql_day(m.Sale.sale_date) >= start,
         )
         .group_by(sql_day(m.Sale.sale_date))
-        .order_by(sql_day(m.Sale.sale_date))
-    )
-    rows = {str(r.d): (r.bills, money(r.revenue)) for r in session.execute(stmt)}
-    # Fill gaps so the chart has a continuous axis.
+    ).all()
+    # Item counts per day (join sale_lines once, grouped).
+    items = dict(session.execute(
+        select(sql_day(m.Sale.sale_date).label("d"), func.coalesce(func.sum(m.SaleLine.amount), 0))
+        .select_from(m.Sale).join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            sql_day(m.Sale.sale_date) >= start,
+        )
+        .group_by(sql_day(m.Sale.sale_date))
+    ).all())
+    by_day = {str(r.d): r for r in hdr}
     out = []
     for i in range(days):
         d = (start + timedelta(days=i)).isoformat()
-        bills, revenue = rows.get(d, (0, 0.0))
-        out.append({"date": d, "bills": bills, "revenue": revenue})
+        r = by_day.get(d)
+        net = money(r.net) if r else 0.0
+        cash = money(r.cash) if r else 0.0
+        out.append({
+            "date": d,
+            "bills": r.bills if r else 0,
+            "items": money(items.get(d, 0)),
+            "gross": money(r.gross) if r else 0.0,
+            "discount": money(r.discount) if r else 0.0,
+            "net": net,
+            "revenue": net,  # alias — keeps the existing trend chart working
+            "cash": cash,
+            "card": money(r.card) if r else 0.0,
+            "non_cash": money(net - cash),
+        })
     return out
 
 

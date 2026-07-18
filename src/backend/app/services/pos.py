@@ -8,7 +8,7 @@ equivalents of the ``sp_*`` procedures sketched in ``sql/procare-schema.sql``):
   * ``deduct_stock_fefo`` — sp_deduct_stock: FEFO, never goes negative.
   * ``create_sale``     — sp_create_sale: atomic invoice (header + lines +
                           stock movements + ledger), credit-checked, expiry-locked.
-  * ``transfer_stock``  — sp_transfer_stock: atomic Main <-> Elsanta move.
+  * ``transfer_stock``  — sp_transfer_stock: atomic Elsanta <-> Mas-hala move.
 
 Guardrails baked in (fixing the eStock issues named in the docs):
   * a sale that would exceed the credit limit needs an explicit override by an
@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.services import loyalty as loyalty_svc
-from app.services.common import money, today
+from app.services.common import fefo_order, money, today
 
 
 def _parse_date(value) -> date | None:
@@ -110,7 +110,7 @@ def deduct_stock_fefo(
             m.StockBatch.amount > 0,
             (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
     ).all()
 
     available = sum(float(b.amount) for b in batches)
@@ -234,18 +234,32 @@ def create_sale(
                 employee_id=cashier_id,
             )
             primary_batch = taken[0][0] if taken else None
-            session.add(
-                m.SaleLine(
-                    sale_id=sale.sale_id,
-                    product_id=product.product_id,
-                    batch_id=primary_batch,
-                    amount=float(ln.amount),
-                    sell_price=price,
-                    buy_price=float(product.buy_price),
-                    disc_money=float(ln.disc_money),
-                    total_sell=line_total,
-                )
+            sale_line = m.SaleLine(
+                sale_id=sale.sale_id,
+                product_id=product.product_id,
+                batch_id=primary_batch,
+                amount=float(ln.amount),
+                sell_price=price,
+                buy_price=float(product.buy_price),
+                disc_money=float(ln.disc_money),
+                total_sell=line_total,
             )
+            session.add(sale_line)
+            session.flush()  # assign line_id
+
+            # Incentives: track employee points for incentivized products sold.
+            if cashier_id is not None and float(product.incentive_points) > 0:
+                points = float(ln.amount) * float(product.incentive_points)
+                session.add(
+                    m.IncentiveLedger(
+                        employee_id=cashier_id,
+                        sale_id=sale.sale_id,
+                        sale_line_id=sale_line.line_id,
+                        product_id=product.product_id,
+                        branch_id=branch_id,
+                        points=points,
+                    )
+                )
 
         # Ledger + customer balance for on-account sales.
         if is_credit and customer_id is not None:
@@ -417,6 +431,8 @@ def return_sale(
                 )
             )
 
+        session.flush()
+
         if original.is_credit and original.customer_id is not None:
             customer = session.get(m.Customer, original.customer_id)
             customer.current_balance = float(customer.current_balance or 0) - total_refund
@@ -445,6 +461,26 @@ def return_sale(
 
         # Loyalty: claw back the points the refunded amount had earned.
         loyalty_svc.clawback_for_return(session, ret)
+
+        # Incentives: claw back the employee points for refunded items.
+        if original.cashier_id is not None:
+            for orig_line, qty_returned, refund in resolved:
+                product = session.get(m.Product, orig_line.product_id)
+                if product and float(product.incentive_points) > 0:
+                    points = float(qty_returned) * float(product.incentive_points)
+                    # Find the corresponding return line to link to.
+                    ret_line = next((l for l in ret.lines if l.product_id == orig_line.product_id), None)
+                    if ret_line:
+                        session.add(
+                            m.IncentiveLedger(
+                                employee_id=original.cashier_id,
+                                sale_id=ret.sale_id,
+                                sale_line_id=ret_line.line_id,
+                                product_id=orig_line.product_id,
+                                branch_id=original.branch_id,
+                                points=-points,
+                            )
+                        )
 
         session.commit()
         session.refresh(ret)
@@ -507,7 +543,7 @@ def _move_transfer_lines(session: Session, transfer: m.StockTransfer, lines, act
                 m.StockBatch.amount > 0,
                 (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
             )
-            .order_by(m.StockBatch.exp_date.asc().nulls_last())
+            .order_by(*fefo_order())
         ).all()
         available = sum(float(b.amount) for b in src_batches)
         if available < ln.amount:
@@ -645,9 +681,9 @@ def _ship_transfer_lines(session: Session, transfer: m.StockTransfer, lines, act
                 m.StockBatch.product_id == ln.product_id,
                 m.StockBatch.branch_id == from_branch_id,
                 m.StockBatch.amount > 0,
-                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
             )
-            .order_by(m.StockBatch.exp_date.asc().nulls_last())
+            .order_by(*fefo_order())
         ).all()
         available = sum(float(b.amount) for b in src_batches)
         if available < ln.amount:

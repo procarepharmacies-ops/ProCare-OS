@@ -52,7 +52,7 @@ def test_message_builders_shape():
     assert "بروكير" in whatsapp.daily_report_message({"sales_today": 100, "bills_today": 3})
     assert "طلب شراء" in whatsapp.reorder_drafts_message(5, 40)
     assert "صلاحية" in whatsapp.expiry_alert_message({"d7": 2, "d30": 5, "expired": 1}, 300)
-    assert "#7" in whatsapp.transfer_request_message(7, "Main", "Elsanta", 3)
+    assert "#7" in whatsapp.transfer_request_message(7, "Mas-hala", "Elsanta", 3)
 
 
 def test_scheduler_jobs_still_run_and_notify(monkeypatch):

@@ -9,7 +9,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import available_stock_filter, branch_filter, money, today
+from app.services.common import available_stock_filter, branch_filter, fefo_order, money, today
 
 
 def list_products(
@@ -86,7 +86,7 @@ def list_products(
 
     # Cross-branch availability (أثناء البيع): when the caller is scoped to one
     # branch, also report each product's live stock at the OTHER branches so the
-    # cashier instantly sees "متوفر في السنتا: ٩١" for an item that's out here.
+    # cashier instantly sees "متوفر في السنطه: ٩١" for an item that's out here.
     others: dict[int, list[dict]] = {}
     if branch_id and rows:
         ids = [p.product_id for p, _ in rows]
@@ -278,7 +278,7 @@ def product_batches(session: Session, product_id: int, branch_id: int | None = N
             m.StockBatch.amount > 0,
             branch_filter(m.StockBatch, branch_id),
         )
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
     )
     out = []
     for batch, branch_name in session.execute(stmt):

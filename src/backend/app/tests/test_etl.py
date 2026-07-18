@@ -219,7 +219,7 @@ def test_unmapped_store_auto_creates_branch(estock_source):
                 "INSERT INTO Product_Amount VALUES (3,101,3,502,9,15,7,12,0,'2027-05-01')"
             ))
         with SessionLocal() as dst:
-            etl.mirror(estock_source, dst, store_branch_map={1: "ELSANTA", 2: "MAIN"})
+            etl.mirror(estock_source, dst, store_branch_map={1: "ELSANTA", 2: "MASHALA"})
         with SessionLocal() as s:
             br = s.query(m.Branch).filter(m.Branch.code == "STORE3").one_or_none()
             assert br is not None  # auto-created

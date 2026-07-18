@@ -116,6 +116,8 @@ class Product(Base):
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
     shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Incentive points earned per unit sold (for OTC incentive list).
+    incentive_points: Mapped[float] = mapped_column(Qty, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -475,6 +477,7 @@ class EmployeeTask(Base):
     # daily plan (opening/closing/inventory/ordering/cleaning/approval/general).
     priority: Mapped[str] = mapped_column(String(10), default="normal")
     category: Mapped[str] = mapped_column(String(20), default="general")
+    assigned_agent: Mapped[str | None] = mapped_column(String(20), nullable=True)  # hermes|claude|gemini|antigravity|me
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -749,4 +752,116 @@ class StockCountLine(Base):
     __table_args__ = (
         Index("IX_count_lines_count", "count_id"),
         Index("IX_count_lines_batch", "batch_id"),
+    )
+
+
+class AgentRun(Base):
+    """Audit trail for AI agent dispatches (absorbed from AgenticOS v2.0).
+
+    Every agent task — whether dry-run, blocked, or executed — is recorded
+    here for compliance and debugging. Linked optionally to an employee_task
+    via ``task_id``.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(12), unique=True)
+    agent: Mapped[str] = mapped_column(String(20))
+    task: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(12))  # running|done|error|blocked
+    output: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(nullable=True, default=0)
+    task_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('running','done','error','blocked')", name="CK_agent_run_status"),
+        Index("IX_agent_runs_agent", "agent"),
+        Index("IX_agent_runs_created", "created_at"),
+    )
+
+
+class AuthEvent(Base):
+    """Security audit trail: every login attempt, password reset and password
+    change, with outcome. ``employee_id`` is NULL for failed attempts against
+    unknown usernames (the attempted username is still recorded).
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "auth_events"
+
+    event_id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(80))
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    event: Mapped[str] = mapped_column(String(20))  # login_ok/login_fail/reset_request/reset_ok/password_change
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('login_ok','login_fail','reset_request','reset_ok','password_change')",
+            name="CK_auth_event_kind",
+        ),
+        Index("IX_auth_events_created", "created_at"),
+        Index("IX_auth_events_username", "username"),
+    )
+
+
+class ProductAffinity(Base):
+    """Co-purchase affinity matrix for POS upsell/cross-sell suggestions.
+
+    Nightly scheduler job computes lift (P(B|A) / P(B)) and support
+    (% of all baskets containing both) from 90-day sales history. Ranked by lift.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "product_affinity"
+
+    affinity_id: Mapped[int] = mapped_column(primary_key=True)
+    product_a_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    product_b_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    lift: Mapped[float] = mapped_column(default=1.0)
+    support: Mapped[float] = mapped_column(default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("lift > 0", name="CK_affinity_lift"),
+        CheckConstraint("support >= 0 AND support <= 1", name="CK_affinity_support"),
+        Index("IX_affinity_product_a", "product_a_id"),
+        Index("IX_affinity_product_b", "product_b_id"),
+        Index("IX_affinity_branch", "branch_id"),
+    )
+
+
+class IncentiveLedger(Base):
+    """Incentive points earned/clawed-back per sale line by cashier.
+
+    POS creates entries when incentivized items (``products.incentive_points > 0``)
+    are sold; returns auto-claw back via negative entries. Monthly leaderboard
+    aggregates per employee by summing over a calendar month.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "incentive_ledger"
+
+    entry_id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    sale_id: Mapped[int] = mapped_column(ForeignKey("sales.sale_id"))
+    sale_line_id: Mapped[int] = mapped_column(ForeignKey("sale_lines.line_id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    points: Mapped[float] = mapped_column(Qty)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_incentive_employee_created", "employee_id", "created_at"),
+        Index("IX_incentive_sale", "sale_id"),
+        Index("IX_incentive_branch_created", "branch_id", "created_at"),
     )

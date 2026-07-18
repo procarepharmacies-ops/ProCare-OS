@@ -178,7 +178,7 @@ def ensure_product_classification_columns(engine) -> None:
         if "dosage_form" not in columns:
             conn.execute(text(f"ALTER TABLE products {add} dosage_form VARCHAR(50) NULL"))
         if "is_otc" not in columns:
-            conn.execute(text(f"ALTER TABLE products {add} is_otc BOOLEAN DEFAULT 0"))
+            conn.execute(text(f"ALTER TABLE products {add} is_otc BIT DEFAULT 0"))
         if "uses" not in columns:
             conn.execute(text(f"ALTER TABLE products {add} uses VARCHAR(300) NULL"))
 
@@ -213,7 +213,7 @@ def _find_branch(session: Session, hint: str | None) -> int | None:
     from sqlalchemy import select
 
     hint = hint.lower()
-    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنتا")}
+    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنطه")}
     needles = aliases.get(hint, (hint,))
     for b in session.scalars(select(m.Branch)):
         haystack = " ".join(filter(None, (b.code, b.name_en, b.name_ar))).lower()
@@ -281,3 +281,31 @@ def bootstrap_ceo_if_configured(session: Session) -> None:
         )
     )
     session.commit()
+
+
+def ensure_assigned_agent_column(engine) -> None:
+    """Add ``employee_tasks.assigned_agent`` so tasks can be routed to AI agents."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    if "assigned_agent" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE employee_tasks ADD assigned_agent VARCHAR(20) NULL"))
+
+
+def ensure_incentive_points_column(engine) -> None:
+    """Add ``products.incentive_points`` (OTC incentive list points per unit sold)
+    if the table predates the employee incentive feature. Existing products
+    default to 0 (no incentive)."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    if "incentive_points" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE products {add} incentive_points NUMERIC(18,3) DEFAULT 0"))
+

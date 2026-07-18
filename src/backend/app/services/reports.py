@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import available_stock_filter, branch_filter, money, sql_day, today
+from app.services.common import available_stock_filter, branch_filter, fefo_order, money, sql_day, today
 
 
 def stock_on_hand(session: Session, branch_id: int | None = None, limit: int = 2000) -> list[dict]:
@@ -68,7 +68,7 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .join(m.Branch, m.Branch.branch_id == m.StockBatch.branch_id)
         .where(m.StockBatch.amount > 0, branch_filter(m.StockBatch, branch_id))
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
         .limit(limit)
     ).all()
     return [

@@ -47,7 +47,16 @@ exports/
 logs/
 *.log
 
+# DirectX / Visual C++ redistributable .cab files (dropped into repo root by
+# Windows SDK installers) — not source, never commit.
+*.cab
+APR2007_*/
+DEC2006_*/
+vcredist_*.exe
+*.msi
+DSETUP*.dll
+dsetup*.dll
+
 # Local (no-Docker) launcher runtime state
 .local-run/
-*.log
 *.pid

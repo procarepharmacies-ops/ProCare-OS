@@ -47,16 +47,41 @@ def _employee_out(emp: m.Employee) -> dict:
     }
 
 
+@router.options("/login")
+def login_options():
+    """CORS preflight handler."""
+    return {}
+
+
+def _log_event(session: Session, username: str, event: str, employee_id: int | None, request: Request | None) -> None:
+    """Append to the security audit trail. Never lets logging break auth."""
+    try:
+        ip = request.client.host if request and request.client else None
+        session.add(m.AuthEvent(username=username[:80], event=event, employee_id=employee_id, ip=ip))
+        session.commit()
+    except Exception:  # noqa: BLE001 — audit failure must not block login
+        session.rollback()
+
+
 @router.post("/login")
-def login(payload: LoginIn, session: Session = Depends(get_session)):
-    emp = auth_svc.authenticate(session, payload.username.strip(), payload.password)
+def login(payload: LoginIn, request: Request, session: Session = Depends(get_session)):
+    username = payload.username.strip()
+    emp = auth_svc.authenticate(session, username, payload.password)
     if emp is None:
+        _log_event(session, username, "login_fail", None, request)
         raise HTTPException(status_code=401, detail={"code": "invalid_credentials", "message": "Invalid username or password"})
+    _log_event(session, username, "login_ok", emp.employee_id, request)
     return {"token": auth_svc.create_token(emp), "employee": _employee_out(emp)}
 
 
 class ForgotPasswordIn(BaseModel):
     username: str
+
+
+@router.options("/forgot-password")
+def forgot_password_options():
+    """CORS preflight handler."""
+    return {}
 
 
 @router.post("/forgot-password")
@@ -78,12 +103,20 @@ class ResetPasswordIn(BaseModel):
     new_password: str
 
 
+@router.options("/reset-password")
+def reset_password_options():
+    """CORS preflight handler."""
+    return {}
+
+
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordIn, session: Session = Depends(get_session)):
+def reset_password(payload: ResetPasswordIn, request: Request, session: Session = Depends(get_session)):
     """Self-service reset, step 2: verify the code, set the new password."""
     ok, reason = auth_svc.reset_password(
         session, payload.username.strip(), payload.code, payload.new_password
     )
+    if ok:
+        _log_event(session, payload.username.strip(), "reset_ok", None, request)
     if not ok:
         messages = {
             "invalid_code": "الكود غير صحيح / wrong code",
@@ -104,6 +137,7 @@ class ChangePasswordIn(BaseModel):
 @router.post("/change-password")
 def change_password(
     payload: ChangePasswordIn,
+    request: Request,
     token: dict = Depends(_require_token),
     session: Session = Depends(get_session),
 ):
@@ -116,6 +150,7 @@ def change_password(
         raise HTTPException(status_code=401, detail={"code": "invalid_credentials", "message": "Current password is wrong"})
     emp.password_hash = auth_svc.hash_password(payload.new_password)
     session.commit()
+    _log_event(session, emp.username or "", "password_change", emp.employee_id, request)
     return {"ok": True}
 
 

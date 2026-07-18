@@ -11,6 +11,7 @@ export default function AccountingPage() {
   const L = (k) => t(lang, k);
   const [trialBalance, setTrialBalance] = useState(null);
   const [salesSummary, setSalesSummary] = useState(null);
+  const [profitLoss, setProfitLoss] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [chart, setChart] = useState(null);
   const [expanded, setExpanded] = useState({});
@@ -22,9 +23,13 @@ export default function AccountingPage() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [tbRes, ssRes, ledgerRes, chartRes] = await Promise.all([
+        const [tbRes, ssRes, plRes, ledgerRes, chartRes] = await Promise.all([
           api.get("/accounting/trial-balance", { branch_id: branch || undefined }),
           api.get("/accounting/sales-summary", {
+            branch_id: branch || undefined,
+            days: daysFilter,
+          }),
+          api.get("/accounting/profit-loss", {
             branch_id: branch || undefined,
             days: daysFilter,
           }),
@@ -36,6 +41,7 @@ export default function AccountingPage() {
         ]);
         setTrialBalance(tbRes);
         setSalesSummary(ssRes);
+        setProfitLoss(plRes);
         setLedger(ledgerRes.entries || []);
         setChart(chartRes);
       } catch (e) {
@@ -47,26 +53,13 @@ export default function AccountingPage() {
     loadData();
   }, [branch, daysFilter]);
 
+  const fmt = (v) => Number(v || 0).toLocaleString("en-US");
+
   if (loading) return <Shell titleKey="nav_accounting"><div className="page">{L("loading")}</div></Shell>;
 
   return (
     <Shell titleKey="nav_accounting">
       <div className="page">
-        <div className="kpi-row">
-          <div className="kpi-box">
-            <div className="kpi-value">{salesSummary?.total_sales_net?.toLocaleString("en-US") || "0"}</div>
-            <div className="kpi-label">{L("total_sales")}</div>
-          </div>
-          <div className="kpi-box">
-            <div className="kpi-value">{salesSummary?.total_returns_net?.toLocaleString("en-US") || "0"}</div>
-            <div className="kpi-label">{L("total_returns")}</div>
-          </div>
-          <div className="kpi-box">
-            <div className="kpi-value">{salesSummary?.net_revenue?.toLocaleString("en-US") || "0"}</div>
-            <div className="kpi-label">{L("net_revenue")}</div>
-          </div>
-        </div>
-
         <div style={{ marginBottom: 16, padding: "8px 16px", background: "var(--surface)", borderRadius: 8 }}>
           <label>
             {L("period")}:{" "}
@@ -77,6 +70,63 @@ export default function AccountingPage() {
               <option value={365}>{L("days_365")}</option>
             </select>
           </label>
+        </div>
+
+        {/* Revenue & profit KPIs */}
+        <div className="kpi-row">
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(profitLoss?.revenue)}</div>
+            <div className="kpi-label">{L("revenue")} ({L("egp")})</div>
+          </div>
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(salesSummary?.total_returns_net)}</div>
+            <div className="kpi-label">{L("total_returns")}</div>
+          </div>
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(profitLoss?.net_revenue)}</div>
+            <div className="kpi-label">{L("net_revenue")}</div>
+          </div>
+          <div className="kpi-box">
+            <div
+              className="kpi-value"
+              style={{ color: (profitLoss?.gross_profit || 0) >= 0 ? "var(--ok)" : "var(--danger)" }}
+            >
+              {fmt(profitLoss?.gross_profit)}
+            </div>
+            <div className="kpi-label">{L("gross_profit")}</div>
+          </div>
+          <div className="kpi-box">
+            <div className="kpi-value">{profitLoss?.margin_pct ?? 0}%</div>
+            <div className="kpi-label">{L("margin")}</div>
+          </div>
+        </div>
+
+        {/* Paid amount by payment type */}
+        <div className="kpi-row">
+          <div className="kpi-box">
+            <div className="kpi-value" style={{ color: "var(--ok)" }}>{fmt(salesSummary?.total_paid)}</div>
+            <div className="kpi-label">{L("paid_amount")}</div>
+            <div className="kpi-sub">
+              {L("paid_cash")}: {fmt(salesSummary?.cash_paid)} · {L("paid_card")}: {fmt(salesSummary?.card_paid)}
+            </div>
+          </div>
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(salesSummary?.cash_paid)}</div>
+            <div className="kpi-label">{L("paid_cash")}</div>
+          </div>
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(salesSummary?.card_paid)}</div>
+            <div className="kpi-label">{L("paid_card")}</div>
+          </div>
+          <div className="kpi-box">
+            <div
+              className="kpi-value"
+              style={{ color: (salesSummary?.credit_sales || 0) > 0 ? "var(--danger)" : undefined }}
+            >
+              {fmt(salesSummary?.credit_sales)}
+            </div>
+            <div className="kpi-label">{L("credit_unpaid")}</div>
+          </div>
         </div>
 
         <div className="tabs">
