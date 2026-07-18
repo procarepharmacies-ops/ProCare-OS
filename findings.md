@@ -83,6 +83,21 @@
   history. Stock/catalogue/customers/vendors/employees still refresh fully
   (current-state, small). RULE: sales older than the window are treated as
   immutable — backdated source entries need a manual full resync.
+- 2026-07-18 · Unindexed FK columns made the sync wipe QUADRATIC: deleting 35K
+  stock_batches FK-checked 190K unindexed sale_lines.batch_id rows per delete
+  (~6.8 billion row visits, 504s measured; 0.11s after indexing). The 814s
+  "slow incremental cycle" was 77% this one DELETE. Fix: FK-check indexes on
+  sale_lines.batch_id, purchase_lines.purchase_id/batch_id,
+  loyalty_transactions.sale_id, stock_movements.batch_id,
+  stock_transfer_lines.transfer_id/from/to_batch_id, sales.original_sale_id —
+  declared in models AND migrate.ensure_fk_indexes (create_all never touches
+  existing tables). Live incremental cycle vs mashala: 814s → 11.8s.
+  RULE: every FK column on a table the sync wipes/deletes from MUST be indexed.
+- 2026-07-18 · Stale-process trap (bit us again): python backends from
+  yesterday (one elevated, unreadable CommandLine) held procare.db write locks
+  and bloated the WAL to 113MB, making a timing run look 10× slower. Check
+  `Get-Process python*` start times BEFORE benchmarking; kill stale pairs
+  (parent + child spawned ~2s apart).
 - 2026-07-18 · Treasury double-count bug (pre-existing): _load_treasury
   appended Cash_depots snapshot entries every cycle but _wipe_branch_rows
   never cleared LedgerEntry — branch-scoped sync stacked another copy of every

@@ -107,3 +107,15 @@
   permissions discovery) — added to task_plan Phase 6.
 - Elsanta initial fill decision pending: fresh .bak restore locally (needs
   MSSQLSERVER started + backup file) vs one overnight chunked WAN pull.
+- Committed 515a75f (incremental window sync + treasury fix).
+
+## 2026-07-18 (later still) · The REAL slowness: unindexed FK quadratic wipe
+- First live incremental cycle vs mashala took 814s. Per-stage instrumentation
+  → _wipe_branch_stock 624s → probe on a DB copy → DELETE of 35K stock_batches
+  alone = 504s → cause: sale_lines.batch_id FK (190K rows) unindexed, so every
+  batch delete full-scanned sale_lines for the FK check.
+- Also killed two stale python backends from yesterday (one elevated) that
+  held procare.db locks + a 113MB WAL during the first timing run.
+- FIX: 9 FK-check indexes (models.py Index() + migrate.ensure_fk_indexes,
+  called in lifespan). Verified live: incremental cycle 814s → 11.8s.
+- Tests: 195/195 pass.

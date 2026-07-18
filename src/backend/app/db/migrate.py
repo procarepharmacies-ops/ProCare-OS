@@ -17,6 +17,39 @@ from app.db import models as m
 from app.services import auth as auth_svc
 
 
+# FK-check indexes: SQLite (and SQL Server) verify child references on every
+# parent-row DELETE. Without an index on the child FK column that check is a
+# full table scan PER DELETED ROW — the branch-scoped sync wipe of 35K stock
+# batches against 190K unindexed sale_lines.batch_id took ~500 seconds on the
+# dev database; 0.1s with the index. Names must match the models' Index()
+# declarations so fresh (create_all) and migrated databases end up identical.
+_FK_INDEXES = [
+    ("sale_lines", "IX_sale_lines_batch", "batch_id"),
+    ("purchase_lines", "IX_purchase_lines_purchase", "purchase_id"),
+    ("purchase_lines", "IX_purchase_lines_batch", "batch_id"),
+    ("loyalty_transactions", "IX_loyalty_sale", "sale_id"),
+    ("stock_movements", "IX_movements_batch", "batch_id"),
+    ("stock_transfer_lines", "IX_transfer_lines_transfer", "transfer_id"),
+    ("stock_transfer_lines", "IX_transfer_lines_from", "from_batch_id"),
+    ("stock_transfer_lines", "IX_transfer_lines_to", "to_batch_id"),
+    ("sales", "IX_sales_original", "original_sale_id"),
+]
+
+
+def ensure_fk_indexes(engine) -> None:
+    """Create any missing FK-check index (idempotent, SQLite + SQL Server)."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    for table, name, col in _FK_INDEXES:
+        if table not in tables:
+            continue  # create_all will make the table with its indexes.
+        existing = {ix["name"] for ix in inspector.get_indexes(table)}
+        if name in existing:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(f"CREATE INDEX {name} ON {table} ({col})"))
+
+
 def ensure_role_column(engine) -> None:
     """Add ``employees.role`` if the table predates it (default 'assistant',
     the most restrictive tier, so nobody is silently over-privileged)."""

@@ -25,6 +25,7 @@ from app.db.migrate import (
     ensure_assigned_agent_column,
     ensure_customer_address_column,
     ensure_employee_reset_columns,
+    ensure_fk_indexes,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
     ensure_prescription_status_columns,
@@ -57,6 +58,9 @@ async def lifespan(_app: FastAPI):
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
     ensure_assigned_agent_column(engine)
+    # FK-check indexes: without them the sync's batch wipe is quadratic
+    # (~500s/cycle on real data); with them it's instant.
+    ensure_fk_indexes(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 
@@ -64,8 +68,9 @@ async def lifespan(_app: FastAPI):
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
-    # eStock sync never mirrors employees, so a freshly-synced production DB
-    # has no login at all unless BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
+    # Mirrored eStock employees arrive with unusable sentinel passwords, so a
+    # freshly-synced production DB still has no working login unless
+    # BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
     with SessionLocal() as session:
         bootstrap_ceo_if_configured(session)
         # The pharmacy's real staff accounts (create-only, survives restarts).
