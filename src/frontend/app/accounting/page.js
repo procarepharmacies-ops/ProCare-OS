@@ -129,6 +129,30 @@ export default function AccountingPage() {
           </div>
         </div>
 
+        {/* Operations KPIs */}
+        <div className="kpi-row">
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(salesSummary?.num_sales)}</div>
+            <div className="kpi-label">{L("num_sales")}</div>
+          </div>
+          <div className="kpi-box">
+            <div className="kpi-value">{fmt(salesSummary?.avg_sale_value)}</div>
+            <div className="kpi-label">{L("avg_bill")}</div>
+          </div>
+          <div className="kpi-box">
+            <div
+              className="kpi-value"
+              style={{ color: (salesSummary?.net_cash || 0) >= 0 ? "var(--ok)" : "var(--danger)" }}
+            >
+              {fmt(salesSummary?.net_cash)}
+            </div>
+            <div className="kpi-label">{L("net_cash")}</div>
+            <div className="kpi-sub">
+              {L("paid_cash")}: {fmt(salesSummary?.cash_paid)} · {L("cash_refunds")}: {fmt(salesSummary?.cash_refunds)}
+            </div>
+          </div>
+        </div>
+
         <div className="tabs">
           <button className={`tab ${activeTab === "chart" ? "active" : ""}`} onClick={() => setActiveTab("chart")}>
             {L("coa_title")}

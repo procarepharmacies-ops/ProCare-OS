@@ -231,6 +231,14 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         m.Sale.is_credit == True,  # noqa: E712
         m.Sale.sale_date >= cutoff,
     )
+    # Cash paid back out on returns. Return invoices don't carry cash_paid,
+    # so we treat non-credit (cash-settled) returns as cash out of the
+    # drawer; credit returns adjust the customer balance, not the till.
+    base_cash_refunds = select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
+        m.Sale.is_return == True,  # noqa: E712
+        m.Sale.is_credit == False,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
 
     if branch_id:
         base_sales = base_sales.where(m.Sale.branch_id == branch_id)
@@ -238,6 +246,7 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         base_count = base_count.where(m.Sale.branch_id == branch_id)
         base_paid = base_paid.where(m.Sale.branch_id == branch_id)
         base_credit = base_credit.where(m.Sale.branch_id == branch_id)
+        base_cash_refunds = base_cash_refunds.where(m.Sale.branch_id == branch_id)
 
     total_sales = float(session.scalar(base_sales) or 0)
     total_returns = float(session.scalar(base_returns) or 0)
@@ -246,6 +255,7 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
     cash_paid = round(float(cash_paid_row or 0), 2)
     card_paid = round(float(card_paid_row or 0), 2)
     credit_sales = round(float(session.scalar(base_credit) or 0), 2)
+    cash_refunds = round(float(session.scalar(base_cash_refunds) or 0), 2)
 
     return {
         "period_days": days,
@@ -253,10 +263,13 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         "total_returns_net": total_returns,
         "num_sales": num_sales,
         "net_revenue": total_sales - total_returns,
+        "avg_sale_value": round(total_sales / num_sales, 2) if num_sales else 0.0,
         "cash_paid": cash_paid,
         "card_paid": card_paid,
         "total_paid": round(cash_paid + card_paid, 2),
         "credit_sales": credit_sales,
+        "cash_refunds": cash_refunds,
+        "net_cash": round(cash_paid - cash_refunds, 2),
     }
 
 
