@@ -309,3 +309,24 @@ def ensure_incentive_points_column(engine) -> None:
     with engine.begin() as conn:
         conn.execute(text(f"ALTER TABLE products {add} incentive_points NUMERIC(18,3) DEFAULT 0"))
 
+
+def ensure_branch_names_corrected(engine) -> None:
+    """Fix old Arabic branch name spelling in existing DBs.
+
+    Seed used to write السنطه/مسهله (ه = ha) instead of the correct
+    السنطة/مسهلة (ة = taa marbuta). This migration updates any rows that
+    still carry the old spelling. Safe no-op if already correct or if the
+    branches table doesn't exist yet.
+    """
+    inspector = inspect(engine)
+    if "branches" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE branches SET name_ar = 'السنطة' WHERE code = 'ELSANTA' AND name_ar = 'السنطه'"
+        ))
+        conn.execute(text(
+            "UPDATE branches SET name_ar = 'مسهلة' WHERE code = 'MASHALA' AND name_ar = 'مسهله'"
+        ))
+
+

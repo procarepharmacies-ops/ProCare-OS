@@ -23,6 +23,7 @@ from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
     ensure_assigned_agent_column,
+    ensure_branch_names_corrected,
     ensure_customer_address_column,
     ensure_employee_reset_columns,
     ensure_incentive_points_column,
@@ -57,6 +58,7 @@ async def lifespan(_app: FastAPI):
     ensure_product_unit_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
+    ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix
     ensure_assigned_agent_column(engine)
     ensure_incentive_points_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.

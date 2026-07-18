@@ -284,4 +284,12 @@ export const api = {
   createCampaign: (payload) => http("/crm/campaigns", { method: "POST", body: JSON.stringify(payload) }),
   sendCampaign: (campaignId) => http(`/crm/campaigns/${campaignId}/send`, { method: "POST" }),
   campaignLinks: (campaignId) => http(`/crm/campaigns/${campaignId}/links`),
+
+  // Phase 6 Dashboard — new KPI endpoints.
+  purchasing: (branch) => http(`/dashboard/purchasing${bq(branch)}`),
+  yoy: (branch) => http(`/dashboard/yoy${bq(branch)}`),
+  dashboardCash: () => http("/dashboard/cash"),
+  expenses: (branch) => http(`/dashboard/expenses${bq(branch)}`),
+  staffNow: (branch) => http(`/dashboard/staff-now${bq(branch)}`),
+  stocktakingAlerts: (minutes = 5) => http(`/stocktaking/recent-alerts?minutes=${minutes}`),
 };

@@ -1,6 +1,8 @@
 """Stocktaking (الجرد) endpoints: count sessions, count sheet, posting."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -10,6 +12,28 @@ from app.services import stocktaking
 from app.services.pos import POSError
 
 router = APIRouter(prefix="/stocktaking", tags=["stocktaking"])
+
+
+def _raise(e: POSError):
+    raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+# In-memory ring buffer: last 20 stocktaking events for dashboard alert polling.
+_RECENT_EVENTS: list[dict] = []
+
+
+def _log_stocktake_alert(branch_id: int, message: str) -> None:
+    """Push a lightweight event into the ring buffer for dashboard polling.
+    No DB write needed — the frontend polls /stocktaking/recent-alerts.
+    """
+    global _RECENT_EVENTS
+    _RECENT_EVENTS.append({
+        "branch_id": branch_id,
+        "message": message,
+        "ts": datetime.utcnow().isoformat(),
+    })
+    # Keep only the last 20 events to avoid unbounded growth
+    _RECENT_EVENTS = _RECENT_EVENTS[-20:]
 
 
 def _raise(e: POSError):
@@ -51,7 +75,28 @@ def create(payload: CreateIn, session: Session = Depends(get_session)):
             note = note or "جرد الأصناف الراكدة (٩٠ يوم بدون حركة)"
         elif count_type == "periodic" and not product_ids:
             product_ids = stocktaking.top_movers(session, payload.branch_id)
-        return stocktaking.create_count(
+        return result
+    except POSError as e:
+        _raise(e)
+    # log alert after successful creation (result is already returned above)
+
+
+@router.post("", response_model=None)
+def create(payload: CreateIn, session: Session = Depends(get_session)):
+    """Open a count session."""
+    try:
+        product_ids = payload.product_ids
+        count_type = payload.count_type
+        note = payload.note
+        if payload.scope == "stagnant" and not product_ids:
+            from app.services import inventory
+            report = inventory.stagnant_products(session, payload.branch_id, days=90)
+            product_ids = [i["product_id"] for i in report["items"]]
+            count_type = "partial"
+            note = note or "جرد الأصناف الراكدة (٩٠ يوم بدون حركة)"
+        elif count_type == "periodic" and not product_ids:
+            product_ids = stocktaking.top_movers(session, payload.branch_id)
+        result = stocktaking.create_count(
             session,
             payload.branch_id,
             count_type,
@@ -59,6 +104,11 @@ def create(payload: CreateIn, session: Session = Depends(get_session)):
             created_by=payload.created_by,
             product_ids=product_ids,
         )
+        _log_stocktake_alert(
+            payload.branch_id,
+            f"تم فتح جلسة جرد {count_type} | Stocktaking session opened"
+        )
+        return result
     except POSError as e:
         _raise(e)
 
@@ -99,7 +149,11 @@ class PostIn(BaseModel):
 def post(count_id: int, payload: PostIn, session: Session = Depends(get_session)):
     """Apply all counted differences as stock adjustments and close the session."""
     try:
-        return stocktaking.post_count(session, count_id, employee_id=payload.employee_id)
+        count = stocktaking.get_count(session, count_id)
+        result = stocktaking.post_count(session, count_id, employee_id=payload.employee_id)
+        branch_id = count.get("branch_id", 0) if isinstance(count, dict) else 0
+        _log_stocktake_alert(branch_id, f"تم ترحيل الجرد #{count_id} | Stocktaking #{count_id} posted")
+        return result
     except POSError as e:
         _raise(e)
 
@@ -107,6 +161,21 @@ def post(count_id: int, payload: PostIn, session: Session = Depends(get_session)
 @router.post("/{count_id}/cancel")
 def cancel(count_id: int, session: Session = Depends(get_session)):
     try:
-        return stocktaking.cancel_count(session, count_id)
+        count = stocktaking.get_count(session, count_id)
+        result = stocktaking.cancel_count(session, count_id)
+        branch_id = count.get("branch_id", 0) if isinstance(count, dict) else 0
+        _log_stocktake_alert(branch_id, f"تم إلغاء الجرد #{count_id} | Stocktaking #{count_id} cancelled")
+        return result
     except POSError as e:
         _raise(e)
+
+
+@router.get("/recent-alerts")
+def recent_alerts(minutes: int = 5):
+    """Return stocktaking events from the last N minutes (default 5).
+
+    Used by the dashboard to show an instant red alert banner whenever
+    any جرد session is opened, posted, or cancelled.
+    """
+    cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+    return {"alerts": [e for e in _RECENT_EVENTS if e["ts"] >= cutoff]}
