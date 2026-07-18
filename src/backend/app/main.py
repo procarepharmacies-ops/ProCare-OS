@@ -25,6 +25,7 @@ from app.db.migrate import (
     ensure_assigned_agent_column,
     ensure_customer_address_column,
     ensure_employee_reset_columns,
+    ensure_incentive_points_column,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
     ensure_prescription_status_columns,
@@ -57,6 +58,7 @@ async def lifespan(_app: FastAPI):
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
     ensure_assigned_agent_column(engine)
+    ensure_incentive_points_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 

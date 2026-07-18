@@ -294,3 +294,18 @@ def ensure_assigned_agent_column(engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE employee_tasks ADD assigned_agent VARCHAR(20) NULL"))
 
+
+def ensure_incentive_points_column(engine) -> None:
+    """Add ``products.incentive_points`` (OTC incentive list points per unit sold)
+    if the table predates the employee incentive feature. Existing products
+    default to 0 (no incentive)."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    if "incentive_points" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE products {add} incentive_points NUMERIC(18,3) DEFAULT 0"))
+
