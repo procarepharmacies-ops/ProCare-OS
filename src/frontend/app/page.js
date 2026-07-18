@@ -274,7 +274,9 @@ function KPIs({ k, L, fmt, go }) {
   // number to see more details").
   const cards = [
     { label: L("sales_today"), value: k.sales_today, sub: `${k.bills_today} ${L("bills")}`, ico: "receipt", href: "/reports" },
-    { label: L("sales_month"), value: k.sales_month, sub: L("egp"), ico: "coins", href: "/reports" },
+    // sales_month is REVENUE (EGP) — the bill COUNT rides along in the sub
+    // line so revenue is never misread as a number of sales.
+    { label: L("sales_month"), value: k.sales_month, sub: `${k.bills_month ?? 0} ${L("bills")} · ${L("egp")}`, ico: "coins", href: "/reports" },
     { label: L("profit_month"), value: k.profit_month, sub: L("egp"), ico: "chart", href: "/reports" },
     { label: L("low_stock"), value: k.low_stock, sub: "", ico: "pill", href: "/alerts" },
     { label: L("expiring_30"), value: k.expiring_30, sub: "", ico: "bell", href: "/alerts" },

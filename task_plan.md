@@ -88,6 +88,31 @@ bilingual (Arabic RTL first).
 - [x] Chart of accounts (شجرة الحسابات) tab: grouped by type with resolved
       customer/vendor/branch names, collapsible, balanced check; GET /accounting/chart
 
+## Phase 5 — eStock mirror end-to-end (2026-07-18, branch fix/sqlserver-compat-…)
+- [x] Verify FIX A/B/C from ba4fae5 intact (etl._str Decimal coercion; SQLite
+      WAL+busy_timeout; .gitignore DirectX)
+- [x] Flaky-WAN resilience: `_ResilientSource` (eager fetch in retry boundary,
+      reconnect+dispose on 10054/08S01, 3 attempts) + `_iter_rows` key-range
+      chunking (SYNC_CHUNK_ROWS default 20K) in _load_sales/_load_purchases
+- [x] Dashboard KPI: bills_month returned; UI "إيراد الشهر" + bill-count sub
+- [x] Employee mirror: eStock Employee → ProCare employees (permission flags
+      1:1, username match, plaintext passwords NEVER imported, roster
+      password/role untouched) — cashier attribution now covers all cashiers
+- [ ] Live full mirror of elsanta over WAN (running — verify counts vs source)
+
+## Phase 6 — eStock domain completion (blueprint from CLAUDE_CODE_ESTOCK_STRUCTURE.md)
+- [ ] Accounting mirror: Account_Tree → chart accounts; Gedo_Financial journal
+      → ledger_entries (needs model/columns decision: keep LedgerEntry or add
+      Journal); Tuning_accounts (تسويات) with reason names
+- [ ] Shareholders: company_Owner + Gedo_Dividends_paied (new model + screen)
+- [ ] Audit/change history: Product_Changes (price log), Product_amount_Change
+      (stock log), user_login (session audit) — surface as change-history screen
+- [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
+      (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
+- [ ] Payroll depth: Employee_salary/cash_advance/commission/deduction tables
+- [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
+- [ ] Jobs master mirror + employee.job_id linkage
+
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
 - [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys

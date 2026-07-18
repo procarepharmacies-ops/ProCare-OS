@@ -58,6 +58,25 @@
   receipt is real shrinkage (out > in, visible in the ledger). Status CHECK
   already allowed 'in_transit', so no migration needed.
 
+- 2026-07-18 · Elsanta WAN drops long pulls: one `SELECT * FROM Sales_details`
+  (313K rows) dies at ~6 min with pyodbc 10054 / 08S01 "Communication link
+  failure" — so a full elsanta mirror could never complete, while mashala (LAN)
+  finished in ~65s. Fix in etl.py: (1) `_iter_rows` pages the big sales/purchase
+  tables by key range (`WHERE sales_id BETWEEN lo AND hi`, `SYNC_CHUNK_ROWS`
+  env, default 20K) so each query finishes before the WAN kills it; (2)
+  `_ResilientSource.execute` fetches eagerly (`Result.freeze`) INSIDE a retry
+  loop — on a comm error it disposes the engine pool, reconnects fresh, and
+  re-runs the chunk (3 attempts, linear backoff). Retry is safe: source is
+  SELECT-only and a chunk is only transformed/inserted after its fetch fully
+  succeeds. Non-network errors are never retried. Live elsanta tables all carry
+  the chunk keys (sales_id/purchase_id); `Branches_back_sales_*` don't exist
+  there (skipped by has_table).
+- 2026-07-18 · Dashboard KPI mislabel: `summary()` computed the month bill
+  count but discarded it, and the UI showed `sales_month` (REVENUE, sum of
+  total_net — 26,261.25 EGP for July) under a label that read as a sales count.
+  Fix: `bills_month` now returned in kpis; frontend labels revenue as
+  "إيراد الشهر" with "N فواتير" in the sub-line.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the

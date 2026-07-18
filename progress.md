@@ -70,3 +70,21 @@
   test_estock_parity4.
 - Tests: 181/181 (7 new across test_transfer_receive.py + test_estock_parity4.py).
   next build clean.
+
+## 2026-07-18 · eStock mirror end-to-end (flaky-WAN resilience + KPI fix)
+- Context: elsanta (WAN) full mirror always died at ~6 min (10054 mid-pull of
+  the 313K-row Sales_details); mashala (LAN) mirrored fine. Decimal/WAL fixes
+  from ba4fae5 verified intact (etl._str, base.py WAL+busy_timeout).
+- BUILT (branch fix/sqlserver-compat-and-operations-center):
+  - etl.py: `_ResilientSource` (eager fetch inside retry; reconnect + engine
+    dispose on 10054/08S01; 3 attempts, backoff) + `_iter_rows` key-range
+    chunking (SYNC_CHUNK_ROWS, default 20K) wired into _load_sales and
+    _load_purchases (headers + details). branch_scoped soft-fail per source
+    preserved in sync.run_once.
+  - dashboard.py: kpis now include `bills_month` (count) alongside
+    `sales_month` (revenue); frontend labels: "إيراد الشهر" + bill-count sub,
+    i18n keys ar/en.
+- Tests: 192/192 pass (3 new in test_sync.py: comm-error classification,
+  flaky-WAN retry completes with identical counts, exhausted retries soft-fail
+  per source). Live elsanta verified: all big tables carry sales_id/purchase_id
+  chunk keys; Branches_back_sales_* absent (skipped).
