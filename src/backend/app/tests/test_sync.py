@@ -310,6 +310,48 @@ def test_sync_mirrors_employees_with_permissions(estock_source):
         reset_and_seed()
 
 
+def test_sync_never_deactivates_real_procare_logins(estock_source):
+    """A stale/inactive eStock employee row must NOT disable a matched ProCare
+    account that has a usable password (roster/admin-granted) — otherwise every
+    sync cycle locks the owner out. Mirror-created accounts (sentinel hash)
+    keep following the source's active/deleted state."""
+    from sqlalchemy import text as sql_text
+
+    with SessionLocal() as s:
+        anchor = s.query(m.Employee).filter(
+            m.Employee.username.is_not(None),
+            m.Employee.password_hash.like("sha256$%"),
+        ).first()
+        anchor_username = anchor.username
+        assert anchor.is_active is True
+
+    with estock_source.begin() as c:
+        c.execute(sql_text(
+            "CREATE TABLE Employee (emp_id INTEGER PRIMARY KEY, emp_name_ar TEXT, "
+            "username TEXT, active TEXT, deleted TEXT)"
+        ))
+        # Both rows INACTIVE at the source: the roster match must survive,
+        # the mirror-created account must follow the source.
+        c.execute(sql_text(
+            "INSERT INTO Employee VALUES "
+            f"(1, 'مدير النظام', '{anchor_username}', '0', '1'), "
+            "(2, 'كاشير قديم', 'old.cashier', '0', '1')"
+        ))
+
+    try:
+        sync.run_once(source_engine=estock_source)
+        with SessionLocal() as s:
+            anchor2 = s.query(m.Employee).filter(
+                m.Employee.username == anchor_username).one()
+            assert anchor2.is_active is True  # real login survives stale source
+            old = s.query(m.Employee).filter(
+                m.Employee.username == "old.cashier").one()
+            assert old.is_active is False  # sentinel account follows the source
+            assert old.password_hash == "!estock-mirror"
+    finally:
+        reset_and_seed()
+
+
 def test_two_sources_branch_scoped(tmp_path):
     """Two branch servers (Elsanta + Mashala) sync into ONE ProCare database.
 

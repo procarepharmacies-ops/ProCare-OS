@@ -942,8 +942,10 @@ def _load_employees(insp, src, dst, counts) -> None:
     deleted = _pick(cols, "deleted")
 
     existing = {
-        (u or "").strip().lower(): eid
-        for eid, u in dst.execute(select(m.Employee.employee_id, m.Employee.username)).all()
+        (u or "").strip().lower(): (eid, ph)
+        for eid, u, ph in dst.execute(
+            select(m.Employee.employee_id, m.Employee.username, m.Employee.password_hash)
+        ).all()
         if u
     }
     created = updated = 0
@@ -969,8 +971,15 @@ def _load_employees(insp, src, dst, counts) -> None:
             can_see_buy_price=_b(r.get(show_money)) if show_money else False,
             is_active=is_active,
         )
-        eid = existing.get(uname.lower())
+        eid, cur_hash = existing.get(uname.lower(), (None, None))
         if eid is not None:
+            # A usable ProCare password (``sha256$…``) marks a REAL ProCare
+            # login (roster or admin-granted). eStock's active/deleted state
+            # must never disable it — otherwise a stale source employee row
+            # locks the owner out on every sync cycle. Mirror-created rows
+            # (sentinel hash, cannot log in) keep following the source.
+            if cur_hash and cur_hash.startswith("sha256$"):
+                fields.pop("is_active")
             dst.execute(
                 m.Employee.__table__.update()
                 .where(m.Employee.__table__.c.employee_id == eid)

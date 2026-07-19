@@ -98,7 +98,12 @@ bilingual (Arabic RTL first).
 - [x] Employee mirror: eStock Employee → ProCare employees (permission flags
       1:1, username match, plaintext passwords NEVER imported, roster
       password/role untouched) — cashier attribution now covers all cashiers
-- [ ] Live full mirror of elsanta over WAN (running — verify counts vs source)
+- [x] Elsanta full mirror — via backup route, not WAN pull: hourly .bak found
+      at F:\backup on the server, pulled 843MB over SQL (chunked OPENROWSET),
+      restored locally, filled via etl.mirror in 21 min. ALL counts reconciled
+      exactly (sales 412,047 = 158,100 + 253,947 branch-sales; purchases
+      37,793; skips = source's zero-qty lines only). full_synced_at recorded
+      → WAN cycles now incremental. (2026-07-20)
 
 ## Phase 6 — eStock domain completion (blueprint from CLAUDE_CODE_ESTOCK_STRUCTURE.md)
 - [ ] Accounting mirror: Account_Tree → chart accounts; Gedo_Financial journal

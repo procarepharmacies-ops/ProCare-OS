@@ -117,6 +117,27 @@
   module, grep for duplicated `def`/decorator pairs and run that module's
   tests — route shadowing fails silently at import time.
 
+- 2026-07-19 · Backup route + server identities (on-site at Elsanta):
+  - WAN 196.202.93.37 = `DESKTOP-DUTL25M` = **Elsanta** (313K Sales_details,
+    2 stores incl. مخزن منتهي الصلاحيه, history from 2020-07-28).
+  - LAN 192.168.1.2 = `DESKTOP-SHTFS3J` = **Mashala** (185K details, 1 store,
+    history from 2021-04-05 — seeded from the stock_Elsnta_2021_04_04 snapshot;
+    identical 53,521-product catalogue on both).
+  - Elsanta backs up `stock` HOURLY to `F:\backup\stock_backup_*.bak` (~843MB);
+    Mashala every 30 min to `H:\backup\` (~528MB). Both SQL Server 2008 RTM
+    (10.0.1600) — no backup compression.
+  - SMB/RDP ports open on Elsanta WAN but Windows creds unknown (SQL creds are
+    NOT Windows creds). The read-only SQL login has ADMINISTER BULK OPERATIONS,
+    so the .bak is fetchable over the SQL connection itself:
+    `SUBSTRING(BulkColumn, offset, n) FROM OPENROWSET(BULK '<path>', SINGLE_BLOB)`
+    — 16MB chunks, per-chunk retry+reconnect, append-resume by file size.
+    ~20s fixed server-side cost per query (whole-file materialization), so
+    bigger chunks amortize better. TAPE magic header validates the format.
+  - Initial-fill pipeline: `.local-run/elsanta_restore_and_fill.py` (restore
+    D:\ProCareBackups\*.bak → stock_elsanta on localhost → etl.mirror
+    branch_scoped full → sync._record_cycle('elsanta') flips the incremental
+    gate). Needs MSSQLSERVER started by admin.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the

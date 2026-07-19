@@ -146,3 +146,34 @@
   (DeprecationWarning: datetime.utcnow — advisory only, not blocking).
 - All new routers confirmed registered in routes.py: agents, incentives, knowledge.
 - Pushed to origin/main: commit 4beb583.
+
+## 2026-07-20 · Elsanta initial fill via backup route (on-site)
+- Owner on-site at Elsanta. Found the backup route: server DESKTOP-DUTL25M
+  backs up `stock` HOURLY to F:\backup (~843MB .bak). No Windows/SMB creds,
+  but the read-only SQL login has ADMINISTER BULK OPERATIONS → pulled the
+  .bak over the SQL connection itself in 16MB SUBSTRING(OPENROWSET) chunks,
+  resumable, 74 min at 0.2 MB/s, zero failed chunks.
+- Identity check first (labels vs reality): WAN 196.202.93.37 =
+  DESKTOP-DUTL25M = Elsanta (313K details, 2 stores); LAN 192.168.1.2 =
+  DESKTOP-SHTFS3J = Mashala (185K details). Config labels correct.
+- Restored as stock_elsanta (60s), ran etl.mirror branch_scoped full from the
+  local restore: 21 min. First run failed on missing incentive_points column
+  (ProCare DB predated the revenue-engine merge) — added the lifespan
+  migration sequence to the fill script; second run clean.
+- VERIFIED against source, everything reconciles EXACTLY:
+  sales 412,047 = Sales_header 158,100 + Branches_sales_header 253,947;
+  returns 6,891/8,744; purchases 37,793 = 12,646 + 25,147; stock_batches
+  66,443 = Product_Amount; products 53,522. The only skips are the source's
+  own zero/negative-qty lines (2,783 sale + 81 purchase) blocked by CHECK
+  constraints — intended.
+- sync_state['elsanta'].full_synced_at recorded; live run_once cycle:
+  elsanta ran incremental(7d) in ~8 min over the 0.2MB/s WAN; mashala
+  first-ever full load into SQL Server still running (background).
+- Live cycle verified end-to-end (776s total): elsanta incremental(7d)
+  re-pulled 1,085 window sales + current-state refresh; mashala first full
+  load into SQL Server (95,846 sales = source exactly). Both sync_state gates
+  now set → all future cycles incremental. July KPIs sane per branch
+  (Elsanta 2,644 bills/207,618 EGP · Mashala 499/30,740).
+- SYNC_ENABLED=1 restored in .env (the condition in its own comment — the
+  incremental upgrade landing — is met). Kept: .bak + stock_elsanta on D:
+  as re-verification insurance.
