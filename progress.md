@@ -120,6 +120,19 @@
   called in lifespan). Verified live: incremental cycle 814s → 11.8s.
 - Tests: 195/195 pass.
 
+## 2026-07-19 · Merge main into sync branch + PR #22
+- Merged origin/main (Phase 6 dashboard rework, POS revenue engine, auth
+  audit) into fix/sqlserver-compat-and-operations-center. Conflicts: models.py
+  (kept SyncState + main's AuthEvent/ProductAffinity/IncentiveLedger), main.py
+  (both migrations), page.js (main's KpiCard layout + re-applied bills_month
+  sub-line), progress.md (both histories).
+- FOUND + FIXED latent main bug: api/stocktaking.py carried a duplicated
+  create() handler from main's own earlier conflict resolution — first copy
+  returned undefined `result`; Starlette routes to the first registration, so
+  POST /api/stocktaking 500'd on main. Collapsed to one working handler.
+- Tests: 202/202 pass; next build clean. Pushed e27c7e7; opened PR #22
+  (WAN-resilient mirror + incremental window sync + FK indexes + OpenRouter).
+
 ## 2026-07-18 · Phase 5 — Post-merge stabilisation
 
 - Merged PR #21 (Phase 2 POS Revenue Engine: upsell/cross-sell, OTC incentives,

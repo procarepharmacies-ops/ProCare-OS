@@ -109,6 +109,14 @@
   Fix: `bills_month` now returned in kpis; frontend labels revenue as
   "إيراد الشهر" with "N فواتير" in the sub-line.
 
+- 2026-07-19 · Duplicate-route trap: a bad conflict resolution on main left TWO
+  `@router.post("")` create() handlers in api/stocktaking.py; Starlette routes
+  to the FIRST registration, so the broken copy (undefined `result`) shadowed
+  the working one and POST /api/stocktaking 500'd on main while the suite
+  still read "196/196" there. RULE: after resolving any conflict in an api/
+  module, grep for duplicated `def`/decorator pairs and run that module's
+  tests — route shadowing fails silently at import time.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the

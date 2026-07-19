@@ -49,7 +49,7 @@ bilingual (Arabic RTL first).
 
 **T — Trigger**
 - [x] pytest green (160/160) + `next build` clean
-- [ ] Commit per feature, push branch, PR to main
+- [x] Commit per feature, push branch, PR to main (PR #22, 2026-07-19)
 - [ ] Owner pulls on pharmacy PC, restarts, verifies with real data
 
 ## Phase 2 — eStock parity round 2 (BUILT — same PR #17)
