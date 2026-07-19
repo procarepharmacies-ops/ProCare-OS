@@ -177,3 +177,30 @@
 - SYNC_ENABLED=1 restored in .env (the condition in its own comment — the
   incremental upgrade landing — is met). Kept: .bak + stock_elsanta on D:
   as re-verification insurance.
+
+## 2026-07-20 (later) · Production install + eStock gap #1 (item movement)
+- Installed production ProCare v1 on the pharmacy PC: ports moved to 8100/3100
+  (owner runs another project on 8000/3000), desktop icon + Windows autostart,
+  same-origin proxy build. Logged into the live dashboard as CEO — real data.
+- FIXED (twice) a production login lockout: the eStock employee mirror wrote
+  is_active from the source row every cycle, so a stale eStock employee row
+  deactivated the matched ProCare login. First fix gated on `sha256$` only —
+  but the login path upgrades sha256 → pbkdf2, so a logged-in account slipped
+  through and got re-locked. Correct gate: protect any hash NOT starting with
+  `!` (the mirror sentinel). Regression test now covers the pbkdf2 case.
+- FIXED backend instability: run.py had reload=True hardcoded — the file
+  watcher restarted the API on every edit and died with its parent console,
+  dropping the backend mid-session. Now env-gated (PROCARE_RELOAD, default off);
+  production stays up as a single stable process.
+- Reviewed 5 unmerged branches: 3 stale (pre-refactor / SQL-compat already in
+  main), 2 clean value-adds (accounting KPIs; deep-analysis frontend for the
+  /performance/deep backend already in main) — left for owner's merge call.
+- Audited codebase vs owner's eStock illustrated feature map: strong coverage;
+  4 real gaps (item-movement report, rep commission, news/notif center,
+  cheque-due). Cheque data is EMPTY on both servers → cheque-due deferred.
+- BUILT gap #1 — item sales-movement report: reports.item_movement (per-day
+  opening/purchases/sales/returns/adjust/closing, reconciles to live on-hand),
+  GET /reports/item-movement (+CSV), /reports-item screen (product search +
+  window + reconcile badge + export). Verified live on Elsanta (سرنجة: opening
+  2060.1 → closing 7.6 == on-hand; Augmentin 1g: 13.5 → 2 == on-hand).
+- Tests: 207/207 (4 new in test_item_movement.py). next build clean.

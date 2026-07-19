@@ -138,6 +138,36 @@
     branch_scoped full → sync._record_cycle('elsanta') flips the incremental
     gate). Needs MSSQLSERVER started by admin.
 
+- 2026-07-20 · Employee-mirror lockout (took TWO fixes): the eStock Employee
+  mirror set ProCare `is_active` from the source row every cycle, so a stale
+  source employee (active='0'/deleted='1') disabled the matched ProCare login.
+  Fix #1 gated the is_active-skip on `password_hash LIKE 'sha256$%'` — but
+  `authenticate()` transparently upgrades sha256 → pbkdf2 on first successful
+  login, so once the owner logged in, their hash no longer matched the gate and
+  the next sync re-locked them. Fix #2: gate on "hash is NOT a sentinel" —
+  `not cur_hash.startswith("!")` (the mirror sentinel is `!estock-mirror`) —
+  covers sha256$, pbkdf2$, and any future real algorithm. RULE: never gate
+  "is this a real login" on a specific hash-algorithm prefix; the hash format
+  migrates under you.
+- 2026-07-20 · run.py had `reload=True` hardcoded. uvicorn's reloader watches
+  app/ and restarts the worker on any file touch, and the reloader dies with
+  its parent console — so an unattended pharmacy PC (or any file edit) drops the
+  backend. Now `PROCARE_RELOAD` env, default off. Production = single stable
+  process; dev opts in.
+- 2026-07-20 · Cheque module UNUSED: `Checks` table has 0 rows on BOTH branch
+  servers (elsanta DESKTOP-DUTL25M + mashala DESKTOP-SHTFS3J). Columns exist
+  (ch_id, gf_id, ch_number, ch_valid_date, ch_status, cashed…) but the pharmacy
+  never issued a cheque. A cheque-due alert is dead weight until they start
+  using it — deferred.
+- 2026-07-20 · Item sales-movement report design: balances are PHYSICAL
+  (include expired). Opening is derived, not stored — roll the live on-hand
+  back through every flow (sale_lines/purchase_lines + adjust movements) from
+  the period start to today, so the last day's closing == on-hand when the
+  period ends today (`reconciles` flag). Sale/purchase flow comes from the
+  mirrored *_lines (complete), NOT stock_movements (which the mirror doesn't
+  write for historical rows — only 'adjust' from ProCare-native جرد). Verified
+  live: reconciles exactly on real Elsanta items.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the

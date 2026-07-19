@@ -270,6 +270,10 @@ export const api = {
   stockBatches: (branch) => http(`/reports/stock/batches${bq(branch)}`),
   stockMovements: (branch, days = 30) => http(`/reports/stock/movements${bq(branch, `days=${days}`)}`),
   stockValuation: () => http("/reports/stock/valuation"),
+  // Item sales-movement report (eStock حركة مبيعات صنف في فترة): per-day
+  // opening/purchases/sales/returns/adjust/closing for one product.
+  itemMovement: (productId, branch, days = 30) =>
+    http(`/reports/item-movement${bq(branch, `product_id=${productId}&days=${days}`)}`),
 
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),

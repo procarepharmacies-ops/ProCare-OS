@@ -324,18 +324,30 @@ def test_sync_never_deactivates_real_procare_logins(estock_source):
         ).first()
         anchor_username = anchor.username
         assert anchor.is_active is True
+        # Simulate the login-path hash upgrade (sha256 → pbkdf2): the guard must
+        # protect an UPGRADED hash too, not just the seeded sha256 form. This is
+        # the exact case that leaked through the first fix and re-locked the CEO.
+        upgraded = s.query(m.Employee).filter(
+            m.Employee.username.is_not(None),
+            m.Employee.username != anchor_username,
+            m.Employee.password_hash.like("sha256$%"),
+        ).first()
+        upgraded.password_hash = "pbkdf2$200000$abc$def"
+        upgraded_username = upgraded.username
+        s.commit()
 
     with estock_source.begin() as c:
         c.execute(sql_text(
             "CREATE TABLE Employee (emp_id INTEGER PRIMARY KEY, emp_name_ar TEXT, "
             "username TEXT, active TEXT, deleted TEXT)"
         ))
-        # Both rows INACTIVE at the source: the roster match must survive,
-        # the mirror-created account must follow the source.
+        # All rows INACTIVE at the source: both real logins (sha256 + pbkdf2)
+        # must survive, the mirror-created account must follow the source.
         c.execute(sql_text(
             "INSERT INTO Employee VALUES "
             f"(1, 'مدير النظام', '{anchor_username}', '0', '1'), "
-            "(2, 'كاشير قديم', 'old.cashier', '0', '1')"
+            f"(2, 'مدير مرقّى', '{upgraded_username}', '0', '1'), "
+            "(3, 'كاشير قديم', 'old.cashier', '0', '1')"
         ))
 
     try:
@@ -343,7 +355,10 @@ def test_sync_never_deactivates_real_procare_logins(estock_source):
         with SessionLocal() as s:
             anchor2 = s.query(m.Employee).filter(
                 m.Employee.username == anchor_username).one()
-            assert anchor2.is_active is True  # real login survives stale source
+            assert anchor2.is_active is True  # sha256 real login survives
+            upg2 = s.query(m.Employee).filter(
+                m.Employee.username == upgraded_username).one()
+            assert upg2.is_active is True  # pbkdf2 (upgraded) real login survives
             old = s.query(m.Employee).filter(
                 m.Employee.username == "old.cashier").one()
             assert old.is_active is False  # sentinel account follows the source

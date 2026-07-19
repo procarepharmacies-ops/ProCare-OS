@@ -46,6 +46,7 @@ const NAV_GROUPS = [
       { href: "/audit", key: "nav_audit", ico: "scale", roles: ["ceo", "manager"] },
       { href: "/reports", key: "nav_reports", ico: "chart", roles: ["ceo", "manager"] },
       { href: "/reports-daily", key: "nav_reports_daily", ico: "sheet", roles: ["ceo", "manager"] },
+      { href: "/reports-item", key: "nav_item_movement", ico: "sheet", roles: ["ceo", "manager"] },
     ],
   },
   {
