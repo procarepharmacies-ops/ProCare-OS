@@ -73,7 +73,11 @@ def summary(session: Session, branch_id: int | None = None) -> dict:
         "kpis": {
             "sales_today": sales_today,
             "bills_today": bills_today,
+            # sales_month is REVENUE (sum of total_net); bills_month is the
+            # bill COUNT — kept separate so the UI never presents one as the
+            # other (the July-2026 mislabel: 26,261.25 EGP shown as a count).
             "sales_month": sales_month,
+            "bills_month": bills_month,
             "sales_prev_month": sales_prev_month,
             "profit_month": profit_month,
             "low_stock": low_stock,

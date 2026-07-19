@@ -280,6 +280,7 @@ class StockMovement(Base):
             name="CK_movements_reason",
         ),
         Index("IX_movements_ref", "reason", "ref_id"),
+        Index("IX_movements_batch", "batch_id"),  # FK-check index (batch wipes)
     )
 
 
@@ -313,6 +314,9 @@ class Sale(Base):
         # totals for ProCare-created sales are enforced in services/pos.py.
         Index("IX_sales_date", "sale_date"),
         Index("IX_sales_branch_date", "branch_id", "sale_date"),
+        # FK-check index for the self-reference: deleting sales must not scan
+        # the whole table per row to prove no return points at it.
+        Index("IX_sales_original", "original_sale_id"),
     )
 
 
@@ -339,6 +343,10 @@ class SaleLine(Base):
         CheckConstraint("amount >= 0", name="CK_saleline_amount"),
         Index("IX_sale_lines_sale", "sale_id"),
         Index("IX_sale_lines_product", "product_id"),
+        # FK-check index: without it, every stock_batches DELETE full-scans
+        # this table per deleted row (35K batches x 190K lines took ~500s on
+        # the dev SQLite before this index; 0.1s after).
+        Index("IX_sale_lines_batch", "batch_id"),
     )
 
 
@@ -373,6 +381,13 @@ class PurchaseLine(Base):
     exp_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     purchase: Mapped[Purchase] = relationship(back_populates="lines")
+
+    __table_args__ = (
+        # FK-check indexes: purchase wipes delete by purchase_id; batch wipes
+        # FK-check batch_id per deleted stock_batches row.
+        Index("IX_purchase_lines_purchase", "purchase_id"),
+        Index("IX_purchase_lines_batch", "batch_id"),
+    )
 
 
 class StockTransfer(Base):
@@ -411,7 +426,13 @@ class StockTransferLine(Base):
 
     transfer: Mapped[StockTransfer] = relationship(back_populates="lines")
 
-    __table_args__ = (CheckConstraint("amount > 0", name="CK_transferline_amount"),)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_transferline_amount"),
+        # FK-check indexes (batch/transfer wipes).
+        Index("IX_transfer_lines_transfer", "transfer_id"),
+        Index("IX_transfer_lines_from", "from_batch_id"),
+        Index("IX_transfer_lines_to", "to_batch_id"),
+    )
 
 
 class LedgerEntry(Base):
@@ -579,6 +600,7 @@ class LoyaltyTransaction(Base):
     __table_args__ = (
         CheckConstraint("kind IN ('earn','redeem','clawback','adjust')", name="CK_loyalty_kind"),
         Index("IX_loyalty_customer", "customer_id", "created_at"),
+        Index("IX_loyalty_sale", "sale_id"),  # FK-check index (sale wipes)
     )
 
 
@@ -782,6 +804,26 @@ class AgentRun(Base):
         Index("IX_agent_runs_agent", "agent"),
         Index("IX_agent_runs_created", "created_at"),
     )
+
+
+class SyncState(Base):
+    """Per-source sync bookkeeping for the eStock mirror.
+
+    ``full_synced_at`` records that this source completed a FULL branch load —
+    the gate that lets later cycles run the fast incremental window instead of
+    re-pulling all history. Kept in the database (not process memory) so a
+    backend restart never silently re-triggers a multi-minute WAN full pull,
+    and cleared naturally whenever the database is reset.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "sync_state"
+
+    source_name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    full_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
 class AuthEvent(Base):

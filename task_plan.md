@@ -49,7 +49,7 @@ bilingual (Arabic RTL first).
 
 **T — Trigger**
 - [x] pytest green (160/160) + `next build` clean
-- [ ] Commit per feature, push branch, PR to main
+- [x] Commit per feature, push branch, PR to main (PR #22, 2026-07-19)
 - [ ] Owner pulls on pharmacy PC, restarts, verifies with real data
 
 ## Phase 2 — eStock parity round 2 (BUILT — same PR #17)
@@ -87,6 +87,49 @@ bilingual (Arabic RTL first).
       column + migration + seed; GET /customers/{id}/profile, POST /customers/{id}
 - [x] Chart of accounts (شجرة الحسابات) tab: grouped by type with resolved
       customer/vendor/branch names, collapsible, balanced check; GET /accounting/chart
+
+## Phase 5 — eStock mirror end-to-end (2026-07-18, branch fix/sqlserver-compat-…)
+- [x] Verify FIX A/B/C from ba4fae5 intact (etl._str Decimal coercion; SQLite
+      WAL+busy_timeout; .gitignore DirectX)
+- [x] Flaky-WAN resilience: `_ResilientSource` (eager fetch in retry boundary,
+      reconnect+dispose on 10054/08S01, 3 attempts) + `_iter_rows` key-range
+      chunking (SYNC_CHUNK_ROWS default 20K) in _load_sales/_load_purchases
+- [x] Dashboard KPI: bills_month returned; UI "إيراد الشهر" + bill-count sub
+- [x] Employee mirror: eStock Employee → ProCare employees (permission flags
+      1:1, username match, plaintext passwords NEVER imported, roster
+      password/role untouched) — cashier attribution now covers all cashiers
+- [x] Elsanta full mirror — via backup route, not WAN pull: hourly .bak found
+      at F:\backup on the server, pulled 843MB over SQL (chunked OPENROWSET),
+      restored locally, filled via etl.mirror in 21 min. ALL counts reconciled
+      exactly (sales 412,047 = 158,100 + 253,947 branch-sales; purchases
+      37,793; skips = source's zero-qty lines only). full_synced_at recorded
+      → WAN cycles now incremental. (2026-07-20)
+
+## Phase 6 — eStock domain completion (blueprint from CLAUDE_CODE_ESTOCK_STRUCTURE.md)
+- [ ] Accounting mirror: Account_Tree → chart accounts; Gedo_Financial journal
+      → ledger_entries (needs model/columns decision: keep LedgerEntry or add
+      Journal); Tuning_accounts (تسويات) with reason names
+- [ ] Shareholders: company_Owner + Gedo_Dividends_paied (new model + screen)
+- [ ] Audit/change history: Product_Changes (price log), Product_amount_Change
+      (stock log), user_login (session audit) — surface as change-history screen
+- [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
+      (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
+- [ ] Payroll depth: Employee_salary/cash_advance/commission/deduction tables
+- [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
+- [ ] Jobs master mirror + employee.job_id linkage
+
+### From CLAUDE_CODE_ESTOCK_FEATURES.md (behavioral parity)
+- [ ] Mirror `Shortcoming`/`Branches_shortcoming` history into كشكول النواقص
+      (ProCare ShortageItem screen already exists); POS auto-insert on unmet
+      qty after FEFO allocation (sell what's available, log the rest)
+- [ ] Notification center + ribbon: News_bar feed (respect deleted) +
+      Flag categories (نقطة البيع/الخزينة/البنك/مصروفات/مورد); post
+      expiry/low-stock/shortage events there
+- [ ] F2 branch-stock popup at POS (cross-branch data already in
+      list_products.other_branches — bind the hotkey + modal)
+- [ ] Visible hotkey map strip at POS (search/F2/discount/customer/hold/cash)
+- [ ] Permissions discovery screen: all role flags for current user, ON/OFF —
+      "hidden features" become visible
 
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync

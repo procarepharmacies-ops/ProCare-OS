@@ -29,7 +29,9 @@ Design notes
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+import os
+import time
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text
 from sqlalchemy.orm import Session
@@ -207,6 +209,118 @@ def _ar(raw_ar, raw_en=None, placeholder: str = "بدون اسم") -> str:
     return placeholder
 
 
+# --- flaky-WAN resilience ----------------------------------------------------
+# The Elsanta source is reached over a WAN that drops long-lived connections
+# (pyodbc 10054 / 08S01 "Communication link failure" at ~6 minutes). Two
+# defences make the mirror survive it:
+#   1. `_ResilientSource` retries any SELECT whose connection died, on a FRESH
+#      connection (the old pool is disposed — a dead pooled socket must never be
+#      handed out again).
+#   2. `_iter_rows` pages the huge tables (Sales_details is 313K rows on
+#      Elsanta) by key range so each query finishes well before the WAN drops
+#      it, instead of one giant SELECT that can never complete.
+# Retrying is safe: the source is only ever SELECTed, and a re-fetched chunk is
+# transformed/inserted only after the fetch fully succeeds.
+
+_CHUNK_ROWS = int(os.environ.get("SYNC_CHUNK_ROWS", "20000") or 20000)
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = 2.0
+
+_COMM_MARKERS = (
+    "10054",            # WSAECONNRESET — connection forcibly closed
+    "10060",            # WSAETIMEDOUT
+    "08s01",            # ODBC communication-link-failure SQLSTATE
+    "communication link failure",
+    "forcibly closed",
+    "connection reset",
+    "tcp provider",
+    "semaphore timeout",
+)
+
+
+def _is_comm_error(exc: BaseException) -> bool:
+    """True when the exception looks like a dropped network connection (the
+    retryable class), as opposed to a real SQL/data error (never retried)."""
+    msg = f"{type(exc).__name__}: {exc}".lower()
+    return any(marker in msg for marker in _COMM_MARKERS)
+
+
+class _ResilientSource:
+    """A read-only source connection that survives WAN drops.
+
+    ``execute`` fetches the ENTIRE result inside the retry boundary (via
+    ``Result.freeze``) — with pyodbc the 10054 typically fires mid-``fetchall``,
+    not at ``execute`` time, so a lazy result would escape the retry. On a
+    communication failure the whole engine pool is disposed and the statement
+    re-runs on a brand-new connection, with linear backoff. Non-network errors
+    propagate immediately.
+    """
+
+    def __init__(self, engine):
+        self._engine = engine
+        self._conn = engine.connect()
+
+    def execute(self, statement, parameters=None):
+        attempts = _RETRY_ATTEMPTS
+        for attempt in range(1, attempts + 1):
+            try:
+                result = self._conn.execute(statement, parameters or {})
+                return result.freeze()()  # fully fetched; re-iterable
+            except Exception as e:  # noqa: BLE001 — classified below
+                if not _is_comm_error(e) or attempt == attempts:
+                    raise
+                time.sleep(_RETRY_BACKOFF_SECONDS * attempt)
+                self._reconnect()
+        raise RuntimeError("unreachable")  # pragma: no cover
+
+    def _reconnect(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:  # noqa: BLE001 — the socket is already dead
+            pass
+        self._engine.dispose()  # drop every pooled (possibly dead) connection
+        self._conn = self._engine.connect()
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _iter_rows(src, tbl: str, key: str | None, bounds: tuple[int, int] | None = None):
+    """Yield ``tbl``'s rows as mapping-lists, one key-range chunk at a time.
+
+    Paging by ``WHERE key BETWEEN lo AND hi`` (not OFFSET) keeps each query
+    cheap and single-pass on the source. Without a usable integer key the whole
+    table is fetched in one (retried) query — correct, just not chunked.
+    ``bounds`` restricts the scan to a known (lo, hi) key range — the
+    incremental cycle uses it to fetch only the window's detail rows.
+    """
+    if key is None:
+        yield src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
+        return
+    if bounds is not None:
+        lo, hi = bounds
+    else:
+        lo, hi = src.execute(text(f"SELECT MIN({key}), MAX({key}) FROM {tbl}")).one()
+    if lo is None or hi is None:
+        return  # empty table
+    try:
+        lo, hi = int(lo), int(hi)
+    except (TypeError, ValueError):
+        yield src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
+        return
+    chunk = max(1, _CHUNK_ROWS)
+    for start in range(lo, hi + 1, chunk):
+        rows = src.execute(
+            text(f"SELECT * FROM {tbl} WHERE {key} BETWEEN :lo AND :hi"),
+            {"lo": start, "hi": min(start + chunk - 1, hi)},
+        ).mappings().all()
+        if rows:
+            yield rows
+
+
 # --- the mirror core (testable: pass an explicit source + dest) -------------
 def mirror(
     source_engine,
@@ -217,6 +331,7 @@ def mirror(
     branch_scoped: bool = False,
     force_branch_code: str | None = None,
     dedup: bool | None = None,
+    incremental_days: int | None = None,
 ) -> dict:
     """Run the read-only mirror from ``source_engine`` into ProCare (``dst``).
 
@@ -238,12 +353,23 @@ def mirror(
     branch. Append implies ``dedup`` so the shared drug catalogue, customers and
     vendors are matched (by code / mobile / name) instead of duplicated across
     branches — run each backup once. Returns per-table row counts (rows added).
+
+    Incremental (``branch_scoped=True`` + ``incremental_days=N``): once the
+    branch is already filled, each cycle re-pulls ONLY the last N days of
+    sales/purchases (a trailing window — returns mutate recent source rows, so
+    append alone would drift) plus the small live-state tables (catalogue,
+    customers, vendors, employees, stock, treasury). This is what makes a
+    short cadence viable over a slow WAN and on SQL Server: history never
+    crosses the wire again. An empty branch automatically gets the full load.
     """
     dedup = (branch_scoped or not wipe) if dedup is None else dedup
     update_on_match = branch_scoped
     insp = inspect(source_engine)
 
-    with source_engine.connect() as src:
+    # Not a plain `engine.connect()`: the wrapper retries dropped-connection
+    # errors (flaky Elsanta WAN) on a fresh connection — see _ResilientSource.
+    src = _ResilientSource(source_engine)
+    try:
         if force_branch_code:
             # Every row from this single-branch backup belongs to one branch.
             default_branch = _ensure_branch_code(dst, force_branch_code)
@@ -256,19 +382,42 @@ def mirror(
             branch_map = _resolve_branch_map(dst, store_branch_map, store_ids)
             default_branch = next(iter(branch_map.values()))
 
+        # Incremental gate: only once the branch already holds mirrored sales —
+        # an empty branch (first run, or after a reset) needs the full history.
+        window_cutoff: date | None = None
+        if branch_scoped and incremental_days and incremental_days > 0:
+            scope_ids = [int(b) for b in (set(branch_map.values()) | {default_branch})]
+            has_sales = dst.execute(
+                select(m.Sale.sale_id).where(m.Sale.branch_id.in_(scope_ids)).limit(1)
+            ).first()
+            if has_sales:
+                window_cutoff = date.today() - timedelta(days=incremental_days)
+
         if branch_scoped:
-            _wipe_branch_rows(dst, set(branch_map.values()) | {default_branch})
+            if window_cutoff is not None:
+                _wipe_branch_sales_window(
+                    dst, set(branch_map.values()) | {default_branch}, window_cutoff
+                )
+            else:
+                _wipe_branch_rows(dst, set(branch_map.values()) | {default_branch})
         elif wipe:
             _wipe_destination(dst)
-        counts: dict[str, int] = {}
+        counts: dict = {}
+        counts["sync_mode"] = (
+            f"incremental({incremental_days}d)" if window_cutoff is not None
+            else ("branch_full" if branch_scoped else "full")
+        )
 
         product_map = _load_products(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
+        _load_employees(insp, src, dst, counts)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
 
         # Cashier attribution: eStock stores the cashier as a username on each
         # sale; map it to the ProCare employee so per-cashier reports work.
+        # (_load_employees ran first, so EVERY eStock cashier resolves — not
+        # only the seeded roster.)
         employee_map = {
             (u or "").strip().lower(): eid
             for eid, u in dst.execute(select(m.Employee.employee_id, m.Employee.username)).all()
@@ -289,6 +438,7 @@ def mirror(
             _load_sales(
                 insp, src, dst, counts, product_map, customer_map, branch_map,
                 default_branch, employee_map, header_tbl=h, detail_tbl=d, returns=ret, count_key=ck,
+                window_cutoff=window_cutoff,
             )
 
         for h, d in [
@@ -296,11 +446,13 @@ def mirror(
             ("Branches_purchase_header", "Branches_purchase_details"),
         ]:
             _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch,
-                            header_tbl=h, detail_tbl=d)
+                            header_tbl=h, detail_tbl=d, window_cutoff=window_cutoff)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
 
         dst.commit()
+    finally:
+        src.close()
     return counts
 
 
@@ -408,7 +560,6 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
     if not ids:
         return
     sale_ids = select(m.Sale.sale_id).where(m.Sale.branch_id.in_(ids))
-    batch_ids = select(m.StockBatch.batch_id).where(m.StockBatch.branch_id.in_(ids))
     dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
     dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
     # Returns first (self-FK sales.original_sale_id), then the originals.
@@ -419,6 +570,17 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
     purchase_ids = select(m.Purchase.purchase_id).where(m.Purchase.branch_id.in_(ids))
     dst.execute(delete(m.PurchaseLine).where(m.PurchaseLine.purchase_id.in_(purchase_ids)))
     dst.execute(delete(m.Purchase).where(m.Purchase.branch_id.in_(ids)))
+    _wipe_branch_stock(dst, ids)
+    dst.flush()
+
+
+def _wipe_branch_stock(dst: Session, ids: list[int]) -> None:
+    """Clear ``ids``' stock rows (batches + movements + transfers touching them).
+
+    Runs on EVERY sync cycle — ``Product_Amount`` is current-state, so stock is
+    always a full per-branch refresh even when sales sync incrementally.
+    """
+    batch_ids = select(m.StockBatch.batch_id).where(m.StockBatch.branch_id.in_(ids))
     # Transfers touch batches on BOTH ends — any line touching a wiped batch
     # goes, then every transfer with a wiped endpoint branch. Lines are matched
     # by parent transfer too, not only by batch: a *requested* (not yet
@@ -446,6 +608,41 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
         )
     )
     dst.execute(delete(m.StockBatch).where(m.StockBatch.branch_id.in_(ids)))
+
+
+def _wipe_branch_sales_window(dst: Session, branch_ids: set[int], cutoff: date) -> None:
+    """Clear only ``branch_ids``' sales/purchases dated ``cutoff`` or later.
+
+    The incremental cycle re-pulls just this trailing window (returns and
+    same-day edits mutate RECENT source rows, so pure append would drift);
+    everything older is immutable history and survives untouched. Self-FK
+    safety: a return is always dated at/after its original sale, so an
+    original inside the window can never leave a referencing return outside
+    it — the returns-first delete order below covers every case.
+    """
+    ids = [int(b) for b in branch_ids if b is not None]
+    if not ids:
+        return
+    sale_ids = select(m.Sale.sale_id).where(
+        m.Sale.branch_id.in_(ids), m.Sale.sale_date >= cutoff
+    )
+    dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
+    dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
+    dst.execute(
+        delete(m.Sale).where(
+            m.Sale.branch_id.in_(ids), m.Sale.sale_date >= cutoff,
+            m.Sale.original_sale_id.is_not(None),
+        )
+    )
+    dst.execute(delete(m.Sale).where(m.Sale.branch_id.in_(ids), m.Sale.sale_date >= cutoff))
+    purchase_ids = select(m.Purchase.purchase_id).where(
+        m.Purchase.branch_id.in_(ids), m.Purchase.bill_date >= cutoff
+    )
+    dst.execute(delete(m.PurchaseLine).where(m.PurchaseLine.purchase_id.in_(purchase_ids)))
+    dst.execute(
+        delete(m.Purchase).where(m.Purchase.branch_id.in_(ids), m.Purchase.bill_date >= cutoff)
+    )
+    _wipe_branch_stock(dst, ids)
     dst.flush()
 
 
@@ -704,6 +901,101 @@ def _load_vendors(insp, src, dst, counts, dedup: bool = False) -> None:
     counts["vendors"] = len(objs)
 
 
+def _load_employees(insp, src, dst, counts) -> None:
+    """Mirror eStock's Employee master (the POS users) into ProCare.
+
+    eStock keeps the per-cashier permission flags ON the Employee row
+    (``emp_edit_sell_price``, ``allaw_sale_credit``, ``allaw_r_sale``,
+    ``allaw_un_sale``, ``emp_change_cash_disk``, ``emp_show_money``,
+    ``max_disc_per``) — they map 1:1 onto ProCare's Employee flags, so POS
+    discount limits and permissions survive the mirror. Matching is by username
+    (eStock's ``Sales_header.cashier_id`` IS that username, so loading
+    employees BEFORE the sales pass makes cashier attribution cover every
+    eStock cashier, not just the seeded roster).
+
+    SECURITY: eStock stores plaintext passwords — they are NEVER imported. A
+    new mirrored employee gets an unusable sentinel hash (``verify_password``
+    only matches ``sha256$…`` values) and the most restrictive role until an
+    admin grants real ProCare access; a matched employee's ProCare
+    password/role/branch are never touched, only display fields and flags.
+    """
+    if not insp.has_table("Employee"):
+        counts["employees"] = 0
+        return
+    cols = {c["name"] for c in insp.get_columns("Employee")}
+    username = _pick(cols, "username")
+    if username is None:
+        counts["employees"] = 0
+        return
+    name_ar = _pick(cols, "emp_name_ar", "name_ar")
+    name_en = _pick(cols, "emp_name_en", "name_en")
+    mobile = _pick(cols, "mobile")
+    salary = _pick(cols, "basic_salary")
+    max_disc = _pick(cols, "max_disc_per")
+    edit_price = _pick(cols, "emp_edit_sell_price")
+    sale_credit = _pick(cols, "allaw_sale_credit")
+    allow_ret = _pick(cols, "allaw_r_sale")
+    allow_void = _pick(cols, "allaw_un_sale")
+    change_shift = _pick(cols, "emp_change_cash_disk")
+    show_money = _pick(cols, "emp_show_money")
+    active = _pick(cols, "active")
+    deleted = _pick(cols, "deleted")
+
+    existing = {
+        (u or "").strip().lower(): (eid, ph)
+        for eid, u, ph in dst.execute(
+            select(m.Employee.employee_id, m.Employee.username, m.Employee.password_hash)
+        ).all()
+        if u
+    }
+    created = updated = 0
+    for r in src.execute(text("SELECT * FROM Employee")).mappings().all():
+        uname = str(r.get(username) or "").strip()
+        if not uname:
+            continue  # no username = not a POS user — nothing to attribute
+        is_active = (_b(r.get(active)) if active else True) and not (
+            _b(r.get(deleted)) if deleted else False
+        )
+        fields = dict(
+            name_ar=_ar(r.get(name_ar) if name_ar else None,
+                        r.get(name_en) if name_en else None, placeholder=uname),
+            name_en=r.get(name_en) if name_en else None,
+            phone=(_str(r.get(mobile)) or "")[:20] or None if mobile else None,
+            basic_salary=_num(r.get(salary)) if salary else 0,
+            max_disc_per=_num(r.get(max_disc)) if max_disc else 0,
+            can_edit_sell_price=_b(r.get(edit_price)) if edit_price else False,
+            can_sale_credit=_b(r.get(sale_credit)) if sale_credit else False,
+            can_return=_b(r.get(allow_ret)) if allow_ret else False,
+            can_void=_b(r.get(allow_void)) if allow_void else False,
+            can_change_shift=_b(r.get(change_shift)) if change_shift else False,
+            can_see_buy_price=_b(r.get(show_money)) if show_money else False,
+            is_active=is_active,
+        )
+        eid, cur_hash = existing.get(uname.lower(), (None, None))
+        if eid is not None:
+            # A usable ProCare password (``sha256$…``) marks a REAL ProCare
+            # login (roster or admin-granted). eStock's active/deleted state
+            # must never disable it — otherwise a stale source employee row
+            # locks the owner out on every sync cycle. Mirror-created rows
+            # (sentinel hash, cannot log in) keep following the source.
+            if cur_hash and cur_hash.startswith("sha256$"):
+                fields.pop("is_active")
+            dst.execute(
+                m.Employee.__table__.update()
+                .where(m.Employee.__table__.c.employee_id == eid)
+                .values(**fields)
+            )
+            updated += 1
+        else:
+            dst.add(m.Employee(
+                username=uname, password_hash="!estock-mirror", role="assistant", **fields
+            ))
+            created += 1
+    dst.flush()
+    counts["employees"] = created
+    counts["employees_updated"] = updated
+
+
 def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
     if not insp.has_table("Product_Amount"):
         counts["stock_batches"] = 0
@@ -748,6 +1040,7 @@ def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
 def _load_sales(
     insp, src, dst, counts, product_map, customer_map, branch_map, default_branch,
     employee_map=None, *, header_tbl, detail_tbl, returns: bool, count_key: str,
+    window_cutoff: date | None = None,
 ) -> None:
     """Mirror one sales header/detail table pair into ProCare.
 
@@ -776,41 +1069,68 @@ def _load_sales(
     change = _pick(hcols, "money_change")
     back = _pick(hcols, "back")
 
-    hrows = src.execute(text(f"SELECT * FROM {header_tbl}")).mappings().all()
+    # Chunked by sales_id range: the 313K-row Elsanta tables can't survive one
+    # giant SELECT over the flaky WAN — each chunk fetch is retried on its own.
+    # Incremental window: only the trailing N days cross the wire (a single
+    # small retried query), matching what _wipe_branch_sales_window cleared.
+    if window_cutoff is not None:
+        date_cols = [c for c in (bill_date, insert_date) if c]
+        if date_cols:
+            date_expr = f"COALESCE({', '.join(date_cols)})" if len(date_cols) > 1 else date_cols[0]
+            header_chunks = iter([
+                src.execute(
+                    text(f"SELECT * FROM {header_tbl} WHERE {date_expr} >= :cutoff"),
+                    {"cutoff": window_cutoff},
+                ).mappings().all()
+            ])
+        else:  # no date column to window on — fall back to the full pull
+            header_chunks = _iter_rows(src, header_tbl, sid)
+    else:
+        header_chunks = _iter_rows(src, header_tbl, sid)
+
     sale_id_map: dict[int, int] = {}
-    sale_objs = []
-    for r in hrows:
-        is_ret = returns or (_b(r.get(back)) if back else False)
-        src_cust = int(r[cust]) if cust and r.get(cust) not in (None, 0) else None
-        sale_dt = _as_dt(r.get(bill_date) if bill_date else None) or _as_dt(
-            r.get(insert_date) if insert_date else None
-        ) or datetime.now()
-        branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
-        # eStock cashier_id is a username (varchar) -> map to a ProCare employee.
-        cashier_id = None
-        if cashier and r.get(cashier) not in (None, "", 0):
-            cashier_id = employee_map.get(str(r[cashier]).strip().lower())
-        sale_objs.append(
-            m.Sale(
-                branch_id=branch_id or default_branch,
-                customer_id=customer_map.get(src_cust) if src_cust else None,
-                cashier_id=cashier_id,
-                sale_date=sale_dt,
-                total_gross=_num(r.get(gross)) if gross else 0,
-                total_discount=_num(r.get(disc)) if disc else 0,
-                total_net=_num(r.get(net)) if net else 0,
-                cash_paid=_num(r.get(cash)) if cash else 0,
-                card_paid=_num(r.get(card)) if card else 0,
-                change_given=_num(r.get(change)) if change else 0,
-                is_return=is_ret,
-            )
-        )
-    dst.add_all(sale_objs)
-    dst.flush()
-    for r, obj in zip(hrows, sale_objs):
-        if sid and r.get(sid) is not None:
-            sale_id_map[int(r[sid])] = obj.sale_id
-    counts[count_key] = counts.get(count_key, 0) + len(sale_objs)
+    n_headers = 0
+    for hrows in header_chunks:
+        pairs = []  # (src row, Sale) — only the rows actually kept
+        for r in hrows:
+            is_ret = returns or (_b(r.get(back)) if back else False)
+            src_cust = int(r[cust]) if cust and r.get(cust) not in (None, 0) else None
+            sale_dt = _as_dt(r.get(bill_date) if bill_date else None) or _as_dt(
+                r.get(insert_date) if insert_date else None
+            ) or datetime.now()
+            # Window guard in Python too: if the table had no date column to
+            # filter on server-side, the full fetch must NOT re-insert history
+            # the window wipe didn't clear.
+            if window_cutoff is not None and sale_dt.date() < window_cutoff:
+                continue
+            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            # eStock cashier_id is a username (varchar) -> map to a ProCare employee.
+            cashier_id = None
+            if cashier and r.get(cashier) not in (None, "", 0):
+                cashier_id = employee_map.get(str(r[cashier]).strip().lower())
+            pairs.append((
+                r,
+                m.Sale(
+                    branch_id=branch_id or default_branch,
+                    customer_id=customer_map.get(src_cust) if src_cust else None,
+                    cashier_id=cashier_id,
+                    sale_date=sale_dt,
+                    total_gross=_num(r.get(gross)) if gross else 0,
+                    total_discount=_num(r.get(disc)) if disc else 0,
+                    total_net=_num(r.get(net)) if net else 0,
+                    cash_paid=_num(r.get(cash)) if cash else 0,
+                    card_paid=_num(r.get(card)) if card else 0,
+                    change_given=_num(r.get(change)) if change else 0,
+                    is_return=is_ret,
+                ),
+            ))
+        dst.add_all([obj for _, obj in pairs])
+        dst.flush()
+        for r, obj in pairs:
+            if sid and r.get(sid) is not None:
+                sale_id_map[int(r[sid])] = obj.sale_id
+        n_headers += len(pairs)
+    counts[count_key] = counts.get(count_key, 0) + n_headers
 
     # Lines
     if not insp.has_table(detail_tbl):
@@ -826,38 +1146,50 @@ def _load_sales(
     d_total = _pick(dcols, "total_sell")
     d_back = _pick(dcols, "back")
 
-    drows = src.execute(text(f"SELECT * FROM {detail_tbl}")).mappings().all()
-    line_rows = []
-    for r in drows:
-        sale_pk = sale_id_map.get(int(r[d_sid])) if d_sid and r.get(d_sid) is not None else None
-        dst_pid = product_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
-        if sale_pk is None or dst_pid is None:
-            continue
-        qty = _num(r.get(d_amount))
-        if qty <= 0:
-            continue  # CK_saleline_amount: positive only
-        sell_price = _num(r.get(d_sell)) if d_sell else 0
-        total = _num(r.get(d_total)) if d_total else round(sell_price * qty, 2)
-        line_rows.append(
-            {
-                "sale_id": sale_pk,
-                "product_id": dst_pid,
-                "amount": qty,
-                "sell_price": sell_price,
-                "buy_price": _num(r.get(d_buy)) if d_buy else 0,
-                "disc_money": _num(r.get(d_disc)) if d_disc else 0,
-                "total_sell": total,
-                "is_return": returns or (_b(r.get(d_back)) if d_back else False),
-            }
-        )
-    if line_rows:
-        dst.execute(insert(m.SaleLine), line_rows)
-    counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0) + len(line_rows)
+    # Window mode: scan only the window headers' id range — rows for ids that
+    # happen to fall inside the range but aren't in the map are skipped below.
+    detail_bounds = None
+    if window_cutoff is not None:
+        if not sale_id_map:
+            counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0)
+            return
+        detail_bounds = (min(sale_id_map), max(sale_id_map))
+
+    n_lines = 0
+    for drows in _iter_rows(src, detail_tbl, d_sid, bounds=detail_bounds):
+        line_rows = []
+        for r in drows:
+            sale_pk = sale_id_map.get(int(r[d_sid])) if d_sid and r.get(d_sid) is not None else None
+            dst_pid = product_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
+            if sale_pk is None or dst_pid is None:
+                continue
+            qty = _num(r.get(d_amount))
+            if qty <= 0:
+                continue  # CK_saleline_amount: positive only
+            sell_price = _num(r.get(d_sell)) if d_sell else 0
+            total = _num(r.get(d_total)) if d_total else round(sell_price * qty, 2)
+            line_rows.append(
+                {
+                    "sale_id": sale_pk,
+                    "product_id": dst_pid,
+                    "amount": qty,
+                    "sell_price": sell_price,
+                    "buy_price": _num(r.get(d_buy)) if d_buy else 0,
+                    "disc_money": _num(r.get(d_disc)) if d_disc else 0,
+                    "total_sell": total,
+                    "is_return": returns or (_b(r.get(d_back)) if d_back else False),
+                }
+            )
+        if line_rows:
+            dst.execute(insert(m.SaleLine), line_rows)
+        n_lines += len(line_rows)
+    counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0) + n_lines
 
 
 def _load_purchases(
     insp, src, dst, counts, product_map, branch_map, default_branch,
     vendor_map=None, *, header_tbl="Purchase_header", detail_tbl="Purchase_details",
+    window_cutoff: date | None = None,
 ) -> None:
     """Mirror one purchase header/detail table pair. Called for both the
     head-office ``Purchase_header`` and the branch ``Branches_purchase_header``
@@ -884,30 +1216,50 @@ def _load_purchases(
         counts.setdefault("purchases", 0)
         return
 
-    hrows = src.execute(text(f"SELECT * FROM {header_tbl}")).mappings().all()
+    # Chunked by purchase_id range + retried per chunk (flaky-WAN safety).
+    # Incremental window: only the trailing N days cross the wire.
+    if window_cutoff is not None and bill_date:
+        header_chunks = iter([
+            src.execute(
+                text(f"SELECT * FROM {header_tbl} WHERE {bill_date} >= :cutoff"),
+                {"cutoff": window_cutoff},
+            ).mappings().all()
+        ])
+    else:
+        header_chunks = _iter_rows(src, header_tbl, pid)
+
     purch_map: dict[int, int] = {}
-    objs = []
-    for r in hrows:
-        branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
-        src_vendor = int(r[vendor]) if vendor and r.get(vendor) not in (None, 0) else None
-        objs.append(
-            m.Purchase(
-                branch_id=branch_id or default_branch,
-                vendor_id=vendor_map.get(src_vendor, any_vendor) if src_vendor else any_vendor,
-                bill_date=_as_date(r.get(bill_date)) if bill_date else date.today(),
-                bill_number=r.get(bill_num) if bill_num else None,
-                total_gross=_num(r.get(gross)) if gross else 0,
-                total_discount=_num(r.get(disc)) if disc else 0,
-                total_tax=_num(r.get(tax)) if tax else 0,
-                is_return=_b(r.get(back)) if back else False,
-            )
-        )
-    dst.add_all(objs)
-    dst.flush()
-    for r, obj in zip(hrows, objs):
-        if pid and r.get(pid) is not None:
-            purch_map[int(r[pid])] = obj.purchase_id
-    counts["purchases"] = counts.get("purchases", 0) + len(objs)
+    n_headers = 0
+    for hrows in header_chunks:
+        pairs = []  # (src row, Purchase) — only the rows actually kept
+        for r in hrows:
+            bd = (_as_date(r.get(bill_date)) if bill_date else None) or date.today()
+            # Python-side window guard (see _load_sales): a dateless fallback
+            # fetch must not re-insert history the window wipe didn't clear.
+            if window_cutoff is not None and bd < window_cutoff:
+                continue
+            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            src_vendor = int(r[vendor]) if vendor and r.get(vendor) not in (None, 0) else None
+            pairs.append((
+                r,
+                m.Purchase(
+                    branch_id=branch_id or default_branch,
+                    vendor_id=vendor_map.get(src_vendor, any_vendor) if src_vendor else any_vendor,
+                    bill_date=bd,
+                    bill_number=r.get(bill_num) if bill_num else None,
+                    total_gross=_num(r.get(gross)) if gross else 0,
+                    total_discount=_num(r.get(disc)) if disc else 0,
+                    total_tax=_num(r.get(tax)) if tax else 0,
+                    is_return=_b(r.get(back)) if back else False,
+                ),
+            ))
+        dst.add_all([obj for _, obj in pairs])
+        dst.flush()
+        for r, obj in pairs:
+            if pid and r.get(pid) is not None:
+                purch_map[int(r[pid])] = obj.purchase_id
+        n_headers += len(pairs)
+    counts["purchases"] = counts.get("purchases", 0) + n_headers
 
     if not insp.has_table(detail_tbl):
         counts.setdefault("purchase_lines", 0)
@@ -921,28 +1273,37 @@ def _load_purchases(
     d_sell = _pick(dcols, "sell_price")
     d_exp = _pick(dcols, "exp_date")
 
-    drows = src.execute(text(f"SELECT * FROM {detail_tbl}")).mappings().all()
-    line_rows = []
-    for r in drows:
-        purch_pk = purch_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
-        dst_prod = product_map.get(int(r[d_prod])) if d_prod and r.get(d_prod) is not None else None
-        qty = _num(r.get(d_amount))
-        if purch_pk is None or dst_prod is None or qty <= 0:
-            continue
-        line_rows.append(
-            {
-                "purchase_id": purch_pk,
-                "product_id": dst_prod,
-                "amount": qty,
-                "bonus": _num(r.get(d_bonus)) if d_bonus else 0,
-                "buy_price": _num(r.get(d_buy)) if d_buy else 0,
-                "sell_price": _num(r.get(d_sell)) if d_sell else 0,
-                "exp_date": _as_date(r.get(d_exp)) if d_exp else None,
-            }
-        )
-    if line_rows:
-        dst.execute(insert(m.PurchaseLine), line_rows)
-    counts["purchase_lines"] = counts.get("purchase_lines", 0) + len(line_rows)
+    detail_bounds = None
+    if window_cutoff is not None:
+        if not purch_map:
+            counts["purchase_lines"] = counts.get("purchase_lines", 0)
+            return
+        detail_bounds = (min(purch_map), max(purch_map))
+
+    n_lines = 0
+    for drows in _iter_rows(src, detail_tbl, d_pid, bounds=detail_bounds):
+        line_rows = []
+        for r in drows:
+            purch_pk = purch_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
+            dst_prod = product_map.get(int(r[d_prod])) if d_prod and r.get(d_prod) is not None else None
+            qty = _num(r.get(d_amount))
+            if purch_pk is None or dst_prod is None or qty <= 0:
+                continue
+            line_rows.append(
+                {
+                    "purchase_id": purch_pk,
+                    "product_id": dst_prod,
+                    "amount": qty,
+                    "bonus": _num(r.get(d_bonus)) if d_bonus else 0,
+                    "buy_price": _num(r.get(d_buy)) if d_buy else 0,
+                    "sell_price": _num(r.get(d_sell)) if d_sell else 0,
+                    "exp_date": _as_date(r.get(d_exp)) if d_exp else None,
+                }
+            )
+        if line_rows:
+            dst.execute(insert(m.PurchaseLine), line_rows)
+        n_lines += len(line_rows)
+    counts["purchase_lines"] = counts.get("purchase_lines", 0) + n_lines
 
 
 def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
@@ -957,6 +1318,18 @@ def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
     # (verified against the owner's report: Elsanta Cash_depots reconciles to the
     # "cash accounts by branch" total). ``Branches_cash_depots`` is a SEPARATE
     # aggregation on the same server that overcounts — do NOT include it.
+    #
+    # Depot balances are a SNAPSHOT, so the previous snapshot for this branch is
+    # cleared first. The full wipe already clears LedgerEntry, but the
+    # branch-scoped/incremental cycles do NOT — without this delete every cycle
+    # stacked another copy of each depot balance and the treasury screen crept
+    # upward. Only ``ref_type='depot'`` rows go; ProCare-native vouchers
+    # (صرف/توريد) carry other ref_types and are never touched.
+    dst.execute(
+        delete(m.LedgerEntry).where(
+            m.LedgerEntry.ref_type == "depot", m.LedgerEntry.branch_id == default_branch
+        )
+    )
     entries = []
     for tbl in ("Cash_depots",):
         if not insp.has_table(tbl):

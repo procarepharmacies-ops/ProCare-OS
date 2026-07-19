@@ -21,9 +21,11 @@ set MODE=%1
 title ProCare AI
 
 rem ---- Fast path: already running? just open it. ----------------------------
-powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:3000)|Out-Null;exit 0}catch{exit 1}" >nul 2>nul
+rem BOTH the UI and the API must answer — a half-down state (frontend alive,
+rem backend dead) must fall through to the start section below.
+powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:3100)|Out-Null;(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:8100/api/health)|Out-Null;exit 0}catch{exit 1}" >nul 2>nul
 if %errorlevel%==0 (
-  if /i not "%MODE%"=="serve" start "" http://localhost:3000
+  if /i not "%MODE%"=="serve" start "" http://localhost:3100
   exit /b 0
 )
 
@@ -51,21 +53,21 @@ if not exist ".local-run\.built" (
   rem Both vars must be set at BUILD time - Next bakes the /api proxy rewrite
   rem into the production build manifest.
   set NEXT_PUBLIC_API_BASE=
-  set BACKEND_INTERNAL=http://127.0.0.1:8000
+  set BACKEND_INTERNAL=http://127.0.0.1:8100
   call npm run build && type nul > ..\..\.local-run\.built
   popd
 )
 
-echo [start] backend on :8000
-start "ProCare backend" /min cmd /c "cd /d %ROOT%\src\backend && set PROCARE_API_PORT=8000&& python run.py > %ROOT%\.local-run\backend.log 2>&1"
+echo [start] backend on :8100
+start "ProCare backend" /min cmd /c "cd /d %ROOT%\src\backend && set PROCARE_API_PORT=8100&& python run.py > %ROOT%\.local-run\backend.log 2>&1"
 
-echo [start] frontend on :3000
-start "ProCare frontend" /min cmd /c "cd /d %ROOT%\src\frontend && set BACKEND_INTERNAL=http://127.0.0.1:8000&& npx next start -p 3000 > %ROOT%\.local-run\frontend.log 2>&1"
+echo [start] frontend on :3100
+start "ProCare frontend" /min cmd /c "cd /d %ROOT%\src\frontend && set BACKEND_INTERNAL=http://127.0.0.1:8100&& npx next start -p 3100 > %ROOT%\.local-run\frontend.log 2>&1"
 
 rem ---- Wait (up to ~60s) until the UI answers, then open -------------------
 echo Waiting for ProCare to come up...
 for /l %%i in (1,1,30) do (
-  powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:3000)|Out-Null;exit 0}catch{exit 1}" >nul 2>nul
+  powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost:3100)|Out-Null;exit 0}catch{exit 1}" >nul 2>nul
   if not errorlevel 1 goto ready
   timeout /t 2 /nobreak >nul
 )
@@ -74,5 +76,5 @@ pause
 exit /b 1
 
 :ready
-if /i not "%MODE%"=="serve" start "" http://localhost:3000
+if /i not "%MODE%"=="serve" start "" http://localhost:3100
 exit /b 0

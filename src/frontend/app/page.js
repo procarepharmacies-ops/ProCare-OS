@@ -174,7 +174,7 @@ export default function DashboardPage() {
             <KpiCard
               label={L("sales_month")}
               value={data.summary.kpis?.sales_month}
-              sub={L("egp")}
+              sub={`${fmt(data.summary.kpis?.bills_month ?? 0)} ${L("bills")} · ${L("egp")}`}
               ico="coins"
               href="/reports"
               go={router.push.bind(router)}

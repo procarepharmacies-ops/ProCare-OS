@@ -75,27 +75,6 @@ def create(payload: CreateIn, session: Session = Depends(get_session)):
             note = note or "جرد الأصناف الراكدة (٩٠ يوم بدون حركة)"
         elif count_type == "periodic" and not product_ids:
             product_ids = stocktaking.top_movers(session, payload.branch_id)
-        return result
-    except POSError as e:
-        _raise(e)
-    # log alert after successful creation (result is already returned above)
-
-
-@router.post("", response_model=None)
-def create(payload: CreateIn, session: Session = Depends(get_session)):
-    """Open a count session."""
-    try:
-        product_ids = payload.product_ids
-        count_type = payload.count_type
-        note = payload.note
-        if payload.scope == "stagnant" and not product_ids:
-            from app.services import inventory
-            report = inventory.stagnant_products(session, payload.branch_id, days=90)
-            product_ids = [i["product_id"] for i in report["items"]]
-            count_type = "partial"
-            note = note or "جرد الأصناف الراكدة (٩٠ يوم بدون حركة)"
-        elif count_type == "periodic" and not product_ids:
-            product_ids = stocktaking.top_movers(session, payload.branch_id)
         result = stocktaking.create_count(
             session,
             payload.branch_id,

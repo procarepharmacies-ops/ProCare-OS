@@ -31,6 +31,37 @@ from app.config import settings
 _TIMEOUT = 20
 
 
+def _openai_headers():
+    """Auth headers for OpenAI-compatible endpoints (OpenRouter, etc.).
+
+    Ollama needs none; OpenRouter requires ``Authorization: Bearer <key>``.
+    We attach the key whenever one is present in the environment, plus the
+    OpenRouter-recommended attribution headers (harmless for other backends)."""
+    key = settings.ai_api_key()
+    if not key:
+        return {}
+    return {
+        "Authorization": f"Bearer {key}",
+        "HTTP-Referer": "https://procarepharmacies.local",
+        "X-Title": "ProCare OS",
+    }
+
+
+def _ollama_models():
+    """Ordered model list for the OpenAI-compatible (ollama/OpenRouter) path:
+    the primary ``AI_MODEL`` first, then any comma-separated ``AI_MODEL_FALLBACKS``.
+    On a rate-limit (429) or error, callers try the next model in turn — so a
+    congested free model never takes the pharmacy assistant offline."""
+    import os
+
+    models = [settings.ai_model]
+    for m in (os.environ.get("AI_MODEL_FALLBACKS") or "").split(","):
+        m = m.strip()
+        if m and m not in models:
+            models.append(m)
+    return models
+
+
 def provider() -> str:
     return settings.ai_provider
 
@@ -160,31 +191,41 @@ def _classify_ollama(query, choices, branch_id):
             },
         },
     }]
-    resp = httpx.post(
-        f"{settings.ai_base_url.rstrip('/')}/v1/chat/completions",
-        json={
-            "model": settings.ai_model,
-            "messages": [
-                {"role": "system", "content": _system_prompt(choices)},
-                {"role": "user", "content": query},
-            ],
-            "tools": tools, "tool_choice": "auto", "stream": False,
-        },
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
-    choice0 = (resp.json().get("choices") or [{}])[0].get("message", {})
-    for call in choice0.get("tool_calls", []) or []:
-        if call.get("function", {}).get("name") == "answer_with_intent":
-            args = json.loads(call["function"].get("arguments") or "{}")
-            b = args.get("branch_id", branch_id)
-            return _coerce(args.get("intent", "help"), choices), (b if b else branch_id)
-    # Some local models answer in content instead of a tool call — accept a bare
-    # intent label if it's one of the choices.
-    content = (choice0.get("content") or "").strip().strip('"').lower()
-    for key in choices:
-        if key in content:
-            return key, branch_id
+    last_exc = None
+    for model in _ollama_models():
+        try:
+            resp = httpx.post(
+                f"{settings.ai_base_url.rstrip('/')}/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": _system_prompt(choices)},
+                        {"role": "user", "content": query},
+                    ],
+                    "tools": tools, "tool_choice": "auto", "stream": False,
+                },
+                headers=_openai_headers(),
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001 — try next fallback model (429/5xx/etc.)
+            last_exc = e
+            continue
+        choice0 = (resp.json().get("choices") or [{}])[0].get("message", {})
+        for call in choice0.get("tool_calls", []) or []:
+            if call.get("function", {}).get("name") == "answer_with_intent":
+                args = json.loads(call["function"].get("arguments") or "{}")
+                b = args.get("branch_id", branch_id)
+                return _coerce(args.get("intent", "help"), choices), (b if b else branch_id)
+        # Some local models answer in content instead of a tool call — accept a bare
+        # intent label if it's one of the choices.
+        content = (choice0.get("content") or "").strip().strip('"').lower()
+        for key in choices:
+            if key in content:
+                return key, branch_id
+        return None
+    if last_exc:
+        raise last_exc
     return None
 
 
@@ -265,13 +306,25 @@ def _complete_ollama(prompt, system, max_tokens):
     import httpx
 
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-    resp = httpx.post(
-        f"{settings.ai_base_url.rstrip('/')}/v1/chat/completions",
-        json={"model": settings.ai_model, "messages": messages, "max_tokens": max_tokens, "stream": False},
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
-    return ((resp.json().get("choices") or [{}])[0].get("message", {}).get("content") or "").strip() or None
+    last_exc = None
+    for model in _ollama_models():
+        try:
+            resp = httpx.post(
+                f"{settings.ai_base_url.rstrip('/')}/v1/chat/completions",
+                json={"model": model, "messages": messages, "max_tokens": max_tokens, "stream": False},
+                headers=_openai_headers(),
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
+            out = ((resp.json().get("choices") or [{}])[0].get("message", {}).get("content") or "").strip()
+            if out:
+                return out
+        except Exception as e:  # noqa: BLE001 — try next fallback model (429/5xx/etc.)
+            last_exc = e
+            continue
+    if last_exc:
+        raise last_exc
+    return None
 
 
 # --- Claude CLI helpers -----------------------------------------------------

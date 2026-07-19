@@ -58,6 +58,86 @@
   receipt is real shrinkage (out > in, visible in the ledger). Status CHECK
   already allowed 'in_transit', so no migration needed.
 
+- 2026-07-18 · Elsanta WAN drops long pulls: one `SELECT * FROM Sales_details`
+  (313K rows) dies at ~6 min with pyodbc 10054 / 08S01 "Communication link
+  failure" — so a full elsanta mirror could never complete, while mashala (LAN)
+  finished in ~65s. Fix in etl.py: (1) `_iter_rows` pages the big sales/purchase
+  tables by key range (`WHERE sales_id BETWEEN lo AND hi`, `SYNC_CHUNK_ROWS`
+  env, default 20K) so each query finishes before the WAN kills it; (2)
+  `_ResilientSource.execute` fetches eagerly (`Result.freeze`) INSIDE a retry
+  loop — on a comm error it disposes the engine pool, reconnects fresh, and
+  re-runs the chunk (3 attempts, linear backoff). Retry is safe: source is
+  SELECT-only and a chunk is only transformed/inserted after its fetch fully
+  succeeds. Non-network errors are never retried. Live elsanta tables all carry
+  the chunk keys (sales_id/purchase_id); `Branches_back_sales_*` don't exist
+  there (skipped by has_table).
+- 2026-07-18 · Full wipe+reload can't be the continuous-sync shape: even
+  chunked, every cycle drags ~1.1M elsanta rows over the WAN. Fix: incremental
+  window sync — once a source completes ONE full load (recorded in the new
+  `sync_state` table, so demo data or a restart can never suppress the initial
+  history pull), each cycle re-pulls only the last `SYNC_INCREMENTAL_DAYS`
+  (default 7) of sales/purchases + the small live-state tables. A trailing
+  WINDOW, not append: returns/edits mutate recent source rows. Window delete
+  and window fetch use the same COALESCE(bill_date,insert_date) boundary; a
+  Python-side date guard stops a dateless fallback fetch from re-inserting
+  history. Stock/catalogue/customers/vendors/employees still refresh fully
+  (current-state, small). RULE: sales older than the window are treated as
+  immutable — backdated source entries need a manual full resync.
+- 2026-07-18 · Unindexed FK columns made the sync wipe QUADRATIC: deleting 35K
+  stock_batches FK-checked 190K unindexed sale_lines.batch_id rows per delete
+  (~6.8 billion row visits, 504s measured; 0.11s after indexing). The 814s
+  "slow incremental cycle" was 77% this one DELETE. Fix: FK-check indexes on
+  sale_lines.batch_id, purchase_lines.purchase_id/batch_id,
+  loyalty_transactions.sale_id, stock_movements.batch_id,
+  stock_transfer_lines.transfer_id/from/to_batch_id, sales.original_sale_id —
+  declared in models AND migrate.ensure_fk_indexes (create_all never touches
+  existing tables). Live incremental cycle vs mashala: 814s → 11.8s.
+  RULE: every FK column on a table the sync wipes/deletes from MUST be indexed.
+- 2026-07-18 · Stale-process trap (bit us again): python backends from
+  yesterday (one elevated, unreadable CommandLine) held procare.db write locks
+  and bloated the WAL to 113MB, making a timing run look 10× slower. Check
+  `Get-Process python*` start times BEFORE benchmarking; kill stale pairs
+  (parent + child spawned ~2s apart).
+- 2026-07-18 · Treasury double-count bug (pre-existing): _load_treasury
+  appended Cash_depots snapshot entries every cycle but _wipe_branch_rows
+  never cleared LedgerEntry — branch-scoped sync stacked another copy of every
+  depot balance each cycle. Fix: delete ref_type='depot' rows for the branch
+  before re-adding; ProCare-native vouchers (other ref_types) untouched.
+- 2026-07-18 · Dashboard KPI mislabel: `summary()` computed the month bill
+  count but discarded it, and the UI showed `sales_month` (REVENUE, sum of
+  total_net — 26,261.25 EGP for July) under a label that read as a sales count.
+  Fix: `bills_month` now returned in kpis; frontend labels revenue as
+  "إيراد الشهر" with "N فواتير" in the sub-line.
+
+- 2026-07-19 · Duplicate-route trap: a bad conflict resolution on main left TWO
+  `@router.post("")` create() handlers in api/stocktaking.py; Starlette routes
+  to the FIRST registration, so the broken copy (undefined `result`) shadowed
+  the working one and POST /api/stocktaking 500'd on main while the suite
+  still read "196/196" there. RULE: after resolving any conflict in an api/
+  module, grep for duplicated `def`/decorator pairs and run that module's
+  tests — route shadowing fails silently at import time.
+
+- 2026-07-19 · Backup route + server identities (on-site at Elsanta):
+  - WAN 196.202.93.37 = `DESKTOP-DUTL25M` = **Elsanta** (313K Sales_details,
+    2 stores incl. مخزن منتهي الصلاحيه, history from 2020-07-28).
+  - LAN 192.168.1.2 = `DESKTOP-SHTFS3J` = **Mashala** (185K details, 1 store,
+    history from 2021-04-05 — seeded from the stock_Elsnta_2021_04_04 snapshot;
+    identical 53,521-product catalogue on both).
+  - Elsanta backs up `stock` HOURLY to `F:\backup\stock_backup_*.bak` (~843MB);
+    Mashala every 30 min to `H:\backup\` (~528MB). Both SQL Server 2008 RTM
+    (10.0.1600) — no backup compression.
+  - SMB/RDP ports open on Elsanta WAN but Windows creds unknown (SQL creds are
+    NOT Windows creds). The read-only SQL login has ADMINISTER BULK OPERATIONS,
+    so the .bak is fetchable over the SQL connection itself:
+    `SUBSTRING(BulkColumn, offset, n) FROM OPENROWSET(BULK '<path>', SINGLE_BLOB)`
+    — 16MB chunks, per-chunk retry+reconnect, append-resume by file size.
+    ~20s fixed server-side cost per query (whole-file materialization), so
+    bigger chunks amortize better. TAPE magic header validates the format.
+  - Initial-fill pipeline: `.local-run/elsanta_restore_and_fill.py` (restore
+    D:\ProCareBackups\*.bak → stock_elsanta on localhost → etl.mirror
+    branch_scoped full → sync._record_cycle('elsanta') flips the incremental
+    gate). Needs MSSQLSERVER started by admin.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the
