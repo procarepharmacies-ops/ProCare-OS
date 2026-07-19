@@ -275,6 +275,16 @@ export const api = {
   itemMovement: (productId, branch, days = 30) =>
     http(`/reports/item-movement${bq(branch, `product_id=${productId}&days=${days}`)}`),
 
+  // Employee incentives (OTC "push the most profitable brand" list).
+  incentiveCandidates: (metric, topN, branch, search = "") =>
+    http(`/incentives/candidates${bq(branch, `metric=${metric}&top_n=${topN}${search ? `&search=${encodeURIComponent(search)}` : ""}`)}`),
+  incentiveApply: (items) => http("/incentives/apply", { method: "POST", body: JSON.stringify({ items }) }),
+  incentiveList: () => http("/incentives/products"),
+  incentiveLeaderboard: (branch, month) =>
+    http(`/incentives/leaderboard${bq(branch, month ? `month=${month}` : "")}`),
+  employeeIncentives: (employeeId, month) =>
+    http(`/incentives/employee/${employeeId}${month ? `?month=${month}` : ""}`),
+
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),

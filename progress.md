@@ -204,3 +204,33 @@
   window + reconcile badge + export). Verified live on Elsanta (سرنجة: opening
   2060.1 → closing 7.6 == on-hand; Augmentin 1g: 13.5 → 2 == on-hand).
 - Tests: 207/207 (4 new in test_item_movement.py). next build clean.
+
+## 2026-07-20 (later) · Incentive builder by active ingredient (CEO vision)
+- Owner's vision: the incentive/OTC list should push the 2-3 MOST PROFITABLE
+  brands of each active ingredient, so cashiers steer customers to the
+  best-margin brand of the molecule they ask for.
+- Discovered the incentive ENGINE already existed (revenue-engine merge):
+  set points per product, auto-accrue on sale (points = qty × product points),
+  clawback on return, per-employee history, leaderboard — all tested, and
+  sync-SAFE (the product mirror never overwrites incentive_points). What was
+  missing was the FRONTEND (no way to choose products or show the employee his
+  tally).
+- BUILT: services/incentives.py `incentive_candidates` — groups catalogue by
+  scientific_name, ranks brands within each ingredient by 3 metrics
+  (egp_margin / margin_pct / profit_volume), returns top-N per ingredient with
+  all three metric values for live re-ranking + current points. `apply_incentives`
+  bulk set/clear. Endpoints GET /incentives/candidates + POST /incentives/apply
+  (ceo/manager). SQL Server 2008-safe (no func.trim/length — the local instance
+  is MSSQL10 too).
+- Frontend: /incentives builder (metric toggle, top-N, ingredient search,
+  per-brand tick+points, bulk apply) + "حوافزي هذا الشهر" card on the Operations
+  screen (logged-in employee's monthly points). api helpers, nav, AR/EN i18n.
+- Verified live: 1,243 competing-ingredient groups; ranking + metric toggle +
+  bulk apply all work (ESOMEPRAZOLE by margin% → AIG 50% / ESMATAC 41% → applied
+  → landed on the incentive list; test values then cleared).
+- DATA CAVEAT surfaced: scientific_name is only 16% populated, and some are
+  MIS-TAGGED in eStock (e.g. the METFORMIN group contained SPRYCEL/dasatinib
+  and MESTINON/pyridostigmine). Grouping is correct given the data; the source
+  molecule field needs a sanity check / future enrichment from Titan drug master.
+- Tests: 209/209 (2 new in test_incentives.py). next build clean.
+- Also: run.py reload now env-gated (was dropping the backend); ports 8100/3100.

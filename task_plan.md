@@ -123,6 +123,13 @@ bilingual (Arabic RTL first).
       opening/in/out/returns/adjust/closing for one item; reconciles to live
       on-hand; CSV/Excel/print; `/reports-item` screen. Verified live (Augmentin
       1g: opening 13.5 → closing 2 == on-hand). 4 tests.
+- [x] Employee incentive builder by active ingredient (CEO vision): group by
+      scientific_name, rank top 2-3 brands per molecule by margin/margin%/
+      profit-volume (live toggle), tick + set points, bulk apply → incentive
+      list; "حوافزي هذا الشهر" panel on Operations for the logged-in employee.
+      Engine (accrue/clawback/leaderboard) already existed + sync-safe; built
+      the missing UI. CAVEAT: scientific_name 16% populated + some mis-tagged
+      in source → needs sanity check / Titan enrichment later.
 - [ ] Sales-rep commission calculator (حاسبة عمولة مندوب البيع): per-rep sales
       value × %, post (data: sales.cashier_id is mirrored).
 - [ ] News ticker / notification center: surface expiry/low-stock/shortage

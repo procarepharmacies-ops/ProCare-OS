@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import auth_guard
 from app.db import models as m
 from app.db.base import get_session
+from app.services import incentives as incentives_svc
 from app.services.common import money
 
 router = APIRouter(prefix="/incentives", tags=["incentives"])
@@ -22,6 +23,15 @@ router = APIRouter(prefix="/incentives", tags=["incentives"])
 
 class IncentivePointsIn(BaseModel):
     incentive_points: float
+
+
+class ApplyItem(BaseModel):
+    product_id: int
+    points: float
+
+
+class ApplyIn(BaseModel):
+    items: list[ApplyItem]
 
 
 @router.get("/leaderboard", dependencies=[Depends(auth_guard())])
@@ -120,6 +130,32 @@ def set_incentive_points(product_id: int, payload: IncentivePointsIn, session: S
         "name_ar": product.name_ar,
         "incentive_points": float(product.incentive_points),
     }
+
+
+@router.get("/candidates", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def candidates(
+    metric: str = "egp_margin",
+    top_n: int = 3,
+    branch_id: int | None = None,
+    search: str | None = None,
+    session: Session = Depends(get_session),
+):
+    """Incentive-list builder: active ingredients with competing brands, and
+    the top ``top_n`` most-profitable brands of each by ``metric``
+    (egp_margin | margin_pct | profit_volume). Each brand carries all three
+    metric values so the UI can re-rank live. CEO/manager only."""
+    return incentives_svc.incentive_candidates(
+        session, metric=metric, top_n=top_n, branch_id=branch_id or None, search=search
+    )
+
+
+@router.post("/apply", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def apply(payload: ApplyIn, session: Session = Depends(get_session)):
+    """Bulk set/clear incentive points from the builder (points 0 = remove).
+    CEO/manager only."""
+    return incentives_svc.apply_incentives(
+        session, [i.model_dump() for i in payload.items]
+    )
 
 
 @router.get("/employee/{employee_id}", dependencies=[Depends(auth_guard())])
