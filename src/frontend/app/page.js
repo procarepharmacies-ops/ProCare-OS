@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Shell from "./components/Shell";
 import { BarChart, HBar, CountUp } from "./components/charts";
@@ -14,16 +14,30 @@ export default function DashboardPage() {
   const { lang, branch, setBranch } = useUI();
   const L = (k) => t(lang, k);
   const router = useRouter();
+
+  // Core data
   const [data, setData] = useState(null);
-  // View: last-30-days (default) / month series / custom date range.
+  const [purchasing, setPurchasing] = useState(null);
+  const [cashData, setCashData] = useState([]);
+  const [expenses, setExpenses] = useState(null);
+  const [yoyData, setYoyData] = useState(null);
+  const [staff, setStaff] = useState(null);
+  const [branchCmp, setBranchCmp] = useState([]);
+
+  // Chart/view switcher
   const [view, setView] = useState("days");
   const [months, setMonths] = useState([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [rangeData, setRangeData] = useState(null);
-  const [branchCmp, setBranchCmp] = useState([]);
-  // Product drill-down modal (dashboard "second click").
+  const [yoyMode, setYoyMode] = useState("sales"); // "sales" | "profit"
+
+  // Modals
   const [insight, setInsight] = useState(null);
+
+  // جرد alert banner
+  const [stkAlerts, setStkAlerts] = useState([]);
+  const alertTimerRef = useRef(null);
 
   async function openProduct(productId) {
     setInsight({ loading: true });
@@ -34,19 +48,24 @@ export default function DashboardPage() {
     }
   }
 
+  // Main data load
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [summary, daily, top, cashiers, cmp] = await Promise.all([
-          api.dashboardSummary(branch),
-          api.dailySales(branch, 30),
-          api.topProducts(branch, 30),
-          api.cashiers(branch),
-          api.byBranch().catch(() => ({ branches: [] })),
-        ]);
-        // Defensive defaults: a stale/mismatched backend must degrade to empty
-        // charts, never crash the whole dashboard.
+        const [summary, daily, top, cashiers, cmp, purch, cash, exp, yoy, staffNow] =
+          await Promise.all([
+            api.dashboardSummary(branch),
+            api.dailySales(branch, 30),
+            api.topProducts(branch, 30),
+            api.cashiers(branch),
+            api.byBranch().catch(() => ({ branches: [] })),
+            api.purchasing(branch).catch(() => null),
+            api.dashboardCash().catch(() => ({ branches: [] })),
+            api.expenses(branch).catch(() => null),
+            api.yoy(branch).catch(() => null),
+            api.staffNow(branch).catch(() => null),
+          ]);
         if (alive) {
           setData({
             summary: summary ?? {},
@@ -55,24 +74,39 @@ export default function DashboardPage() {
             cashiers: cashiers?.cashiers ?? [],
           });
           setBranchCmp(cmp?.branches ?? []);
+          setPurchasing(purch);
+          setCashData(cash?.branches ?? []);
+          setExpenses(exp);
+          setYoyData(yoy);
+          setStaff(staffNow);
         }
       } catch {
         if (alive) setData({ error: true });
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [branch]);
 
+  // Month view
   useEffect(() => {
     if (view !== "month") return;
     let alive = true;
     api.monthlySales(branch, 12).then((r) => alive && setMonths(r?.months ?? [])).catch(() => {});
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [view, branch]);
+
+  // جرد alert polling (every 30s)
+  const pollAlerts = useCallback(() => {
+    api.stocktakingAlerts(5).then((r) => {
+      if (r?.alerts?.length) setStkAlerts(r.alerts);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    pollAlerts();
+    alertTimerRef.current = setInterval(pollAlerts, 30000);
+    return () => clearInterval(alertTimerRef.current);
+  }, [pollAlerts]);
 
   async function loadRange() {
     if (!fromDate || !toDate) return;
@@ -84,37 +118,194 @@ export default function DashboardPage() {
   }
 
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+  const pct = (n) => `${Number(n || 0).toFixed(1)}%`;
+
+  // Ratio status color
+  const ratioColor = { green: "var(--ok)", red: "var(--danger)", yellow: "#f59e0b" };
 
   return (
     <Shell titleKey="nav_dashboard">
+      {/* ===== جرد Alert Banner ===== */}
+      {stkAlerts.length > 0 && (
+        <div
+          style={{
+            background: "var(--danger)",
+            color: "#fff",
+            padding: "10px 16px",
+            borderRadius: 8,
+            marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            fontWeight: 600,
+            fontSize: 14,
+            animation: "fadeIn .3s",
+          }}
+        >
+          <span>
+            {L("stk_alert_title")} — {stkAlerts[stkAlerts.length - 1].message}
+          </span>
+          <button
+            className="btn"
+            style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "4px 12px", minWidth: 0 }}
+            onClick={() => setStkAlerts([])}
+          >
+            {L("stk_alert_dismiss")}
+          </button>
+        </div>
+      )}
+
       {!data && <DashboardSkeleton />}
       {data?.error && <p className="badge danger">{L("offline")}</p>}
       {data && !data.error && (
         <>
-          <KPIs k={data.summary.kpis} L={L} fmt={fmt} go={(href) => router.push(href)} />
+          {/* ===== KPI Row 1: Sales ===== */}
+          <div className="grid kpis">
+            <KpiCard
+              label={L("sales_today")}
+              value={data.summary.kpis?.sales_today}
+              sub={`${fmt(data.summary.kpis?.bills_today)} ${L("bills")}`}
+              ico="receipt"
+              href="/reports"
+              go={router.push.bind(router)}
+              fmt={fmt}
+            />
+            <KpiCard
+              label={L("sales_month")}
+              value={data.summary.kpis?.sales_month}
+              sub={`${fmt(data.summary.kpis?.bills_month ?? 0)} ${L("bills")} · ${L("egp")}`}
+              ico="coins"
+              href="/reports"
+              go={router.push.bind(router)}
+              fmt={fmt}
+            />
+            <KpiCard
+              label={L("profit_month")}
+              value={data.summary.kpis?.profit_month}
+              sub={
+                data.summary.kpis?.sales_month > 0
+                  ? pct((data.summary.kpis.profit_month / data.summary.kpis.sales_month) * 100) +
+                    " " + L("profit_margin")
+                  : L("egp")
+              }
+              ico="chart"
+              href="/reports"
+              go={router.push.bind(router)}
+              fmt={fmt}
+              valueColor={data.summary.kpis?.profit_month >= 0 ? "var(--ok)" : "var(--danger)"}
+            />
+          </div>
 
-          {/* View switcher: 30 days / month view / custom range */}
+          {/* ===== KPI Row 2: Purchasing ===== */}
+          <div className="grid kpis" style={{ marginTop: 10 }}>
+            <KpiCard
+              label={L("purch_today")}
+              value={purchasing?.purchasing_today ?? 0}
+              sub={L("egp")}
+              ico="pill"
+              href="/purchasing"
+              go={router.push.bind(router)}
+              fmt={fmt}
+            />
+            <KpiCard
+              label={L("purch_month")}
+              value={purchasing?.purchasing_month ?? 0}
+              sub={L("egp")}
+              ico="pill"
+              href="/purchasing"
+              go={router.push.bind(router)}
+              fmt={fmt}
+            />
+            <div
+              className="card"
+              onClick={() => router.push("/purchasing")}
+              style={{ cursor: "pointer" }}
+            >
+              <div className="kpi-label">{L("purch_ratio")}</div>
+              <div className="kpi-value num" style={{ color: ratioColor[purchasing?.ratio_status] ?? "inherit" }}>
+                {pct(purchasing?.ratio_pct ?? 0)}
+              </div>
+              <div
+                className="kpi-sub"
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  background: ratioColor[purchasing?.ratio_status ?? "yellow"] + "22",
+                  color: ratioColor[purchasing?.ratio_status ?? "yellow"],
+                  fontWeight: 600,
+                  display: "inline-block",
+                  fontSize: 12,
+                  marginTop: 4,
+                }}
+              >
+                {L(`purch_status_${purchasing?.ratio_status ?? "yellow"}`)} · {L("purch_ratio_target")}
+              </div>
+            </div>
+          </div>
+
+          {/* ===== KPI Row 3: Cash & Expenses ===== */}
+          <div className="grid kpis" style={{ marginTop: 10 }}>
+            {cashData.slice(0, 2).map((br, i) => (
+              <KpiCard
+                key={br.branch_id}
+                label={L(i === 0 ? "cash_pos1" : "cash_pos2")}
+                value={br.cash_balance}
+                sub={br.name_ar}
+                ico="coins"
+                href="/treasury"
+                go={router.push.bind(router)}
+                fmt={fmt}
+                valueColor={br.cash_balance >= 0 ? "var(--ok)" : "var(--danger)"}
+              />
+            ))}
+            {cashData.length === 0 && [0, 1].map((i) => (
+              <KpiCard
+                key={i}
+                label={L(i === 0 ? "cash_pos1" : "cash_pos2")}
+                value={0}
+                sub="—"
+                ico="coins"
+                href="/treasury"
+                go={router.push.bind(router)}
+                fmt={fmt}
+              />
+            ))}
+            <KpiCard
+              label={L("expenses_month")}
+              value={expenses?.expenses_month ?? 0}
+              sub={`${L("expenses_today")}: ${fmt(expenses?.expenses_today ?? 0)} ${L("egp")}`}
+              ico="chart"
+              href="/treasury"
+              go={router.push.bind(router)}
+              fmt={fmt}
+              valueColor="var(--danger)"
+            />
+          </div>
+
+          {/* ===== KPI Row 4: Alerts ===== */}
+          <div className="grid kpis" style={{ marginTop: 10 }}>
+            <KpiCard label={L("low_stock")} value={data.summary.kpis?.low_stock} sub="" ico="pill" href="/alerts" go={router.push.bind(router)} fmt={fmt} />
+            <KpiCard label={L("expiring_30")} value={data.summary.kpis?.expiring_30} sub="" ico="bell" href="/alerts" go={router.push.bind(router)} fmt={fmt} />
+            <KpiCard label={L("debtors")} value={data.summary.kpis?.debtors} sub="" ico="customers" href="/customers" go={router.push.bind(router)} fmt={fmt} />
+          </div>
+
+          {/* ===== View switcher ===== */}
           <div style={{ display: "flex", gap: 8, marginTop: 16, alignItems: "center", flexWrap: "wrap" }}>
-            <button className={`btn ${view === "days" ? "primary" : ""}`} onClick={() => setView("days")}>
-              {L("view_days")}
-            </button>
-            <button className={`btn ${view === "month" ? "primary" : ""}`} onClick={() => setView("month")}>
-              {L("view_month")}
-            </button>
-            <button className={`btn ${view === "range" ? "primary" : ""}`} onClick={() => setView("range")}>
-              {L("view_range")}
-            </button>
+            <button className={`btn ${view === "days" ? "primary" : ""}`} onClick={() => setView("days")}>{L("view_days")}</button>
+            <button className={`btn ${view === "month" ? "primary" : ""}`} onClick={() => setView("month")}>{L("view_month")}</button>
+            <button className={`btn ${view === "yoy" ? "primary" : ""}`} onClick={() => setView("yoy")}>YOY</button>
+            <button className={`btn ${view === "range" ? "primary" : ""}`} onClick={() => setView("range")}>{L("view_range")}</button>
             {view === "range" && (
               <>
                 <input className="input" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} title={L("from_date")} />
                 <input className="input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} title={L("to_date")} />
-                <button className="btn primary" disabled={!fromDate || !toDate} onClick={loadRange}>
-                  {L("apply")}
-                </button>
+                <button className="btn primary" disabled={!fromDate || !toDate} onClick={loadRange}>{L("apply")}</button>
               </>
             )}
           </div>
 
+          {/* ===== Range summary ===== */}
           {view === "range" && rangeData && (
             <div className="kpi-row" style={{ marginTop: 12 }}>
               <div className="kpi-box"><div className="kpi-value num">{fmt(rangeData.revenue)}</div><div className="kpi-label">{L("revenue")} ({L("egp")})</div></div>
@@ -124,7 +315,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {view === "month" ? (
+          {/* ===== Month view ===== */}
+          {view === "month" && (
             <div className="card" style={{ marginTop: 16 }}>
               <h3 className="section-title">{L("view_month")}</h3>
               <BarChart data={months} valueKey="revenue" labelKey="month" />
@@ -146,14 +338,37 @@ export default function DashboardPage() {
                         <td className="num">{fmt(mo.bills)}</td>
                         <td className="num">{fmt(mo.revenue)}</td>
                         <td className="num">{fmt(mo.discount)}</td>
-                        <td className="num">{fmt(mo.profit)}</td>
+                        <td className="num" style={{ color: mo.profit >= 0 ? "var(--ok)" : "var(--danger)" }}>{fmt(mo.profit)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
-          ) : (
+          )}
+
+          {/* ===== YOY Charts ===== */}
+          {view === "yoy" && yoyData && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+                <h3 className="section-title" style={{ margin: 0, flex: 1 }}>
+                  {yoyMode === "sales" ? L("yoy_sales") : L("yoy_profit")}
+                </h3>
+                <button className={`btn ${yoyMode === "sales" ? "primary" : ""}`} onClick={() => setYoyMode("sales")}>{L("revenue")}</button>
+                <button className={`btn ${yoyMode === "profit" ? "primary" : ""}`} onClick={() => setYoyMode("profit")}>{L("profit_lbl")}</button>
+              </div>
+              <YoyChart
+                current={yoyData.current_year}
+                prev={yoyData.last_year}
+                valueKey={yoyMode === "sales" ? "revenue" : "profit"}
+                L={L}
+                fmt={fmt}
+              />
+            </div>
+          )}
+
+          {/* ===== Daily view ===== */}
+          {(view === "days" || view === "range") && (
             <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
               <div className="card">
                 <h3 className="section-title">{L("daily_sales")}</h3>
@@ -174,7 +389,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* All-branches comparison (this month) */}
+          {/* ===== Branch comparison ===== */}
           {branchCmp.length > 1 && (
             <div className="card" style={{ marginTop: 16 }}>
               <h3 className="section-title">{L("by_branch_cmp")}</h3>
@@ -210,6 +425,7 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* ===== Cashier performance ===== */}
           <div className="card" style={{ marginTop: 16 }}>
             <h3 className="section-title">{L("cashier_perf")}</h3>
             <Ranked
@@ -225,6 +441,10 @@ export default function DashboardPage() {
             />
           </div>
 
+          {/* ===== Staff widget ===== */}
+          <StaffWidget staff={staff} L={L} fmt={fmt} />
+
+          {/* ===== Product insight modal ===== */}
           {insight && (
             <DetailModal
               title={insight.loading ? L("loading") : (lang === "ar" ? insight.name_ar : insight.name_en || insight.name_ar)}
@@ -269,39 +489,22 @@ export default function DashboardPage() {
   );
 }
 
-function KPIs({ k, L, fmt, go }) {
-  // Every number links to its detail screen (owner: "link any dashboard
-  // number to see more details").
-  const cards = [
-    { label: L("sales_today"), value: k.sales_today, sub: `${k.bills_today} ${L("bills")}`, ico: "receipt", href: "/reports" },
-    // sales_month is REVENUE (EGP) — the bill COUNT rides along in the sub
-    // line so revenue is never misread as a number of sales.
-    { label: L("sales_month"), value: k.sales_month, sub: `${k.bills_month ?? 0} ${L("bills")} · ${L("egp")}`, ico: "coins", href: "/reports" },
-    { label: L("profit_month"), value: k.profit_month, sub: L("egp"), ico: "chart", href: "/reports" },
-    { label: L("low_stock"), value: k.low_stock, sub: "", ico: "pill", href: "/alerts" },
-    { label: L("expiring_30"), value: k.expiring_30, sub: "", ico: "bell", href: "/alerts" },
-    { label: L("debtors"), value: k.debtors, sub: "", ico: "customers", href: "/customers" },
-  ];
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, sub, ico, href, go, fmt, valueColor }) {
   return (
-    <div className="grid kpis">
-      {cards.map((c) => (
-        <div
-          className="card"
-          key={c.label}
-          onClick={() => go(c.href)}
-          style={{ cursor: "pointer" }}
-          title={L("view_details")}
-        >
-          <span className="kpi-ico">
-            <Icon name={c.ico} size={19} />
-          </span>
-          <div className="kpi-label">{c.label}</div>
-          <div className="kpi-value num">
-            <CountUp value={c.value} format={(n) => fmt(Math.round(n))} />
-          </div>
-          <div className="kpi-sub">{c.sub || L("view_details")}</div>
-        </div>
-      ))}
+    <div
+      className="card"
+      onClick={() => go(href)}
+      style={{ cursor: "pointer" }}
+      title={label}
+    >
+      <span className="kpi-ico"><Icon name={ico} size={19} /></span>
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value num" style={valueColor ? { color: valueColor } : undefined}>
+        <CountUp value={value} format={(n) => fmt(Math.round(n))} />
+      </div>
+      <div className="kpi-sub">{sub || "—"}</div>
     </div>
   );
 }
@@ -320,9 +523,7 @@ function Ranked({ rows, fmt, unit, color = "var(--accent)" }) {
         >
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 4 }}>
             <span>{r.name}{r.onClick ? " ›" : ""}</span>
-            <span className="num muted">
-              {fmt(r.value)} {unit} {r.sub ? `· ${r.sub}` : ""}
-            </span>
+            <span className="num muted">{fmt(r.value)} {unit} {r.sub ? `· ${r.sub}` : ""}</span>
           </div>
           <HBar value={r.value} max={max} color={color} />
         </div>
@@ -331,26 +532,105 @@ function Ranked({ rows, fmt, unit, color = "var(--accent)" }) {
   );
 }
 
-// Shimmering placeholder cards shown while the dashboard data loads.
+function YoyChart({ current, prev, valueKey, L, fmt }) {
+  // Build month labels from both arrays
+  const allMonths = [...new Set([...prev.map(m => m.month.slice(5)), ...current.map(m => m.month.slice(5))])].sort();
+  const prevMap = Object.fromEntries(prev.map(m => [m.month.slice(5), m[valueKey]]));
+  const curMap = Object.fromEntries(current.map(m => [m.month.slice(5), m[valueKey]]));
+  const maxVal = Math.max(...Object.values(prevMap), ...Object.values(curMap), 1);
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 8, fontSize: 12 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 12, height: 12, background: "var(--primary)", borderRadius: 2, display: "inline-block" }} />
+          {L("this_year")}
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 12, height: 12, background: "var(--accent)", borderRadius: 2, display: "inline-block" }} />
+          {L("last_year")}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-end", minHeight: 120 }}>
+        {allMonths.map((mo) => {
+          const curVal = curMap[mo] || 0;
+          const prevVal = prevMap[mo] || 0;
+          const curH = Math.round((curVal / maxVal) * 100);
+          const prevH = Math.round((prevVal / maxVal) * 100);
+          return (
+            <div key={mo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 100 }}>
+                <div title={`${L("last_year")}: ${fmt(prevVal)}`} style={{ width: 10, height: prevH, background: "var(--accent)", borderRadius: "2px 2px 0 0", minHeight: prevVal > 0 ? 3 : 0 }} />
+                <div title={`${L("this_year")}: ${fmt(curVal)}`} style={{ width: 10, height: curH, background: "var(--primary)", borderRadius: "2px 2px 0 0", minHeight: curVal > 0 ? 3 : 0 }} />
+              </div>
+              <div style={{ fontSize: 10, color: "var(--muted)", textAlign: "center" }}>{mo}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StaffWidget({ staff, L, fmt }) {
+  if (!staff) return null;
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h3 className="section-title">{L("staff_now")}</h3>
+      {staff.on_shift.length === 0 ? (
+        <p className="muted">{L("staff_empty")}</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {staff.on_shift.map((emp) => (
+            <div key={emp.shift_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-alt)", borderRadius: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{emp.name_ar}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{emp.role} · {emp.name_ar !== emp.name_en ? emp.name_en : ""}</div>
+              </div>
+              {emp.on_since && (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {L("staff_since")} {new Date(emp.on_since).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {staff.next_up.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{L("staff_next")}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {staff.next_up.map((emp) => (
+              <div key={emp.employee_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                <span>{emp.name_ar}</span>
+                <span className="muted">{emp.task}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shimmering placeholder shown while dashboard data loads
 function DashboardSkeleton() {
   return (
     <>
-      <div className="grid kpis">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div className="card" key={i}>
-            <div className="shimmer" style={{ height: 13, width: "55%" }} />
-            <div className="shimmer" style={{ height: 30, width: "70%", margin: "10px 0 6px" }} />
-            <div className="shimmer" style={{ height: 11, width: "35%" }} />
-          </div>
-        ))}
-      </div>
+      {[0, 1, 2, 3].map((row) => (
+        <div key={row} className="grid kpis" style={{ marginTop: row === 0 ? 0 : 10 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div className="card" key={i}>
+              <div className="shimmer" style={{ height: 13, width: "55%" }} />
+              <div className="shimmer" style={{ height: 30, width: "70%", margin: "10px 0 6px" }} />
+              <div className="shimmer" style={{ height: 11, width: "35%" }} />
+            </div>
+          ))}
+        </div>
+      ))}
       <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
-        <div className="card">
-          <div className="shimmer" style={{ height: 180 }} />
-        </div>
-        <div className="card">
-          <div className="shimmer" style={{ height: 180 }} />
-        </div>
+        <div className="card"><div className="shimmer" style={{ height: 180 }} /></div>
+        <div className="card"><div className="shimmer" style={{ height: 180 }} /></div>
       </div>
     </>
   );

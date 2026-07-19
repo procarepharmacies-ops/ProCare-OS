@@ -38,7 +38,7 @@ Requires Python 3.11+ and Node.js 18+ installed once.
 - **Windows (icon + always-on):** double-click `deploy/ProCare-Autostart-Install.bat` **once** for the same icon **plus** making the server **start automatically with Windows and stay always on**.
 - **Linux / WSL / macOS:** `./deploy/procare-local.sh` — for boot autostart install `deploy/procare-local.service` (instructions inside the file).
 
-First run installs dependencies and builds the UI, then every launch starts the backend + frontend and opens **http://localhost:3000**. Data lives in a local SQLite file until you point it at SQL Server.
+First run installs dependencies and builds the UI, then every launch starts the backend + frontend and opens **http://localhost:3100**. Data lives in a local SQLite file until you point it at SQL Server.
 
 ### Option B — Docker (full production stack with SQL Server)
 
@@ -51,8 +51,8 @@ docker compose up -d --build     # UI on :3000, API on :7000, SQL Server on :143
 ### Option C — Development
 
 ```bash
-cd src/backend  && pip install -r requirements.txt && python run.py   # API :8000
-cd src/frontend && npm install && npm run dev                          # UI  :3000
+cd src/backend  && pip install -r requirements.txt && python run.py   # API :8100
+cd src/frontend && npm install && npm run dev                          # UI  :3100
 ```
 
 ## Logins
@@ -74,7 +74,7 @@ ProCare is a PWA: open it in Chrome/Edge (desktop or Android) or Safari (iOS) ov
 ## Architecture
 
 ```
-Browser ──► Next.js (UI, :3000) ──/api proxy──► FastAPI (:8000/:7000) ──► ProCare DB (SQL Server / SQLite)
+Browser ──► Next.js (UI, :3100) ──/api proxy──► FastAPI (:8100/:7000) ──► ProCare DB (SQL Server / SQLite)
                                                       │  read-only ETL (Phase 1–2 only)
                                                       └─► eStock `stock` DB  +  Titan/Drug-Eye (clinical)
 ```

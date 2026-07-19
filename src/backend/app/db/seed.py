@@ -147,9 +147,9 @@ def ensure_seeded() -> dict:
             # branch, Mas-hala مسهله the second. The mirror's store_branch_map
             # auto-creates any further codes it meets.
             if s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first() is None:
-                s.add(m.Branch(code="ELSANTA", name_ar="السنطه", name_en="Elsanta", is_pilot=True))
+                s.add(m.Branch(code="ELSANTA", name_ar="السنطة", name_en="Elsanta", is_pilot=True))
             if s.scalars(select(m.Branch).where(m.Branch.code == "MASHALA")).first() is None:
-                s.add(m.Branch(code="MASHALA", name_ar="مسهله", name_en="Mas-hala", is_pilot=False))
+                s.add(m.Branch(code="MASHALA", name_ar="مسهلة", name_en="Mas-hala", is_pilot=False))
             s.commit()
             return {"skipped_demo": True, "reason": "live eStock source configured — sync fills the DB"}
         summary = _seed(s)
@@ -165,11 +165,11 @@ def _ensure_branches(s: Session) -> list:
     """
     elsanta = s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first()
     if elsanta is None:
-        elsanta = m.Branch(code="ELSANTA", name_ar="السنطه", name_en="Elsanta", is_pilot=True)
+        elsanta = m.Branch(code="ELSANTA", name_ar="السنطة", name_en="Elsanta", is_pilot=True)
         s.add(elsanta)
     mashala = s.scalars(select(m.Branch).where(m.Branch.code == "MASHALA")).first()
     if mashala is None:
-        mashala = m.Branch(code="MASHALA", name_ar="مسهله", name_en="Mas-hala", is_pilot=False)
+        mashala = m.Branch(code="MASHALA", name_ar="مسهلة", name_en="Mas-hala", is_pilot=False)
         s.add(mashala)
     s.flush()
     return [elsanta, mashala]

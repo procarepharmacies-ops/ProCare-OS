@@ -327,3 +327,39 @@ def ensure_assigned_agent_column(engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE employee_tasks ADD assigned_agent VARCHAR(20) NULL"))
 
+
+def ensure_incentive_points_column(engine) -> None:
+    """Add ``products.incentive_points`` (OTC incentive list points per unit sold)
+    if the table predates the employee incentive feature. Existing products
+    default to 0 (no incentive)."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    if "incentive_points" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE products {add} incentive_points NUMERIC(18,3) DEFAULT 0"))
+
+
+def ensure_branch_names_corrected(engine) -> None:
+    """Fix old Arabic branch name spelling in existing DBs.
+
+    Seed used to write السنطه/مسهله (ه = ha) instead of the correct
+    السنطة/مسهلة (ة = taa marbuta). This migration updates any rows that
+    still carry the old spelling. Safe no-op if already correct or if the
+    branches table doesn't exist yet.
+    """
+    inspector = inspect(engine)
+    if "branches" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE branches SET name_ar = 'السنطة' WHERE code = 'ELSANTA' AND name_ar = 'السنطه'"
+        ))
+        conn.execute(text(
+            "UPDATE branches SET name_ar = 'مسهلة' WHERE code = 'MASHALA' AND name_ar = 'مسهله'"
+        ))
+
+

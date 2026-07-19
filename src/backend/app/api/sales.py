@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.db.base import get_session
-from app.services import pos
+from app.services import pos, recommend
 from app.services.common import money
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -191,6 +191,33 @@ def recent(branch_id: int | None = None, limit: int = 20, session: Session = Dep
             }
         )
     return {"sales": out}
+
+
+@router.get("/suggestions")
+def pos_suggestions(branch_id: int, cart: str = "", session: Session = Depends(get_session)):
+    """POS upsell/cross-sell suggestions for the current cart.
+
+    Args:
+        branch_id: current branch
+        cart: comma-separated product IDs already in cart (e.g. "5,12,3")
+
+    Returns:
+        {"suggestions": [{"product_id": ..., "name_ar": ..., "name_en": ...,
+                          "sell_price": ..., "on_hand": ..., "reason": "..."}]}
+        Reasons: "يُشترى معه عادة" (basket analysis), "مكمّل" (category rule),
+                 "بديل أفضل" (clinical upsell).
+
+        Never blocks checkout on failure (fail-soft).
+    """
+    cart_ids = []
+    if cart:
+        try:
+            cart_ids = [int(x.strip()) for x in cart.split(",") if x.strip()]
+        except ValueError:
+            cart_ids = []
+
+    suggestions = recommend.suggest_for_cart(session, branch_id, cart_ids, limit=3)
+    return {"suggestions": suggestions}
 
 
 @router.get("/{sale_id}")

@@ -196,10 +196,15 @@ class Settings:
         or "http://localhost:11434"
     )
 
-    # Login gate (CEO/manager/assistant roles). Opt-in via env so existing
-    # deployments and the test suite are unaffected until a pharmacy turns it
-    # on after setting up real employee accounts.
-    auth_enabled: bool = os.environ.get("AUTH_ENABLED", "").lower() in ("1", "true", "yes", "on")
+    # Login gate (CEO/manager/assistant roles). AUTH_ENABLED env wins when set
+    # (either way). When unset: ON automatically for a production deployment
+    # (real eStock source or SQL Server configured — a live pharmacy must not
+    # run open), OFF for dev/demo/tests so the seeded stack stays frictionless.
+    auth_enabled: bool = (
+        os.environ.get("AUTH_ENABLED", "").lower() in ("1", "true", "yes", "on")
+        if os.environ.get("AUTH_ENABLED") is not None
+        else (estock_configured or procare_configured)
+    )
 
     # Loyalty programme rates (overridable per pharmacy via env):
     #   earn : every LOYALTY_EGP_PER_POINT EGP of net spend = 1 point;

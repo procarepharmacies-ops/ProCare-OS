@@ -119,3 +119,17 @@
 - FIX: 9 FK-check indexes (models.py Index() + migrate.ensure_fk_indexes,
   called in lifespan). Verified live: incremental cycle 814s → 11.8s.
 - Tests: 195/195 pass.
+
+## 2026-07-18 · Phase 5 — Post-merge stabilisation
+
+- Merged PR #21 (Phase 2 POS Revenue Engine: upsell/cross-sell, OTC incentives,
+  leaderboard) into main. Resolved 2 merge conflicts:
+  - `src/backend/app/main.py` — CORS origins (kept broader: 3000/3001/3100)
+  - `src/frontend/package.json` — dev port (kept -p 3100)
+- Backend moved to port 8100, frontend to 3100 (avoiding conflicts with other
+  local projects). Updated: run.py, .env.example, next.config.mjs,
+  .env.local.example, package.json, CLAUDE.md, README.md.
+- Tests: 196/196 pass (15 new from incentives/revenue engine). 14 warnings
+  (DeprecationWarning: datetime.utcnow — advisory only, not blocking).
+- All new routers confirmed registered in routes.py: agents, incentives, knowledge.
+- Pushed to origin/main: commit 4beb583.

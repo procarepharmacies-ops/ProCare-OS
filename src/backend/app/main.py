@@ -23,9 +23,11 @@ from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
     ensure_assigned_agent_column,
+    ensure_branch_names_corrected,
     ensure_customer_address_column,
     ensure_employee_reset_columns,
     ensure_fk_indexes,
+    ensure_incentive_points_column,
     ensure_loyalty_points_column,
     ensure_original_sale_id_column,
     ensure_prescription_status_columns,
@@ -57,10 +59,12 @@ async def lifespan(_app: FastAPI):
     ensure_product_unit_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
+    ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix
     ensure_assigned_agent_column(engine)
     # FK-check indexes: without them the sync's batch wipe is quadratic
     # (~500s/cycle on real data); with them it's instant.
     ensure_fk_indexes(engine)
+    ensure_incentive_points_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 
