@@ -259,3 +259,21 @@
   dispensing-safety invariant).
 - NOT DONE yet: review UI (Phase 1) and the approved eStock write-back
   (Phase 2, separate explicitly-launched script, backup-gated).
+
+## 2026-07-20 (later) · Drug-Eye online harvest (uses + substitution)
+- Owner asked to pull uses / substitution / scientific names from the Drug-Eye
+  web app to enrich beyond the local Titan file.
+- REVERSE-ENGINEERED the site: WebForms postback search; 5-rows-per-drug
+  colour-keyed result grid; id-based GET sub-lookups for generics (`geno`),
+  therapeutic alternatives (`alto`), and a clinical monograph endpoint.
+  All three verified live: ESOMEPRAZOLE -> 92 generics, 100 alternatives,
+  full indications list (gastric ulcer / GERD / oesophagitis / NSAID ulcer).
+- BUILT tools/drugeye_scrape.py: disk-cached (re-runs free), throttled
+  (default 2.5s/request), resumable, writes JSONL to a STAGING file — nothing
+  is applied to products; it feeds the catalogue review flow.
+- THREE parser bugs found and fixed by probing real data: "color:Blue" also
+  matched "BlueViolet" (doubled every result list); monograph sections use
+  inconsistent separators across drugs; heading regex `indication\b` could not
+  match the plural "Indications" (silently emptied every uses field).
+- NOT started: bulk harvest (needs owner go-ahead — ~1,500-3,000 molecules,
+  4 requests each at 2.5s = one overnight run) and the review UI.

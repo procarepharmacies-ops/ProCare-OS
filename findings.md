@@ -210,3 +210,31 @@
   two real SKUs). Live: 869 groups, 23 high-risk (live stock split across
   copies, e.g. "ماء مذيب 50 مل" entered twice with a double space, 65 + 258
   units on hand).
+- 2026-07-20 · Drug-Eye ONLINE (drugeye.pharorg.com) is scrapeable and carries
+  what the local Titan file lacks — indications/uses and substitution sets.
+  Mechanics: ASP.NET WebForms; search is a POSTBACK (needs __VIEWSTATE +
+  __EVENTVALIDATION from a fresh GET, fields `ttt` + `b1`). Results render as
+  FIVE <tr> per drug keyed by inline colour: Blue=trade name, Red=price,
+  Black=scientific, Green=use/category, BlueViolet=manufacturer, plus an
+  options row whose `title` holds the numeric drug id. TRAP: test for
+  "color:Blue;" WITH the semicolon — "color:BlueViolet" also contains "Blue",
+  so a loose test turns every manufacturer row into a phantom drug (inflated
+  a 92-drug list to 184).
+  Sub-lookups are plain GETs on the id (no viewstate): `?gname=<id>geno` =
+  same-molecule generics, `?gname=<id>alto` = same-class alternatives,
+  `apiforus/gi.aspx?passed=<trade name>` = clinical monograph. A bare
+  `?gname=<molecule>` returns only the page shell — the id+suffix form is
+  required. Their TLS chain is incomplete, so verification must be relaxed
+  for this host only.
+  Monograph parsing: the layout is NOT consistent — some drugs separate
+  sections with '^^' (Esomeprazole), some with single '^' (Metformin), some
+  open with unheaded body text (Augmentin), and single '^' ALSO separates
+  numbered list items. So split on every caret and recognise HEADINGS by shape
+  instead of trusting separators. Heading regex must end `\w*` not `\b`:
+  headings are plural ("Indications for X") and `indication\b` cannot match
+  "Indications". Unheaded monographs fall into a `notes` section — captured,
+  just not sectioned.
+  Scale rule: query by MOLECULE, not per product — one geno/alto pair returns
+  ~100-200 drugs, so the 53k catalogue needs a few thousand requests, not
+  100k. Tool caches every response to disk (re-runs cost nothing), throttles
+  to one request per DRUGEYE_DELAY seconds (default 2.5) and is resumable.
