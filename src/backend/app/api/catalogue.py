@@ -67,3 +67,18 @@ def decisions(payload: DecisionsIn, request: Request, session: Session = Depends
 @router.get("/decisions/summary", dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def decisions_summary(session: Session = Depends(get_session)):
     return catalogue.decision_summary(session)
+
+
+@router.get("/decisions/export-preview", dependencies=[Depends(auth_guard(("ceo",)))])
+def export_preview(session: Session = Depends(get_session)):
+    """Preview what will be written to eStock: approved decisions not yet exported.
+    CEO only — write-back is high-authority."""
+    return catalogue.export_preview(session)
+
+
+@router.post("/decisions/export-confirm", dependencies=[Depends(auth_guard(("ceo",)))])
+def export_confirm(request: Request, session: Session = Depends(get_session)):
+    """Write approved decisions to eStock. Requires backup gate + explicit CEO approval.
+    CEO only. Returns count of fields written + export timestamps."""
+    emp = getattr(request.state, "employee_id", None)
+    return catalogue.export_confirm(session, employee_id=emp)

@@ -289,6 +289,9 @@ export const api = {
   catalogueDecide: (items) =>
     http("/catalogue/decisions", { method: "POST", body: JSON.stringify({ items }) }),
   catalogueDecisionSummary: () => http("/catalogue/decisions/summary"),
+  catalogueExportPreview: () => http("/catalogue/decisions/export-preview"),
+  catalogueExportConfirm: () =>
+    http("/catalogue/decisions/export-confirm", { method: "POST" }),
   incentiveLeaderboard: (branch, month) =>
     http(`/incentives/leaderboard${bq(branch, month ? `month=${month}` : "")}`),
   employeeIncentives: (employeeId, month) =>
