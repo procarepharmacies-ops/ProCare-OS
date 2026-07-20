@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../components/Shell";
 import { useUI } from "../providers";
 import { t } from "../i18n";
@@ -219,6 +219,7 @@ function CalendarTab({ L }) {
   const [channel, setChannel] = useState("");
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [posts, setPosts] = useState(null);
+  const [err, setErr] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -232,6 +233,26 @@ function CalendarTab({ L }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function approve(postId) {
+    setErr(null);
+    try {
+      await api.approveSocialPost(postId);
+      await load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function publish(postId) {
+    setErr(null);
+    try {
+      await api.publishSocialPost(postId);
+      await load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
 
   return (
     <div className="card">
@@ -257,23 +278,40 @@ function CalendarTab({ L }) {
         </select>
       </div>
 
+      {err && <p className="badge danger" style={{ display: "block", padding: 8, marginBottom: 10 }}>{err}</p>}
       {posts === null && <p className="muted">…</p>}
-      {posts?.total_posts === 0 && <p className="muted">{L("social_no_posts")}</p>}
+      {posts?.total_posts === 0 && <p className="muted">{L("social_no_posts")} — ✍️ {L("social_copywriter")}</p>}
 
       {posts?.posts_by_date && Object.keys(posts.posts_by_date).length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-          {Object.entries(posts.posts_by_date).map(([date, items]) => (
+          {Object.entries(posts.posts_by_date).sort().map(([date, items]) => (
             <div key={date} className="card" style={{ padding: 12, border: "1px solid var(--border)" }}>
               <h4 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: "bold" }}>{date}</h4>
-              {items.map((post, idx) => (
-                <div key={idx} style={{ fontSize: 12, marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid var(--border)" }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {items.map((post) => (
+                <div key={post.post_id} style={{ fontSize: 12, marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <span className="badge">{CHANNEL_LABELS[post.channel]}</span>
-                    <span className="badge muted">{post.status}</span>
-                    {post.promo_code && <span className="badge">{post.promo_code}</span>}
+                    <span className={`badge ${post.status === "published" ? "ok" : post.status === "approved" ? "" : "warn"}`}>
+                      {L(`social_${post.status}`) || post.status}
+                    </span>
+                    {post.promo_code && <span className="badge">🏷️ {post.promo_code}</span>}
                   </div>
                   {post.title && <p style={{ margin: "6px 0", fontWeight: "bold" }}>{post.title}</p>}
-                  <p style={{ margin: 0, color: "var(--text-muted)" }}>{post.body_ar.substring(0, 80)}…</p>
+                  <p style={{ margin: "4px 0", color: "var(--text-muted)", direction: "rtl", textAlign: "start" }}>
+                    {post.body_ar}
+                  </p>
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    {post.status === "draft" && (
+                      <button className="btn" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => approve(post.post_id)}>
+                        ✓ {L("social_approve_post")}
+                      </button>
+                    )}
+                    {(post.status === "approved" || post.status === "scheduled") && (
+                      <button className="btn primary" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => publish(post.post_id)}>
+                        🚀 {L("social_publish_post")}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -293,6 +331,11 @@ function CopywriterTab({ L }) {
   const [bodyEn, setBodyEn] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  // Save-as-post: the generated (or hand-written) copy becomes a calendar draft.
+  const [channel, setChannel] = useState("fb");
+  const [scheduleDate, setScheduleDate] = useState(new Date().toISOString().split("T")[0]);
+  const [promoCode, setPromoCode] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function generate() {
     setLoading(true);
@@ -306,6 +349,27 @@ function CopywriterTab({ L }) {
       setResult({ ok: false, msg: e.message });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveAsPost() {
+    if (!bodyAr.trim() || saving) return;
+    setSaving(true);
+    setResult(null);
+    try {
+      const post = await api.createSocialPost({
+        channel,
+        body_ar: bodyAr,
+        body_en: bodyEn || null,
+        title: context.offer_name || null,
+        scheduled_at: new Date(scheduleDate + "T10:00:00").toISOString(),
+        promo_code: promoCode.trim() ? promoCode.trim().toUpperCase() : null,
+      });
+      setResult({ ok: true, msg: `${L("social_create_post")} ✓ · #${post.post_id} · ${scheduleDate}` });
+    } catch (e) {
+      setResult({ ok: false, msg: e.message });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -392,8 +456,37 @@ function CopywriterTab({ L }) {
           value={bodyEn}
           onChange={(e) => setBodyEn(e.target.value)}
           rows={6}
-          style={{ width: "100%", resize: "vertical" }}
+          style={{ width: "100%", marginBottom: 16, resize: "vertical" }}
         />
+
+        {/* Save the copy into the content calendar as a scheduled draft */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <h3 className="section-title">{L("social_create_post")}</h3>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <select className="select" value={channel} onChange={(e) => setChannel(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
+              {CHANNELS.map((ch) => (
+                <option key={ch} value={ch}>{CHANNEL_LABELS[ch]}</option>
+              ))}
+            </select>
+            <input
+              className="input"
+              type="date"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+              style={{ flex: 1, minWidth: 130 }}
+            />
+          </div>
+          <input
+            className="input"
+            placeholder={L("social_promo_code")}
+            value={promoCode}
+            onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+            style={{ width: "100%", marginBottom: 10 }}
+          />
+          <button className="btn primary" onClick={saveAsPost} disabled={saving || !bodyAr.trim()} style={{ width: "100%" }}>
+            {saving ? "…" : `📅 ${L("social_create_post")}`}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -503,8 +596,6 @@ function OffersTab({ L }) {
     </div>
   );
 }
-
-import { useRef } from "react";
 
 // ============ Promo Codes Tab (Phase 4) ============
 
