@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
 from app.db.base import get_session
@@ -133,3 +134,50 @@ def campaign_links(campaign_id: int, session: Session = Depends(get_session)):
     if c is None:
         raise HTTPException(status_code=404, detail="campaign not found")
     return {"campaign_id": campaign_id, "links": wa.campaign_links(session, c)}
+
+
+# --- Phase 3: Loyalty Tiers & RFM Segmentation --------------------------------
+@router.get("/segments/summary")
+def segment_summary(session: Session = Depends(get_session)):
+    """RFM segment distribution (vip/regular/at_risk/dormant) with counts."""
+    from app.services import crm as crm_svc
+
+    return crm_svc.segment_summary(session)
+
+
+class CustomerTierUpdate(BaseModel):
+    tier: str
+
+
+@router.patch("/customers/{customer_id}/tier", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def update_customer_tier(customer_id: int, payload: CustomerTierUpdate, session: Session = Depends(get_session)):
+    """Manually set a customer's tier (manager+)."""
+    customer = session.get(m.Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="customer not found")
+    if payload.tier not in ("silver", "gold", "platinum"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+
+    old_tier = customer.tier
+    customer.tier = payload.tier
+    session.commit()
+
+    return {
+        "customer_id": customer_id,
+        "old_tier": old_tier,
+        "new_tier": customer.tier,
+        "message": f"Tier updated to {payload.tier}",
+    }
+
+
+@router.patch("/customers/{customer_id}/wa-opt-out")
+def update_customer_wa_opt_out(customer_id: int, opt_out: bool, session: Session = Depends(get_session)):
+    """Update WhatsApp opt-out flag."""
+    customer = session.get(m.Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="customer not found")
+
+    customer.wa_opt_out = opt_out
+    session.commit()
+
+    return {"customer_id": customer_id, "wa_opt_out": customer.wa_opt_out}

@@ -174,6 +174,15 @@ class Customer(Base):
     opening_balance: Mapped[float] = mapped_column(Money, default=0)
     # Loyalty programme: whole points, earned on sales, spent via redemption.
     loyalty_points: Mapped[float] = mapped_column(Qty, default=0)
+    # Phase 3: Loyalty tiers (silver/gold/platinum) computed nightly from 12-month spend.
+    tier: Mapped[str] = mapped_column(String(20), default="silver")
+    tier_spend_12m: Mapped[float] = mapped_column(Money, default=0)
+    # CRM: Birthday (optional, captured at POS) + WhatsApp opt-out.
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    wa_opt_out: Mapped[bool] = mapped_column(default=False)
+    # RFM segmentation (vip/regular/at_risk/dormant) computed daily.
+    rfm_segment: Mapped[str] = mapped_column(String(20), default="regular")
+    last_purchase_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -907,3 +916,5 @@ class IncentiveLedger(Base):
         Index("IX_incentive_sale", "sale_id"),
         Index("IX_incentive_branch_created", "branch_id", "created_at"),
     )
+
+

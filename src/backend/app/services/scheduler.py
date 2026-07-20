@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 
+from app.db import models as m
 from app.db.base import SessionLocal
 from app.services import alerts, dashboard, whatsapp
 
@@ -77,6 +78,38 @@ def _run_auto_reports():
     whatsapp.notify_manager(whatsapp.daily_report_message(kpis))
 
 
+# --- Phase 3: Loyalty tiers & CRM engagement --------------------------------
+def _run_loyalty_tiers():
+    """Nightly: recompute all customer tiers from 12-month spend."""
+    from app.services import loyalty as loyalty_svc
+    from sqlalchemy import select
+
+    with SessionLocal() as session:
+        count = 0
+        for customer in session.scalars(select(m.Customer)).all():
+            tier_before = customer.tier
+            new_tier, spend = loyalty_svc.recompute_customer_tier(session, customer.customer_id)
+            if tier_before != new_tier:
+                count += 1
+                log.info(f"Tier promotion: customer {customer.customer_id} {tier_before} → {new_tier}")
+        session.commit()
+    _last_results["loyalty_tiers"] = {"tier_changes": count}
+    log.info("loyalty_tiers: %d customers promoted/demoted", count)
+
+
+def _run_rfm_segmentation():
+    """Daily: recompute RFM segments for all customers."""
+    from app.services import crm as crm_svc
+
+    with SessionLocal() as session:
+        segments = crm_svc.compute_rfm_segments(session)
+        session.commit()
+        counts = crm_svc.segment_counts(session)
+    _last_results["rfm_segmentation"] = counts
+    log.info("rfm_segmentation: VIP=%d, Regular=%d, At-Risk=%d, Dormant=%d",
+             counts["vip"], counts["regular"], counts["at_risk"], counts["dormant"])
+
+
 # --- lifecycle --------------------------------------------------------------
 def build_scheduler():
     """Return a started BackgroundScheduler, or None if APScheduler is missing."""
@@ -102,6 +135,11 @@ def build_scheduler():
                   id="auto_reports_weekly", replace_existing=True)
     sched.add_job(_run_auto_reports, CronTrigger(day=1, hour=8, minute=0),
                   id="auto_reports_monthly", replace_existing=True)
+    # Phase 3: Loyalty tiers & RFM segmentation
+    sched.add_job(_run_loyalty_tiers, CronTrigger(hour=2, minute=0),
+                  id="loyalty_tiers_nightly", replace_existing=True)
+    sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0),
+                  id="rfm_segmentation_daily", replace_existing=True)
     try:
         sched.start()
         _scheduler = sched
@@ -168,6 +206,8 @@ def run_now(job: str) -> dict:
         "expiry_alerts": _run_expiry_alerts,
         "auto_purchase_order": _run_auto_purchase_order,
         "auto_reports": _run_auto_reports,
+        "loyalty_tiers": _run_loyalty_tiers,
+        "rfm_segmentation": _run_rfm_segmentation,
     }
     fn = mapping.get(job)
     if not fn:
