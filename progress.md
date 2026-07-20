@@ -300,7 +300,29 @@
 - All 210 tests pass. next build clean.
 - Merged PR #24 into main (commit: 8c2e4d5).
 
-## 2026-07-20 (current) · Phase 4 — Marketing & social studio (شبكات + عروض)
+## 2026-07-20 (later) · Phase 5 — AI Decision Center: Forecasting & Daily Briefing (WIP)
+
+- **Forecasting Engine** (services/forecast.py):
+  * Holt-style exponential smoothing (α=0.2, β=0.1) for level + trend extraction
+  * Day-of-week seasonality factors (weekends vs weekdays for pattern detection)
+  * Per-product×branch forecasts: daily_avg, trend, seasonality_factor, projected_demand, days_of_cover
+  * Stockout date calculation: when cumulative demand exceeds on-hand stock
+  * Pure Python (no external libs; Prophet documented as upgrade path)
+- **Scheduler Integration** (services/scheduler.py):
+  * Nightly forecast computation job (1 AM, every day)
+  * Idempotent: safe to re-run multiple times (delete+re-populate today's forecasts)
+  * Computes all-branches or branch-scoped forecasts on demand
+- **Database Schema**:
+  * `forecasts` table: product_id, branch_id, forecast_date, daily_avg, trend_per_day, seasonality_factor, projected_demand, stockout_date, days_of_cover, method
+  * `decision_cards` table: branch_id, card_type, severity, title_ar/en, body_ar/en, action_type, ref_product_id, status (open/dismissed/actioned)
+  * Both tables: indexed on key query paths (product×branch×date, stockout_date, severity, status)
+- **API Endpoints** (api/forecast.py):
+  * GET /api/forecast/{product_id}?branch_id= → cached forecast (or 404 if not computed yet)
+  * GET /api/forecast/risks/stockout?branch_id=&days_ahead=30 → list of at-risk products
+- **Tests**: test_forecast.py (6 tests: no history, with history, idempotency, API retrieval, stockout risks)
+- **IN PROGRESS (next)**: decision card generation from forecast state, reorder 2.0 with vendor optimization, daily briefing UI
+
+## 2026-07-20 (earlier) · Phase 4 — Marketing & social studio (شبكات + عروض)
 
 - BUILT: Complete API layer for social media content calendar and promo code management.
   * Services: social.py (AI copywriting + fallback templates, post lifecycle)

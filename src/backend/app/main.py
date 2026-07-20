@@ -28,6 +28,7 @@ from app.db.migrate import (
     ensure_customer_crm_columns,
     ensure_employee_reset_columns,
     ensure_fk_indexes,
+    ensure_forecast_tables,
     ensure_incentive_points_column,
     ensure_loyalty_points_column,
     ensure_loyalty_tier_columns,
@@ -72,6 +73,8 @@ async def lifespan(_app: FastAPI):
     # Phase 3: Loyalty tiers and CRM engagement
     ensure_loyalty_tier_columns(engine)
     ensure_customer_crm_columns(engine)
+    # Phase 5: Forecasting and decision cards
+    ensure_forecast_tables(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 

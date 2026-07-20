@@ -358,6 +358,50 @@ transfer linkage — requested transfers have NULL-batch lines.
 name_ar/name_en/code first, then scientific-name prefix, then contains-anywhere
 — one typed letter must list every product beginning with that letter.
 
+### Forecasting (Phase 5) — `forecasts` table
+
+Nightly pre-computed demand forecasts per product×branch, cached for <500ms dashboard load:
+
+```json
+{
+  "forecast_id": 1,
+  "product_id": 5, "branch_id": 2,
+  "forecast_date": "2026-07-20",
+  "forecast_horizon": 30,
+  "daily_avg": 2.5,
+  "trend_per_day": 0.05,
+  "seasonality_factor": 1.15,
+  "projected_demand": 85.3,
+  "stockout_date": "2026-08-15?",
+  "days_of_cover": 12.4,
+  "method": "exp_smoothing",
+  "computed_at": "ISO"
+}
+```
+
+Invariants: forecast runs nightly (scheduler) per product×branch; day-of-week seasonality applied (weekends often higher for OTC); Holt-style double exponential smoothing (α=0.2, β=0.1); stockout_date = null if trend flat/negative; safe to re-run (idempotent by truncating daily and re-populating).
+
+### Decision Cards (Phase 5) — `decision_cards` table
+
+Daily briefing items: actionable insights requiring manager approval or review:
+
+```json
+{
+  "card_id": 1,
+  "branch_id": 1, "created_at": "ISO",
+  "card_type": "stockout_risk | below_min | expiry_warning | overstocked | out_of_bounds",
+  "severity": "critical | warning | info",
+  "title_ar": "…", "title_en": "…",
+  "body_ar": "…", "body_en": "…",
+  "action_type": "create_po | create_transfer | promote | adjust_min | review",
+  "ref_product_id": 5?, "ref_purchase_id": null?,
+  "status": "open | dismissed | actioned",
+  "actioned_at": "ISO?", "actioned_by": "employee_id?"
+}
+```
+
+Invariants: cards created daily (nightly job) from forecast/inventory state; action buttons in UI trigger the actual operation; manager can dismiss without action (audit trail); cards auto-archive after 7 days of no interaction.
+
 ---
 
 ## Success Criteria

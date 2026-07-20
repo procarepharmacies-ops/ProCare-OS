@@ -110,6 +110,17 @@ def _run_rfm_segmentation():
              counts["vip"], counts["regular"], counts["at_risk"], counts["dormant"])
 
 
+def _run_forecast_computation():
+    """Nightly: compute demand forecasts for all products×branches (Phase 5)."""
+    from app.services import forecast as forecast_svc
+
+    with SessionLocal() as session:
+        count = forecast_svc.compute_nightly_forecasts(session)
+        session.commit()
+    _last_results["forecast_computation"] = {"count": count}
+    log.info("forecast_computation: computed %d product×branch forecasts.", count)
+
+
 # --- lifecycle --------------------------------------------------------------
 def build_scheduler():
     """Return a started BackgroundScheduler, or None if APScheduler is missing."""
@@ -140,6 +151,9 @@ def build_scheduler():
                   id="loyalty_tiers_nightly", replace_existing=True)
     sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0),
                   id="rfm_segmentation_daily", replace_existing=True)
+    # Phase 5: Demand forecasting
+    sched.add_job(_run_forecast_computation, CronTrigger(hour=1, minute=0),
+                  id="forecast_computation_nightly", replace_existing=True)
     try:
         sched.start()
         _scheduler = sched
