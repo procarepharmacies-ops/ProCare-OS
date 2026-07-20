@@ -307,8 +307,13 @@ export const api = {
   createSocialPost: (payload) =>
     http("/marketing/posts", { method: "POST", body: JSON.stringify(payload) }),
   getSocialPost: (postId) => http(`/marketing/posts/${postId}`),
-  socialCalendar: (channel, month) =>
-    http(`/marketing/calendar${channel ? `?channel=${channel}&month=${month}` : ""}`),
+  socialCalendar: (channel, month) => {
+    const p = new URLSearchParams();
+    if (channel) p.set("channel", channel);
+    if (month) p.set("month", String(month));
+    const s = p.toString();
+    return http(`/marketing/calendar${s ? "?" + s : ""}`);
+  },
   approveSocialPost: (postId) =>
     http(`/marketing/posts/${postId}/approve`, { method: "PATCH" }),
   publishSocialPost: (postId) =>
