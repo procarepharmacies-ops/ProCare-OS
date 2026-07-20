@@ -58,3 +58,33 @@ def test_sales_summary_splits_paid_amount_by_payment_type(session):
     assert after["card_paid"] - before["card_paid"] == 50.0
     assert after["credit_sales"] - before["credit_sales"] == float(credit_sale.total_net)
     assert after["total_paid"] == round(after["cash_paid"] + after["card_paid"], 2)
+
+
+def test_sales_summary_operations_metrics(session):
+    before = accounting.sales_summary(session, branch_id=1, days=365)
+
+    pid, _ = _product_with_live_stock(session, 1)
+
+    # Two cash sales, then a full cash return of the first one.
+    sale_a = pos.create_sale(session, branch_id=1, lines=[pos.SaleLineInput(pid, 1)])
+    pos.create_sale(session, branch_id=1, lines=[pos.SaleLineInput(pid, 2)])
+    ret = pos.return_sale(session, sale_a.sale_id)
+    session.commit()
+
+    after = accounting.sales_summary(session, branch_id=1, days=365)
+
+    # New keys are present.
+    for key in ("avg_sale_value", "cash_refunds", "net_cash"):
+        assert key in after
+
+    # Transaction count counts non-return sales only (+2).
+    assert after["num_sales"] - before["num_sales"] == 2
+
+    # Average sale value is total sales net / number of bills.
+    assert after["avg_sale_value"] == round(
+        after["total_sales_net"] / after["num_sales"], 2
+    )
+
+    # The cash return flows into cash_refunds and reduces net cash.
+    assert after["cash_refunds"] - before["cash_refunds"] == float(ret.total_net)
+    assert after["net_cash"] == round(after["cash_paid"] - after["cash_refunds"], 2)
