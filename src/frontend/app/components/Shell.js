@@ -25,6 +25,7 @@ const NAV_GROUPS = [
     key: "navg_inventory",
     items: [
       { href: "/inventory", key: "nav_inventory", ico: "pill", roles: null },
+      { href: "/catalogue", key: "nav_catalogue", ico: "pill", roles: ["ceo", "manager"] },
       { href: "/stocktaking", key: "nav_stocktaking", ico: "clipboard", roles: null },
       { href: "/shortages", key: "nav_shortages", ico: "sheet", roles: null },
       { href: "/transfers", key: "nav_transfers", ico: "transfer", roles: ["ceo", "manager"] },

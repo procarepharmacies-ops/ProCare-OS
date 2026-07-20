@@ -332,3 +332,82 @@ def enrichment_proposals(
         "only_missing": only_missing,
         "proposals": proposals[:limit],
     }
+
+
+# Fields the sync's product refresh does NOT overwrite, so an approved value
+# survives in ProCare. `name_ar`/`name_en` ARE overwritten every cycle by
+# etl._load_products, so approving those is recorded for the eStock write-back
+# but deliberately not applied locally — it would silently revert and look like
+# the feature was broken.
+_DURABLE_IN_PROCARE = {"scientific_name", "uses", "dosage_form", "category"}
+# `category` is proposed under that name but lives on products.dosage_form.
+_FIELD_TO_COLUMN = {"category": "dosage_form"}
+
+
+def record_decisions(session: Session, items: list[dict], employee_id: int | None = None) -> dict:
+    """Persist approve/reject rulings and apply the durable ones to ProCare.
+
+    ``items``: [{product_id, field, new_value, old_value?, source?, status}].
+    Idempotent per (product, field) — re-deciding replaces the previous ruling.
+    eStock is NOT touched here; that is the separate, explicitly-run export.
+    """
+    applied = approved = rejected = skipped = 0
+    for it in items:
+        pid, field = it.get("product_id"), it.get("field")
+        status = it.get("status")
+        if not pid or field not in PROPOSABLE or status not in ("approved", "rejected"):
+            skipped += 1
+            continue
+        product = session.get(m.Product, pid)
+        if product is None:
+            skipped += 1
+            continue
+        column = _FIELD_TO_COLUMN.get(field, field)
+        old = it.get("old_value")
+        if old is None:
+            old = getattr(product, column, None)
+        row = session.scalar(
+            select(m.CatalogueDecision).where(
+                m.CatalogueDecision.product_id == pid,
+                m.CatalogueDecision.field == field,
+            )
+        )
+        if row is None:
+            row = m.CatalogueDecision(product_id=pid, field=field)
+            session.add(row)
+        row.old_value = None if old is None else str(old)[:400]
+        row.new_value = None if it.get("new_value") is None else str(it["new_value"])[:400]
+        row.source = it.get("source")
+        row.status = status
+        row.decided_by = employee_id
+        row.decided_at = func.now()
+
+        if status == "approved":
+            approved += 1
+            if field in _DURABLE_IN_PROCARE and hasattr(product, column):
+                setattr(product, column, row.new_value)
+                applied += 1
+        else:
+            rejected += 1
+    session.commit()
+    return {"approved": approved, "rejected": rejected,
+            "applied_to_procare": applied, "skipped": skipped,
+            "note": "eStock untouched — approved values are staged for the write-back"}
+
+
+def decision_summary(session: Session) -> dict:
+    """Counts for the review screen header."""
+    rows = session.execute(
+        select(m.CatalogueDecision.status, func.count())
+        .group_by(m.CatalogueDecision.status)
+    ).all()
+    by_status = {s: int(n) for s, n in rows}
+    pending_export = session.scalar(
+        select(func.count()).select_from(m.CatalogueDecision).where(
+            m.CatalogueDecision.status == "approved",
+            m.CatalogueDecision.exported_at.is_(None),
+        )
+    )
+    return {"approved": by_status.get("approved", 0),
+            "rejected": by_status.get("rejected", 0),
+            "pending_export": int(pending_export or 0)}

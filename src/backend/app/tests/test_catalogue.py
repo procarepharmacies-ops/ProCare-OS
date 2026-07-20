@@ -106,3 +106,81 @@ def test_enrichment_api_only_missing_default(client):
     for p in body["proposals"]:
         for field, d in p["diffs"].items():
             assert "current" in d and "proposed" in d and d["action"] in ("fill", "replace")
+
+
+def test_decisions_record_and_apply(client):
+    """Approving a durable field applies it to ProCare AND stages it for the
+    eStock export; rejecting records the ruling without touching the product."""
+    from sqlalchemy import delete, select
+
+    from app.db.base import SessionLocal
+
+    products = client.get("/api/inventory/products?branch_id=1").json()["products"]
+    a, b = products[0]["product_id"], products[1]["product_id"]
+    try:
+        r = client.post("/api/catalogue/decisions", json={"items": [
+            {"product_id": a, "field": "uses", "new_value": "1.test indication",
+             "source": "drugeye", "status": "approved"},
+            {"product_id": b, "field": "uses", "new_value": "nope",
+             "source": "drugeye", "status": "rejected"},
+        ]})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["approved"] == 1 and body["rejected"] == 1
+        assert body["applied_to_procare"] == 1
+
+        with SessionLocal() as s:
+            assert s.get(m.Product, a).uses == "1.test indication"
+            # rejected proposal must NOT be written onto the product
+            assert s.get(m.Product, b).uses != "nope"
+            rows = s.scalars(select(m.CatalogueDecision)).all()
+            assert {d.status for d in rows} == {"approved", "rejected"}
+            # staged, not yet exported to eStock
+            assert all(d.exported_at is None for d in rows)
+
+        # Re-deciding the same product+field replaces the ruling in place.
+        client.post("/api/catalogue/decisions", json={"items": [
+            {"product_id": a, "field": "uses", "new_value": "1.test indication",
+             "source": "drugeye", "status": "rejected"}]})
+        with SessionLocal() as s:
+            rows = s.scalars(select(m.CatalogueDecision).where(
+                m.CatalogueDecision.product_id == a)).all()
+            assert len(rows) == 1 and rows[0].status == "rejected"
+
+        summary = client.get("/api/catalogue/decisions/summary").json()
+        assert summary["rejected"] >= 2
+    finally:
+        with SessionLocal() as s:
+            s.execute(delete(m.CatalogueDecision))
+            for pid in (a, b):
+                p = s.get(m.Product, pid)
+                if p:
+                    p.uses = None
+            s.commit()
+
+
+def test_name_fields_not_applied_locally(client):
+    """name_ar/name_en are overwritten by every sync cycle, so approving them
+    is recorded for the eStock export but deliberately NOT applied to ProCare —
+    applying would silently revert and look broken."""
+    from sqlalchemy import delete, select
+
+    from app.db.base import SessionLocal
+
+    pid = client.get("/api/inventory/products?branch_id=1").json()["products"][0]["product_id"]
+    with SessionLocal() as s:
+        before = s.get(m.Product, pid).name_en
+    try:
+        r = client.post("/api/catalogue/decisions", json={"items": [
+            {"product_id": pid, "field": "name_en", "new_value": "SHOULD NOT APPLY",
+             "source": "titan", "status": "approved"}]})
+        assert r.status_code == 200
+        assert r.json()["approved"] == 1
+        assert r.json()["applied_to_procare"] == 0  # recorded only
+        with SessionLocal() as s:
+            assert s.get(m.Product, pid).name_en == before
+            assert s.scalars(select(m.CatalogueDecision)).all()[0].status == "approved"
+    finally:
+        with SessionLocal() as s:
+            s.execute(delete(m.CatalogueDecision))
+            s.commit()

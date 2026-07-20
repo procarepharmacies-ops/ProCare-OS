@@ -5,7 +5,8 @@ review material; applying changes is a separate, explicitly-approved export.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.auth import auth_guard
@@ -38,3 +39,31 @@ def enrichment(
     return catalogue.enrichment_proposals(
         session, only_missing=only_missing, limit=limit, min_score=min_score
     )
+
+
+class DecisionIn(BaseModel):
+    product_id: int
+    field: str
+    new_value: str | None = None
+    old_value: str | None = None
+    source: str | None = None
+    status: str  # approved | rejected
+
+
+class DecisionsIn(BaseModel):
+    items: list[DecisionIn]
+
+
+@router.post("/decisions", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def decisions(payload: DecisionsIn, request: Request, session: Session = Depends(get_session)):
+    """Record approve/reject rulings and apply the durable ones to ProCare.
+    eStock is untouched — approvals are staged for the reviewed write-back."""
+    emp = getattr(request.state, "employee_id", None)
+    return catalogue.record_decisions(
+        session, [i.model_dump() for i in payload.items], employee_id=emp
+    )
+
+
+@router.get("/decisions/summary", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def decisions_summary(session: Session = Depends(get_session)):
+    return catalogue.decision_summary(session)

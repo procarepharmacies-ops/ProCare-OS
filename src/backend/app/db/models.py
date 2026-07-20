@@ -928,3 +928,41 @@ class IncentiveLedger(Base):
     )
 
 
+
+
+class CatalogueDecision(Base):
+    """Audit trail of catalogue-correction reviews (Titan / Drug-Eye).
+
+    One row per (product, field) the reviewer ruled on. This is the record the
+    eStock write-back reads: ProCare stages every correction here first, so the
+    source is only ever touched with values a human explicitly approved, and
+    there is a permanent answer to "who changed this, from what, and why".
+
+    ``old_value`` is captured at decision time so a later diff can tell an
+    applied change from one the source has since altered on its own.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "catalogue_decisions"
+
+    decision_id: Mapped[int] = mapped_column(primary_key=True)
+    # Plain indexed int, NOT a FK: the eStock mirror wipes/reloads products, and
+    # a decision must outlive that (see the mirror-wiped-tables rule).
+    product_id: Mapped[int] = mapped_column(index=True)
+    field: Mapped[str] = mapped_column(String(30))
+    old_value: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    new_value: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(20), nullable=True)  # titan|drugeye
+    status: Mapped[str] = mapped_column(String(12))  # approved|rejected
+    # Set once the value has actually been written back to eStock (Phase 2).
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('approved','rejected')", name="CK_catdecision_status"),
+        # One live ruling per product+field; re-deciding updates it in place.
+        UniqueConstraint("product_id", "field", name="UQ_catdecision_product_field"),
+        Index("IX_catdecision_status", "status"),
+    )

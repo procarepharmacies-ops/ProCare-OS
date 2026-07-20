@@ -280,6 +280,15 @@ export const api = {
     http(`/incentives/candidates${bq(branch, `metric=${metric}&top_n=${topN}${search ? `&search=${encodeURIComponent(search)}` : ""}`)}`),
   incentiveApply: (items) => http("/incentives/apply", { method: "POST", body: JSON.stringify({ items }) }),
   incentiveList: () => http("/incentives/products"),
+
+  // Catalogue quality: Titan/Drug-Eye enrichment review + duplicate detection.
+  catalogueEnrichment: (onlyMissing = true, limit = 300) =>
+    http(`/catalogue/enrichment?only_missing=${onlyMissing}&limit=${limit}`),
+  catalogueDuplicates: (branch, limit = 100) =>
+    http(`/catalogue/duplicates${bq(branch, `limit=${limit}`)}`),
+  catalogueDecide: (items) =>
+    http("/catalogue/decisions", { method: "POST", body: JSON.stringify({ items }) }),
+  catalogueDecisionSummary: () => http("/catalogue/decisions/summary"),
   incentiveLeaderboard: (branch, month) =>
     http(`/incentives/leaderboard${bq(branch, month ? `month=${month}` : "")}`),
   employeeIncentives: (employeeId, month) =>

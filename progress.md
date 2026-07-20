@@ -298,3 +298,25 @@
 - Verified live: CEFOTAX 1GM/2GM now propose real indications (meningitis,
   resistant hospital-acquired infections, septicemia).
 - Tests: 228/228.
+
+## 2026-07-20 (later) · Catalogue review screen (Phase 1)
+- BUILT the review UI the enrichment/duplicate work was feeding:
+  `/catalogue` with two tabs — proposed corrections (current vs proposed per
+  field, source badge titan|drugeye, approve/reject individually or in bulk)
+  and duplicate groups (confidence + risk + on-hand/sold/last-sale evidence,
+  suggested keeper highlighted).
+- NEW model `CatalogueDecision` + POST /catalogue/decisions: records every
+  ruling (old value captured at decision time, who, when) and applies the
+  DURABLE fields to ProCare. name_ar/name_en are recorded but deliberately NOT
+  applied locally — the sync overwrites them every cycle, so applying would
+  silently revert and look broken. product_id is a plain indexed int, not a FK,
+  so decisions outlive the mirror wipe.
+- Verified live in the browser: 2,127 proposals rendered (category 2,126 /
+  is_medicine 1,752 / origin 1,111 / uses 11 / scientific 47); approve wrote
+  the decision, applied dosage_form, and left exported_at NULL (staged for the
+  eStock write-back). SACNEL SOAP correctly proposed is_medicine=false.
+- Harvest PAUSED at 765/1,847 molecules (1,521 cached responses) to free RAM
+  for the Next build — the box was OOM-ing (SQL Server alone holds 770MB).
+  Resuming is free: re-run the same command, cache hits cost no requests.
+- Tests: 230/230 (2 new: decision record/apply/re-decide, and the
+  name-fields-not-applied-locally rule).
