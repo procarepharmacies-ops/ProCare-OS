@@ -79,8 +79,112 @@ export default function ShortagesPage() {
 
   const statusBadge = { open: "warn", ordered: "", received: "ok", cancelled: "danger" };
 
+  // كشكول النواقص وخطة الشراء: أولوية (صفر ← طلب عميل ← تحت الحد) + انقل قبل ما تشتري.
+  const [plan, setPlan] = useState(null);
+  const [planMode, setPlanMode] = useState(false);
+  const [consolidated, setConsolidated] = useState(false);
+  useEffect(() => {
+    if (!planMode) return;
+    let alive = true;
+    setPlan(null);
+    const call = consolidated ? api.purchasePlanConsolidated() : api.purchasePlan(shBranch || 1);
+    call.then((r) => alive && setPlan(r)).catch(() => alive && setPlan({ rows: [] }));
+    return () => {
+      alive = false;
+    };
+  }, [planMode, consolidated, shBranch]);
+
+  async function transferNow(row) {
+    const from = row.other_branches?.[0];
+    if (!from) return;
+    try {
+      await api.requestTransfer({
+        from_branch_id: from.branch_id,
+        to_branch_id: Number(shBranch) || 1,
+        lines: [{ product_id: row.product_id, amount: Math.min(row.need, from.on_hand) }],
+      });
+      setMsg({ ok: true, msg: L("plan_deferred") });
+    } catch (e) {
+      setMsg({ ok: false, msg: e.message });
+    }
+  }
+
+  const prioLabel = { 1: "رصيد صفر", 2: "طلب عميل", 3: "تحت الحد الأدنى" };
+
   return (
     <Shell titleKey="nav_shortages">
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <button className={`btn ${!planMode ? "primary" : ""}`} onClick={() => setPlanMode(false)}>
+          {L("nav_shortages")}
+        </button>
+        <button className={`btn ${planMode && !consolidated ? "primary" : ""}`} onClick={() => { setPlanMode(true); setConsolidated(false); }}>
+          📋 {L("plan_title")}
+        </button>
+        <button className={`btn ${planMode && consolidated ? "primary" : ""}`} onClick={() => { setPlanMode(true); setConsolidated(true); }}>
+          🏬 {L("plan_consolidated")}
+        </button>
+        {planMode && plan?.budget && (
+          <span className="badge">
+            {L("budget") || "الميزانية"} ({Math.round((plan.budget.budget_pct || 0.8) * 100)}%): {fmt(plan.budget.daily_budget)} · {fmt(plan.budget.remaining_today)} متبقي
+          </span>
+        )}
+      </div>
+
+      {planMode && (
+        <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>{L("product")}</th>
+                <th>{L("plan_reason")}</th>
+                <th className="num">{L("on_hand")}</th>
+                <th className="num">{L("plan_need")}</th>
+                <th className="num">{L("plan_est_cost")}</th>
+                <th>{L("plan_action")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(plan?.rows || []).map((r) => (
+                <tr key={r.product_id}>
+                  <td>{lang === "ar" ? r.name_ar : r.name_en || r.name_ar}</td>
+                  <td>
+                    <span className={`badge ${r.priority === 1 ? "danger" : r.priority === 2 ? "warn" : ""}`}>
+                      {r.reason || prioLabel[r.priority]}
+                    </span>
+                  </td>
+                  <td className="num">{fmt(r.on_hand ?? "")}</td>
+                  <td className="num">{fmt(r.need ?? r.total_need)}</td>
+                  <td className="num muted">{fmt(r.est_cost)}</td>
+                  <td>
+                    {consolidated ? (
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {(r.per_branch || []).map((b) => `${b.branch}: ${fmt(b.need)}`).join(" · ")}
+                      </span>
+                    ) : r.action === "transfer" ? (
+                      <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        {(r.other_branches || []).map((b) => (
+                          <span key={b.branch_id} className="badge ok" style={{ fontSize: 11 }}>
+                            {b.branch}: {fmt(b.on_hand)}
+                          </span>
+                        ))}
+                        <button className="btn" style={{ fontSize: 12 }} onClick={() => transferNow(r)}>
+                          ⇄ {L("plan_transfer_now")}
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="badge">{L("plan_buy")}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {plan && (plan.rows || []).length === 0 && <p className="muted" style={{ padding: 16 }}>{L("none")}</p>}
+          {!plan && <p className="muted" style={{ padding: 16 }}>{L("loading")}</p>}
+        </div>
+      )}
+
+      {!planMode && (
       <div className="card" style={{ marginBottom: 16 }}>
         <h3 className="section-title">{L("add_shortage")}</h3>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -110,7 +214,9 @@ export default function ShortagesPage() {
         </div>
         {productId && <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>✓ {L("product")} #{productId}</p>}
       </div>
+      )}
 
+      {!planMode && (
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         {["open", "ordered", "received", ""].map((s) => (
           <button key={s || "all"} className={`btn ${filter === s ? "primary" : ""}`} onClick={() => setFilter(s)}>
@@ -118,7 +224,9 @@ export default function ShortagesPage() {
           </button>
         ))}
       </div>
+      )}
 
+      {!planMode && (
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <table className="tbl">
           <thead>
@@ -154,6 +262,7 @@ export default function ShortagesPage() {
           </tbody>
         </table>
       </div>
+      )}
     </Shell>
   );
 }

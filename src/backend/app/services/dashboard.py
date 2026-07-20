@@ -3,7 +3,7 @@ expressed over ProCare's own clean schema.
 
 Every metric obeys the data-quality rules in ``common``: returns excluded,
 available stock only, FEFO. All accept an optional ``branch_id`` (None =
-consolidated across Main + Elsanta).
+consolidated across Elsanta + Mas-hala).
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, sql_day, today
 
 
 def _sales_base(branch_id):
@@ -22,7 +22,7 @@ def _sales_base(branch_id):
 
 def summary(session: Session, branch_id: int | None = None) -> dict:
     """Headline KPIs for the dashboard cards."""
-    month_start = TODAY.replace(day=1)
+    month_start = today().replace(day=1)
     prev_month_end = month_start - timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
 
@@ -32,15 +32,15 @@ def summary(session: Session, branch_id: int | None = None) -> dict:
             .where(
                 m.Sale.is_return == False,  # noqa: E712
                 branch_filter(m.Sale, branch_id),
-                func.date(m.Sale.sale_date) >= start,
-                func.date(m.Sale.sale_date) <= end,
+                sql_day(m.Sale.sale_date) >= start,
+                sql_day(m.Sale.sale_date) <= end,
             )
         )
         rev, cnt = session.execute(stmt).one()
         return money(rev), cnt
 
-    sales_today, bills_today = revenue_between(TODAY, TODAY)
-    sales_month, bills_month = revenue_between(month_start, TODAY)
+    sales_today, bills_today = revenue_between(today(), today())
+    sales_month, bills_month = revenue_between(month_start, today())
     sales_prev_month, _ = revenue_between(prev_month_start, prev_month_end)
 
     # Low-stock: products whose total available qty is below their min_stock.
@@ -52,8 +52,8 @@ def summary(session: Session, branch_id: int | None = None) -> dict:
             m.StockBatch.amount > 0,
             branch_filter(m.StockBatch, branch_id),
             m.StockBatch.exp_date != None,  # noqa: E711
-            m.StockBatch.exp_date > TODAY,
-            m.StockBatch.exp_date <= TODAY + timedelta(days=30),
+            m.StockBatch.exp_date > today(),
+            m.StockBatch.exp_date <= today() + timedelta(days=30),
         )
     ).scalar_one()
 
@@ -65,15 +65,19 @@ def summary(session: Session, branch_id: int | None = None) -> dict:
     ).scalar_one()
 
     # Profit this month: revenue - cost on non-return lines.
-    profit_month = _profit(session, branch_id, month_start, TODAY)
+    profit_month = _profit(session, branch_id, month_start, today())
 
     return {
-        "as_of": TODAY.isoformat(),
+        "as_of": today().isoformat(),
         "branch_id": branch_id or 0,
         "kpis": {
             "sales_today": sales_today,
             "bills_today": bills_today,
+            # sales_month is REVENUE (sum of total_net); bills_month is the
+            # bill COUNT — kept separate so the UI never presents one as the
+            # other (the July-2026 mislabel: 26,261.25 EGP shown as a count).
             "sales_month": sales_month,
+            "bills_month": bills_month,
             "sales_prev_month": sales_prev_month,
             "profit_month": profit_month,
             "low_stock": low_stock,
@@ -112,8 +116,8 @@ def _profit(session: Session, branch_id, start, end) -> float:
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
-            func.date(m.Sale.sale_date) <= end,
+            sql_day(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) <= end,
         )
     )
     revenue, cost = session.execute(stmt).one()
@@ -121,36 +125,66 @@ def _profit(session: Session, branch_id, start, end) -> float:
 
 
 def daily_sales(session: Session, branch_id: int | None = None, days: int = 30) -> list[dict]:
-    """Revenue + bill count per day for the last ``days`` (for the trend chart)."""
-    start = TODAY - timedelta(days=days - 1)
-    stmt = (
+    """Per-day sales, matching eStock's daily-sales report (sales_daily_rpt):
+    bills, items, gross, discount, net, cash, non-cash. ``revenue`` is kept as an
+    alias of ``net`` so the existing trend chart keeps working."""
+    start = today() - timedelta(days=days - 1)
+    # Header aggregates per day.
+    hdr = session.execute(
         select(
-            func.date(m.Sale.sale_date).label("d"),
+            sql_day(m.Sale.sale_date).label("d"),
             func.count().label("bills"),
-            func.coalesce(func.sum(m.Sale.total_net), 0).label("revenue"),
+            func.coalesce(func.sum(m.Sale.total_gross), 0).label("gross"),
+            func.coalesce(func.sum(m.Sale.total_discount), 0).label("discount"),
+            func.coalesce(func.sum(m.Sale.total_net), 0).label("net"),
+            func.coalesce(func.sum(m.Sale.cash_paid), 0).label("cash"),
+            func.coalesce(func.sum(m.Sale.card_paid), 0).label("card"),
         )
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
-        .group_by(func.date(m.Sale.sale_date))
-        .order_by(func.date(m.Sale.sale_date))
-    )
-    rows = {str(r.d): (r.bills, money(r.revenue)) for r in session.execute(stmt)}
-    # Fill gaps so the chart has a continuous axis.
+        .group_by(sql_day(m.Sale.sale_date))
+    ).all()
+    # Item counts per day (join sale_lines once, grouped).
+    items = dict(session.execute(
+        select(sql_day(m.Sale.sale_date).label("d"), func.coalesce(func.sum(m.SaleLine.amount), 0))
+        .select_from(m.Sale).join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            sql_day(m.Sale.sale_date) >= start,
+        )
+        .group_by(sql_day(m.Sale.sale_date))
+    ).all())
+    by_day = {str(r.d): r for r in hdr}
     out = []
     for i in range(days):
         d = (start + timedelta(days=i)).isoformat()
-        bills, revenue = rows.get(d, (0, 0.0))
-        out.append({"date": d, "bills": bills, "revenue": revenue})
+        r = by_day.get(d)
+        net = money(r.net) if r else 0.0
+        cash = money(r.cash) if r else 0.0
+        out.append({
+            "date": d,
+            "bills": r.bills if r else 0,
+            "items": money(items.get(d, 0)),
+            "gross": money(r.gross) if r else 0.0,
+            "discount": money(r.discount) if r else 0.0,
+            "net": net,
+            "revenue": net,  # alias — keeps the existing trend chart working
+            "cash": cash,
+            "card": money(r.card) if r else 0.0,
+            "non_cash": money(net - cash),
+        })
     return out
 
 
 def top_products(session: Session, branch_id: int | None = None, days: int = 30, limit: int = 10) -> list[dict]:
-    start = TODAY - timedelta(days=days - 1)
+    start = today() - timedelta(days=days - 1)
     stmt = (
         select(
+            m.Product.product_id,
             m.Product.name_ar,
             m.Product.name_en,
             func.sum(m.SaleLine.amount).label("units"),
@@ -161,14 +195,14 @@ def top_products(session: Session, branch_id: int | None = None, days: int = 30,
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
         .group_by(m.Product.product_id, m.Product.name_ar, m.Product.name_en)
         .order_by(func.sum(m.SaleLine.total_sell).desc())
         .limit(limit)
     )
     return [
-        {"name_ar": r.name_ar, "name_en": r.name_en, "units": money(r.units), "revenue": money(r.revenue)}
+        {"product_id": r.product_id, "name_ar": r.name_ar, "name_en": r.name_en, "units": money(r.units), "revenue": money(r.revenue)}
         for r in session.execute(stmt)
     ]
 
@@ -177,7 +211,7 @@ def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:
     """Peak-hours for the most recent active day. Bucketed in Python so it is
     dialect-agnostic (SQLite dev + SQL Server prod behave identically)."""
     target = session.execute(
-        select(func.max(func.date(m.Sale.sale_date))).where(branch_filter(m.Sale, branch_id))
+        select(func.max(sql_day(m.Sale.sale_date))).where(branch_filter(m.Sale, branch_id))
     ).scalar_one()
     if target is None:
         return []
@@ -185,7 +219,7 @@ def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:
         select(m.Sale.sale_date, m.Sale.total_net).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) == target,
+            sql_day(m.Sale.sale_date) == target,
         )
     ).all()
     buckets: dict[int, list] = {}
@@ -203,7 +237,7 @@ def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:
 def monthly_sales(session: Session, branch_id: int | None = None, months: int = 12) -> list[dict]:
     """Revenue + bills + profit per calendar month — the dashboard month view.
     Bucketed in Python so SQLite dev and SQL Server prod behave identically."""
-    start = (TODAY.replace(day=1) - timedelta(days=31 * (months - 1))).replace(day=1)
+    start = (today().replace(day=1) - timedelta(days=31 * (months - 1))).replace(day=1)
     rows = session.execute(
         select(
             m.Sale.sale_date,
@@ -213,7 +247,7 @@ def monthly_sales(session: Session, branch_id: int | None = None, months: int = 
         ).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
     ).all()
     profit_rows = session.execute(
@@ -225,7 +259,7 @@ def monthly_sales(session: Session, branch_id: int | None = None, months: int = 
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
         .group_by(m.Sale.sale_id, m.Sale.sale_date)
     ).all()
@@ -252,8 +286,8 @@ def monthly_sales(session: Session, branch_id: int | None = None, months: int = 
 def by_branch(session: Session, date_from=None, date_to=None) -> list[dict]:
     """Side-by-side branch comparison over a date range (defaults: this month).
     Revenue, bills, discount, profit per branch — the all-branches dashboard."""
-    start = date_from or TODAY.replace(day=1)
-    end = date_to or TODAY
+    start = date_from or today().replace(day=1)
+    end = date_to or today()
     branches = session.scalars(select(m.Branch).order_by(m.Branch.branch_id)).all()
 
     sales_rows = session.execute(
@@ -265,8 +299,8 @@ def by_branch(session: Session, date_from=None, date_to=None) -> list[dict]:
         )
         .where(
             m.Sale.is_return == False,  # noqa: E712
-            func.date(m.Sale.sale_date) >= start,
-            func.date(m.Sale.sale_date) <= end,
+            sql_day(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) <= end,
         )
         .group_by(m.Sale.branch_id)
     ).all()
@@ -280,8 +314,8 @@ def by_branch(session: Session, date_from=None, date_to=None) -> list[dict]:
         .join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
         .where(
             m.Sale.is_return == False,  # noqa: E712
-            func.date(m.Sale.sale_date) >= start,
-            func.date(m.Sale.sale_date) <= end,
+            sql_day(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) <= end,
         )
         .group_by(m.Sale.branch_id)
     ).all()
@@ -315,8 +349,8 @@ def range_summary(session: Session, branch_id: int | None, date_from, date_to) -
         ).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= date_from,
-            func.date(m.Sale.sale_date) <= date_to,
+            sql_day(m.Sale.sale_date) >= date_from,
+            sql_day(m.Sale.sale_date) <= date_to,
         )
     ).one()
     return {
@@ -331,7 +365,7 @@ def range_summary(session: Session, branch_id: int | None, date_from, date_to) -
 
 
 def cashier_performance(session: Session, branch_id: int | None = None, days: int = 30) -> list[dict]:
-    start = TODAY - timedelta(days=days - 1)
+    start = today() - timedelta(days=days - 1)
     stmt = (
         select(
             m.Employee.name_ar,
@@ -342,9 +376,211 @@ def cashier_performance(session: Session, branch_id: int | None = None, days: in
         .where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
         .group_by(m.Employee.employee_id, m.Employee.name_ar)
         .order_by(func.sum(m.Sale.total_net).desc())
     )
     return [{"cashier": r.name_ar, "bills": r.bills, "revenue": money(r.revenue)} for r in session.execute(stmt)]
+
+
+def purchasing_summary(session: Session, branch_id: int | None = None) -> dict:
+    """Daily + monthly purchasing totals and the purchasing-to-sales ratio.
+
+    Target ratio for ProCare is 79-80%. Traffic-light status:
+      green  -> 79-80% | yellow -> below 79% | red -> above 80%
+    """
+    month_start = today().replace(day=1)
+
+    def _purchases(start, end) -> float:
+        stmt = (
+            select(func.coalesce(func.sum(m.Purchase.total_net), 0))
+            .where(
+                branch_filter(m.Purchase, branch_id),
+                sql_day(m.Purchase.purchase_date) >= start,
+                sql_day(m.Purchase.purchase_date) <= end,
+            )
+        )
+        return money(float(session.execute(stmt).scalar_one() or 0))
+
+    def _sales(start, end) -> float:
+        stmt = (
+            select(func.coalesce(func.sum(m.Sale.total_net), 0))
+            .where(
+                m.Sale.is_return == False,  # noqa: E712
+                branch_filter(m.Sale, branch_id),
+                sql_day(m.Sale.sale_date) >= start,
+                sql_day(m.Sale.sale_date) <= end,
+            )
+        )
+        return money(float(session.execute(stmt).scalar_one() or 0))
+
+    purch_today = _purchases(today(), today())
+    purch_month = _purchases(month_start, today())
+    sales_month = _sales(month_start, today())
+    ratio = round((purch_month / sales_month * 100), 1) if sales_month > 0 else 0.0
+    if 79 <= ratio <= 80:
+        status = "green"
+    elif ratio > 80:
+        status = "red"
+    else:
+        status = "yellow"
+
+    return {
+        "purchasing_today": purch_today,
+        "purchasing_month": purch_month,
+        "sales_month": sales_month,
+        "ratio_pct": ratio,
+        "ratio_status": status,
+    }
+
+
+def yoy_comparison(session: Session, branch_id: int | None = None) -> dict:
+    """24 months of monthly revenue + profit for Year-over-Year charts."""
+    ref = today().replace(day=1)
+    start = (ref.replace(year=ref.year - 1) - timedelta(days=1)).replace(day=1)
+
+    rows = session.execute(
+        select(m.Sale.sale_date, m.Sale.total_net, m.Sale.sale_id).where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            sql_day(m.Sale.sale_date) >= start,
+        )
+    ).all()
+
+    profit_rows = session.execute(
+        select(
+            m.Sale.sale_date,
+            func.coalesce(func.sum(m.SaleLine.total_sell - m.SaleLine.amount * m.SaleLine.buy_price), 0),
+        )
+        .join(m.SaleLine, m.SaleLine.sale_id == m.Sale.sale_id)
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            sql_day(m.Sale.sale_date) >= start,
+        )
+        .group_by(m.Sale.sale_id, m.Sale.sale_date)
+    ).all()
+
+    buckets: dict[str, dict] = {}
+    for ts, net, _sid in rows:
+        key = f"{ts.year:04d}-{ts.month:02d}"
+        b = buckets.setdefault(key, {"month": key, "revenue": 0.0, "profit": 0.0, "bills": 0})
+        b["revenue"] += float(net or 0)
+        b["bills"] += 1
+    for ts, profit in profit_rows:
+        key = f"{ts.year:04d}-{ts.month:02d}"
+        if key in buckets:
+            buckets[key]["profit"] += float(profit or 0)
+
+    this_year = str(today().year)
+    cur, prev = [], []
+    for b in sorted(buckets.values(), key=lambda x: x["month"]):
+        b = {**b, "revenue": money(b["revenue"]), "profit": money(b["profit"])}
+        if b["month"].startswith(this_year):
+            cur.append(b)
+        else:
+            prev.append(b)
+    return {"current_year": cur, "last_year": prev}
+
+
+def cash_by_branch(session: Session) -> list[dict]:
+    """Current treasury cash balance per branch (POS 1 = Elsanta, POS 2 = Mashala)."""
+    branches = session.scalars(select(m.Branch).order_by(m.Branch.branch_id)).all()
+    rows = session.execute(
+        select(
+            m.LedgerEntry.branch_id,
+            func.coalesce(func.sum(m.LedgerEntry.debit), 0).label("total_in"),
+            func.coalesce(func.sum(m.LedgerEntry.credit), 0).label("total_out"),
+        )
+        .where(m.LedgerEntry.account_type == "cash")
+        .group_by(m.LedgerEntry.branch_id)
+    ).all()
+    balance_map = {r.branch_id: money(float(r.total_in) - float(r.total_out)) for r in rows}
+    return [
+        {
+            "branch_id": b.branch_id,
+            "name_ar": b.name_ar,
+            "name_en": b.name_en,
+            "cash_balance": balance_map.get(b.branch_id, 0.0),
+        }
+        for b in branches
+    ]
+
+
+def expenses_summary(session: Session, branch_id: int | None = None) -> dict:
+    """Monthly + daily expenses = pay vouchers (سند صرف) from the treasury."""
+    month_start = today().replace(day=1)
+
+    def _exp(start, end) -> float:
+        stmt = select(func.coalesce(func.sum(m.LedgerEntry.credit), 0)).where(
+            m.LedgerEntry.account_type == "cash",
+            m.LedgerEntry.ref_type == "treasury_out",
+            branch_filter(m.LedgerEntry, branch_id),
+            sql_day(m.LedgerEntry.created_at) >= start,
+            sql_day(m.LedgerEntry.created_at) <= end,
+        )
+        return money(float(session.execute(stmt).scalar_one() or 0))
+
+    return {
+        "expenses_today": _exp(today(), today()),
+        "expenses_month": _exp(month_start, today()),
+    }
+
+
+def staff_on_shift(session: Session, branch_id: int | None = None) -> dict:
+    """Who is currently on shift (open cashier shift) and who is next up."""
+    open_shifts = session.execute(
+        select(
+            m.CashierShift.shift_id,
+            m.CashierShift.branch_id,
+            m.CashierShift.cashier_id,
+            m.CashierShift.open_time,
+            m.Employee.name_ar,
+            m.Employee.name_en,
+            m.Employee.role,
+        )
+        .join(m.Employee, m.Employee.employee_id == m.CashierShift.cashier_id)
+        .where(
+            m.CashierShift.close_time == None,  # noqa: E711
+            branch_filter(m.CashierShift, branch_id),
+        )
+        .order_by(m.CashierShift.open_time)
+    ).all()
+
+    on_shift = [
+        {
+            "shift_id": r.shift_id,
+            "branch_id": r.branch_id,
+            "employee_id": r.cashier_id,
+            "name_ar": r.name_ar,
+            "name_en": r.name_en,
+            "role": r.role,
+            "on_since": r.open_time.isoformat() if r.open_time else None,
+        }
+        for r in open_shifts
+    ]
+
+    next_tasks = session.execute(
+        select(
+            m.EmployeeTask.assigned_to,
+            m.Employee.name_ar,
+            m.Employee.name_en,
+            m.EmployeeTask.title,
+        )
+        .join(m.Employee, m.Employee.employee_id == m.EmployeeTask.assigned_to)
+        .where(
+            m.EmployeeTask.status == "pending",
+            m.EmployeeTask.due_date == today(),
+            branch_filter(m.EmployeeTask, branch_id),
+            m.EmployeeTask.assigned_to != None,  # noqa: E711
+        )
+        .order_by(m.EmployeeTask.priority.desc())
+        .limit(3)
+    ).all()
+
+    next_up = [
+        {"employee_id": r.assigned_to, "name_ar": r.name_ar, "name_en": r.name_en, "task": r.title}
+        for r in next_tasks
+    ]
+    return {"on_shift": on_shift, "next_up": next_up, "as_of": today().isoformat()}

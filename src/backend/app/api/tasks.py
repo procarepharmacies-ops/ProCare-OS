@@ -22,6 +22,8 @@ class TaskIn(BaseModel):
     assignee_id: int | None = None
     branch_id: int | None = None
     due_date: date | None = None
+    priority: str = "normal"
+    category: str = "general"
 
 
 class StatusIn(BaseModel):
@@ -56,6 +58,8 @@ def create_task(
         branch_id=payload.branch_id,
         due_date=payload.due_date,
         created_by=(auth or {}).get("employee_id"),
+        priority=payload.priority,
+        category=payload.category,
     )
 
 

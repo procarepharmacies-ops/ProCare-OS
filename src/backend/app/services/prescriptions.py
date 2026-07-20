@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import models as m
-from app.services.common import TODAY
+from app.services.common import sql_day, today
 
 _EXTRACT_PROMPT = (
     "You read a photo of a medical prescription from Egypt (Arabic and/or English). "
@@ -139,8 +139,145 @@ def _row(rx: m.Prescription) -> dict:
         "drugs": drugs,
         "raw_text": rx.raw_text,
         "source": rx.source,
+        "status": getattr(rx, "status", "captured"),
         "created_at": rx.created_at.isoformat() if rx.created_at else None,
     }
+
+
+# --- capture -> review -> dispense workflow ---------------------------------
+def _match_products(session: Session, name: str, branch_id: int | None) -> list[dict]:
+    """Best-effort match of a free-text drug name to catalogue products:
+    exact/prefix on Arabic or English name, then scientific-name (active
+    ingredient) overlap. Returns candidates with on-hand at the branch."""
+    from app.services import clinical
+
+    name = (name or "").strip()
+    if not name:
+        return []
+    like = f"%{name}%"
+    products = session.scalars(
+        select(m.Product)
+        .where(
+            m.Product.is_active == True,  # noqa: E712
+            m.Product.is_deleted == False,  # noqa: E712
+            (m.Product.name_ar.ilike(like))
+            | (m.Product.name_en.ilike(like))
+            | (m.Product.scientific_name.ilike(like)),
+        )
+        .limit(8)
+    ).all()
+
+    # On-hand per product at the branch (available = amount>0, non-expired).
+    def on_hand(pid: int) -> float:
+        q = select(func.coalesce(func.sum(m.StockBatch.amount), 0)).where(
+            m.StockBatch.product_id == pid,
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
+            m.StockBatch.amount > 0,
+        )
+        if branch_id:
+            q = q.where(m.StockBatch.branch_id == branch_id)
+        return float(session.scalar(q) or 0)
+
+    out = []
+    for p in products:
+        out.append(
+            {
+                "product_id": p.product_id,
+                "name_ar": p.name_ar,
+                "name_en": p.name_en,
+                "scientific_name": p.scientific_name,
+                "sell_price": float(p.sell_price or 0),
+                "on_hand": on_hand(p.product_id),
+            }
+        )
+    # In-stock candidates first, then by name length (closer match).
+    out.sort(key=lambda c: (c["on_hand"] <= 0, len(c["name_ar"] or "")))
+    return out
+
+
+def resolve_products(session: Session, prescription_id: int, branch_id: int | None = None) -> dict | None:
+    """For each extracted drug line, list catalogue product candidates + stock,
+    so staff can confirm the match before turning the Rx into a sale."""
+    rx = session.get(m.Prescription, prescription_id)
+    if rx is None:
+        return None
+    try:
+        drugs = json.loads(rx.drugs_json or "[]")
+    except Exception:
+        drugs = []
+    branch = branch_id or rx.branch_id
+    lines = []
+    for d in drugs:
+        nm = d.get("name") if isinstance(d, dict) else str(d)
+        candidates = _match_products(session, nm or "", branch)
+        lines.append(
+            {
+                "name": nm,
+                "dose": d.get("dose") if isinstance(d, dict) else None,
+                "candidates": candidates,
+                "best_product_id": candidates[0]["product_id"] if candidates else None,
+            }
+        )
+    return {"prescription_id": rx.prescription_id, "status": rx.status, "branch_id": branch, "lines": lines}
+
+
+def review(session: Session, prescription_id: int, drugs: list[dict], reviewed_by: int | None = None) -> dict | None:
+    """Save the staff-corrected drug lines (each may carry a resolved
+    product_id) and mark the prescription 'reviewed'."""
+    rx = session.get(m.Prescription, prescription_id)
+    if rx is None:
+        return None
+    rx.drugs_json = json.dumps(drugs or [], ensure_ascii=False)[:4000]
+    rx.status = "reviewed"
+    rx.reviewed_by = reviewed_by
+    session.commit()
+    session.refresh(rx)
+    return _row(rx)
+
+
+def cart_lines(session: Session, prescription_id: int, branch_id: int | None = None) -> dict | None:
+    """The reviewed prescription as POS-ready cart lines: only lines with a
+    resolved, in-stock product. Out-of-stock/unmatched lines are returned
+    separately so the cashier can substitute or order them."""
+    rx = session.get(m.Prescription, prescription_id)
+    if rx is None:
+        return None
+    try:
+        drugs = json.loads(rx.drugs_json or "[]")
+    except Exception:
+        drugs = []
+    branch = branch_id or rx.branch_id
+    ready, unresolved = [], []
+    for d in drugs:
+        pid = d.get("product_id") if isinstance(d, dict) else None
+        if not pid:
+            unresolved.append({"name": d.get("name") if isinstance(d, dict) else str(d), "reason": "unmatched"})
+            continue
+        p = session.get(m.Product, pid)
+        if p is None:
+            unresolved.append({"name": d.get("name"), "reason": "unmatched"})
+            continue
+        oh = _match_products(session, p.name_ar, branch)
+        on_hand = next((c["on_hand"] for c in oh if c["product_id"] == pid), 0)
+        line = {
+            "product_id": pid,
+            "name_ar": p.name_ar,
+            "name_en": p.name_en,
+            "sell_price": float(p.sell_price or 0),
+            "amount": float(d.get("qty") or 1),
+            "on_hand": on_hand,
+        }
+        (ready if on_hand > 0 else unresolved).append(line if on_hand > 0 else {**line, "reason": "out_of_stock"})
+    return {"prescription_id": rx.prescription_id, "branch_id": branch, "lines": ready, "unresolved": unresolved}
+
+
+def mark_dispensed(session: Session, prescription_id: int) -> dict | None:
+    rx = session.get(m.Prescription, prescription_id)
+    if rx is None:
+        return None
+    rx.status = "dispensed"
+    session.commit()
+    return {"prescription_id": rx.prescription_id, "status": rx.status}
 
 
 def list_prescriptions(
@@ -158,8 +295,8 @@ def doctor_habits(session: Session, branch_id: int | None = None, days: int = 18
     """Prescribing habits per doctor in the area: how many prescriptions we
     captured, and which drugs each doctor writes most (with counts) — so the
     pharmacy stocks what local doctors actually prescribe."""
-    start = TODAY - timedelta(days=days)
-    q = select(m.Prescription).where(func.date(m.Prescription.created_at) >= start)
+    start = today() - timedelta(days=days)
+    q = select(m.Prescription).where(sql_day(m.Prescription.created_at) >= start)
     if branch_id:
         q = q.where(m.Prescription.branch_id == branch_id)
 
@@ -200,8 +337,8 @@ def doctor_habits(session: Session, branch_id: int | None = None, days: int = 18
 def demand_signal(session: Session, branch_id: int | None = None, days: int = 30) -> dict[str, int]:
     """Drug-name → mention count from recent prescriptions. Feeds the
     predictive auto-purchasing (drugs doctors prescribe are drugs to stock)."""
-    start = TODAY - timedelta(days=days)
-    q = select(m.Prescription.drugs_json).where(func.date(m.Prescription.created_at) >= start)
+    start = today() - timedelta(days=days)
+    q = select(m.Prescription.drugs_json).where(sql_day(m.Prescription.created_at) >= start)
     if branch_id:
         q = q.where(m.Prescription.branch_id == branch_id)
     counts: dict[str, int] = {}

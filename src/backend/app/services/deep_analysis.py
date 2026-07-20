@@ -23,8 +23,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import models as m
-from app.services import alerts, performance
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services import alerts, llm, performance
+from app.services.common import available_stock_filter, branch_filter, money, today
 
 
 def _pct(n, d):
@@ -35,7 +35,7 @@ def _pct(n, d):
 def _dead_stock(session: Session, branch_id, days: int = 180) -> dict:
     """Products holding stock but with no sale in the last ``days`` — cash frozen
     on the shelf. Value at cost."""
-    cutoff = datetime.combine(TODAY - timedelta(days=days), datetime.min.time())
+    cutoff = datetime.combine(today() - timedelta(days=days), datetime.min.time())
     sold_recently = (
         select(func.distinct(m.SaleLine.product_id))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
@@ -70,7 +70,7 @@ def _dead_stock(session: Session, branch_id, days: int = 180) -> dict:
 
 def _inventory_turnover(session: Session, branch_id, snapshot: dict) -> dict:
     """Days-of-stock cover = current stock value ÷ average daily COGS (90 days)."""
-    since = datetime.combine(TODAY - timedelta(days=89), datetime.min.time())
+    since = datetime.combine(today() - timedelta(days=89), datetime.min.time())
     cogs_90 = session.scalar(
         select(func.coalesce(func.sum(m.SaleLine.amount * m.SaleLine.buy_price), 0))
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
@@ -105,8 +105,8 @@ def _customers(session: Session, branch_id, window_start: datetime) -> dict:
             .group_by(m.Sale.customer_id)
         ).all()
     )
-    active_90 = sum(1 for d in last_seen.values() if d and d >= datetime.combine(TODAY - timedelta(days=90), datetime.min.time()))
-    lapsed = sum(1 for d in last_seen.values() if d and d < datetime.combine(TODAY - timedelta(days=365), datetime.min.time()))
+    active_90 = sum(1 for d in last_seen.values() if d and d >= datetime.combine(today() - timedelta(days=90), datetime.min.time()))
+    lapsed = sum(1 for d in last_seen.values() if d and d < datetime.combine(today() - timedelta(days=365), datetime.min.time()))
 
     spend = session.execute(
         select(
@@ -190,7 +190,7 @@ def _build_findings(ov, audit, dead, turnover, cust, sup) -> list[dict]:
     snap = ov["snapshot"]
 
     # Growth trend (use full years; 2026 is partial so compare 2024→2025).
-    full = [y for y in yearly if y["year"] < TODAY.year]
+    full = [y for y in yearly if y["year"] < today().year]
     if len(full) >= 2:
         first, last = full[0], full[-1]
         n = last["year"] - first["year"]
@@ -326,8 +326,7 @@ def _ai_narrative(summary: dict, lang: str) -> tuple[str, str]:
     """Return (narrative, engine). Uses the configured provider to *phrase* the
     computed findings; falls back to a deterministic executive summary offline."""
     fallback = _fallback_narrative(summary, lang)
-    api_key = settings.ai_api_key()
-    if not api_key:
+    if not llm.is_configured():
         return fallback, "rule-based"
     facts = json.dumps({
         "as_of": summary["as_of"], "years": summary["period"]["years"],
@@ -340,29 +339,10 @@ def _ai_narrative(summary: dict, lang: str) -> tuple[str, str]:
         "top priorities. Do not invent any number not in the facts. "
         + ("Write in Arabic." if lang != "en" else "Write in English.")
     )
-    try:
-        import httpx
-        if settings.ai_provider == "gemini":
-            r = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{settings.ai_model}:generateContent",
-                params={"key": api_key},
-                json={"system_instruction": {"parts": [{"text": system}]},
-                      "contents": [{"role": "user", "parts": [{"text": facts}]}]},
-                timeout=30)
-            r.raise_for_status()
-            parts = r.json()["candidates"][0]["content"]["parts"]
-            return " ".join(p.get("text", "") for p in parts).strip() or fallback, "gemini"
-        r = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": settings.ai_model, "max_tokens": 700, "system": system,
-                  "messages": [{"role": "user", "content": facts}]},
-            timeout=30)
-        r.raise_for_status()
-        text = " ".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
-        return text or fallback, "claude"
-    except Exception:
-        return fallback, "rule-based"
+    text = llm.complete(facts, system=system, max_tokens=700)
+    if text:
+        return text, settings.ai_provider
+    return fallback, "rule-based"
 
 
 def _fallback_narrative(summary: dict, lang: str) -> str:
@@ -408,7 +388,7 @@ def deep_analysis(session: Session, years: int = 5, branch_id: int | None = None
     recommendations = _recommendations(findings)
 
     summary = {
-        "as_of": TODAY.isoformat(),
+        "as_of": today().isoformat(),
         "branch_id": branch_id or 0,
         "period": {"years": years, "range": ov["year_range"]},
         "sales": {"yearly": ov["yearly"], "monthly": ov["monthly"], "totals": ov["totals"]},

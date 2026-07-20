@@ -65,9 +65,9 @@ logic we'd need isn't in the DB to begin with. So we build clean and migrate.
 3. **Adds AI + automation** — an Arabic assistant, smart reorder, expiry alerts, sales forecasting,
    and WhatsApp reports. See [`04-ai-automation-spec.md`](04-ai-automation-spec.md).
 
-## 2. Two branches: Main + Elsanta
+## 2. Two branches: Elsanta + Mas-hala
 
-eStock already runs **two physical branches** — **MAIN (الرئيسي)** and **ELSANTA (السنتا)** —
+eStock already runs **two physical branches** — **MASHALA (مسهله)** and **ELSANTA (السنطه)** —
 recorded in its `Branches` table (**2 rows**, 52 config columns per branch). ProCare OS replicates the
 same two‑branch model and, crucially, **how the branches are connected** (eStock Module 7):
 
@@ -82,7 +82,7 @@ ProCare's own schema models this cleanly: a `branches` table, per‑branch / per
 `stock_transfers` (header + lines) between branches, `cash_transfers` between branches, and a unified
 ledger with a **`branch_id` on every operational and financial row** — nothing is branch‑ambiguous.
 Batch identity and expiry travel with each transfer so FEFO and expiry tracking stay correct across
-branches. The dashboard and reports can show **one branch or both combined** via a Main / Elsanta /
+branches. The dashboard and reports can show **one branch or both combined** via a Elsanta / Mas-hala /
 All switcher. Full design: [`07-multi-branch.md`](07-multi-branch.md).
 
 ## 3. Build strategy — read first, run parallel, then cut over
@@ -113,15 +113,15 @@ login.** This keeps the live pharmacy 100% safe for the entire transition.
   against eStock until they match. This is how we prove correctness before trusting the new system.
 
 ### Phase 2 — Parallel run (pilot on one branch)
-- Pick one branch — **recommend Elsanta (السنتا)**, the smaller/secondary branch — and run ProCare OS
+- Pick one branch — **recommend Elsanta (السنطه)**, the smaller/secondary branch — and run ProCare OS
   as the **real POS** there, writing to **ProCare's own database only**.
-- eStock keeps running untouched on the other branch (Main). The Phase‑1 read sync continues so the
+- eStock keeps running untouched on the other branch (Mas-hala). The Phase‑1 read sync continues so the
   rest of the data stays mirrored.
 - Daily reconciliation confirms ProCare handles real sales, returns, stock movements, inter‑branch
   transfers, and money correctly before the stakes go up.
 
 ### Phase 3 — Full cutover (independence)
-- Switch **both branches** (Main + Elsanta) to ProCare OS as the **sole system of record**.
+- Switch **both branches** (Elsanta + Mas-hala) to ProCare OS as the **sole system of record**.
 - eStock is retired and kept only as a **cold, read‑only backup** for historical reference.
 - ProCare OS is now **your own independent software** — clean DB, two branches, Titan/Drug‑Eye and AI
   built in.
@@ -131,7 +131,7 @@ login.** This keeps the live pharmacy 100% safe for the entire transition.
  ───────────         ──────────────────
  Phase 0:  —                 build schema + skeleton    (eStock untouched)
  Phase 1:  READ ──────────►  shadow / validate          (eStock untouched)
- Phase 2:  READ ──────────►  pilot POS on Elsanta        (eStock still live on Main)
+ Phase 2:  READ ──────────►  pilot POS on Elsanta        (eStock still live on Mas-hala)
  Phase 3:  (retired, cold)   BOTH branches, sole SoR     ← independent software
 ```
 
@@ -196,7 +196,7 @@ See the full system layout in [`01-architecture.md`](01-architecture.md).
 ### One‑line summary
 
 > **Build ProCare OS as an independent Python/FastAPI + SQL Server system with its own clean,
-> two‑branch (Main + Elsanta) database — mirror eStock by reading it (read‑only), validate in shadow
+> two‑branch (Elsanta + Mas-hala) database — mirror eStock by reading it (read‑only), validate in shadow
 > mode, pilot the live POS on Elsanta in parallel, then cut over both branches completely — with
 > Titan/Drug‑Eye clinical data and an AI + automation layer built in, Arabic by default and English +
 > Dark mode optional.**

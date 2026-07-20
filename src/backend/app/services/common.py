@@ -10,21 +10,52 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import and_, or_
+from sqlalchemy import Date, and_, case, cast, func, or_
 from sqlalchemy.orm import Query
 
+from app.config import settings
 from app.db import models as m
+from app.db.base import IS_SQLITE
 
-# In production this is GETDATE(); the demo data is anchored to a fixed "today"
-# so dashboards and tests are stable and reproducible.
-TODAY = date(2026, 6, 26)
+# The demo/seed dataset is anchored to a fixed "today" so offline dashboards
+# and the test suite are stable and reproducible.
+DEMO_TODAY = date(2026, 6, 26)
+
+
+def today() -> date:
+    """The business 'today'. Real clock when a live eStock mirror is
+    configured; the demo anchor otherwise (offline demo + test suite —
+    conftest pins the example config, so tests always get the anchor)."""
+    if settings.estock_configured:
+        return date.today()
+    return DEMO_TODAY
+
+
+def sql_day(col):
+    """Dialect-portable "date part of a datetime column" for filters and
+    GROUP BY. SQLite's ``date()`` is not a SQL Server function, and SQL
+    Server's ``CAST(x AS DATE)`` degrades to a numeric cast on SQLite —
+    so pick per dialect."""
+    return func.date(col) if IS_SQLITE else cast(col, Date)
+
+
+def fefo_order(col=m.StockBatch.exp_date):
+    """Portable FEFO ordering: ascending expiry, NULLs last.
+
+    ``col.asc().nulls_last()`` emits ``ORDER BY ... NULLS LAST``, which is valid
+    on SQLite/Postgres but a syntax error on SQL Server (no NULLS clause). Emulate
+    it with a leading sort key that pushes NULLs to the end on every dialect.
+    Spread into order_by: ``.order_by(*fefo_order())``. FEFO is non-negotiable
+    (CLAUDE.md), so this MUST behave identically on SQLite and SQL Server.
+    """
+    return (case((col.is_(None), 1), else_=0), col.asc())
 
 
 def available_stock_filter():
     """SQLAlchemy filter for sellable stock: positive and not expired."""
     return and_(
         m.StockBatch.amount > 0,
-        or_(m.StockBatch.exp_date == None, m.StockBatch.exp_date > TODAY),  # noqa: E711
+        or_(m.StockBatch.exp_date == None, m.StockBatch.exp_date > today()),  # noqa: E711
     )
 
 

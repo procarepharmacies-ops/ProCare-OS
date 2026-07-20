@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Shell from "../components/Shell";
 import Icon from "../components/icons";
 import { useUI } from "../providers";
@@ -8,8 +9,18 @@ import { t } from "../i18n";
 import { api } from "../api";
 import { printReceipt } from "../lib/print";
 
+// useSearchParams (for the ?rx=<id> prescription hand-off) must sit inside a
+// Suspense boundary so Next can build the page.
 export default function POSPage() {
-  const { lang, branch, branches, setBranch } = useUI();
+  return (
+    <Suspense fallback={null}>
+      <POSInner />
+    </Suspense>
+  );
+}
+
+function POSInner() {
+  const { lang, branch, branches, setBranch, user } = useUI();
   const L = (k) => t(lang, k);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -42,6 +53,29 @@ export default function POSPage() {
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
+
+  // Seed the cart from a reviewed prescription (?rx=<id>): the prescription
+  // reader hands off here so the pharmacist dispenses it as a normal sale.
+  const searchParams = useSearchParams();
+  const [rxId, setRxId] = useState(null);
+  useEffect(() => {
+    const id = searchParams.get("rx");
+    if (!id || !posBranch) return;
+    setRxId(Number(id));
+    api
+      .rxCart(id, posBranch)
+      .then((res) => {
+        const lines = (res.lines || []).map((l) => ({
+          product_id: l.product_id,
+          name: lang === "ar" ? l.name_ar : l.name_en || l.name_ar,
+          sell_price: l.sell_price,
+          amount: l.amount || 1,
+        }));
+        if (lines.length) setCart(lines);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, posBranch]);
 
   useEffect(() => {
     if (!posBranch) return;
@@ -101,18 +135,61 @@ export default function POSPage() {
     setResult(null);
     setCart((c) => {
       const found = c.find((x) => x.product_id === p.product_id);
-      if (found) return c.map((x) => (x.product_id === p.product_id ? { ...x, amount: x.amount + 1 } : x));
-      return [...c, { product_id: p.product_id, name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar, sell_price: p.sell_price, amount: 1 }];
+      if (found)
+        return c.map((x) =>
+          x.product_id === p.product_id
+            ? { ...x, amount: x.amount + (x.unit === "small" ? 1 / (x.unit_factor || 1) : 1) }
+            : x
+        );
+      return [
+        ...c,
+        {
+          product_id: p.product_id,
+          name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar,
+          sell_price: p.sell_price,
+          buy_price: Number(p.buy_price) || 0,
+          amount: 1, // ALWAYS in big units (علبة) — the DB stock unit
+          unit: "big",
+          unit_big: p.unit_big || null,
+          unit_small: p.unit_small || null,
+          unit_factor: Number(p.unit_factor) > 1 ? Number(p.unit_factor) : 1,
+        },
+      ];
     });
   }
-  function setQty(pid, amount) {
-    setCart((c) => c.map((x) => (x.product_id === pid ? { ...x, amount: Math.max(1, amount) } : x)));
+  // qty is what the cashier typed, in the line's SELECTED unit; stock stays in
+  // big units, so a small-unit qty is divided by the factor (٢ شريط = ٠٫٦٦٧ علبة).
+  function setQty(pid, qty) {
+    setCart((c) =>
+      c.map((x) => {
+        if (x.product_id !== pid) return x;
+        const q = Math.max(1, qty);
+        return { ...x, amount: x.unit === "small" ? q / (x.unit_factor || 1) : q };
+      })
+    );
   }
+  function toggleUnit(pid) {
+    setCart((c) =>
+      c.map((x) => {
+        if (x.product_id !== pid || !x.unit_small || x.unit_factor <= 1) return x;
+        // Keep the physical quantity, flip only the display/entry unit.
+        return { ...x, unit: x.unit === "big" ? "small" : "big" };
+      })
+    );
+  }
+  const shownQty = (x) =>
+    x.unit === "small" ? Math.round(x.amount * (x.unit_factor || 1)) : Math.round(x.amount * 1000) / 1000;
   function removeItem(pid) {
     setCart((c) => c.filter((x) => x.product_id !== pid));
   }
 
   const total = useMemo(() => cart.reduce((s, x) => s + x.sell_price * x.amount, 0), [cart]);
+  // مكسب الفاتورة أثناء البيع — manager/CEO eyes only (buy prices are gated).
+  const invoiceProfit = useMemo(
+    () => cart.reduce((s, x) => s + (x.sell_price - (x.buy_price || 0)) * x.amount, 0),
+    [cart]
+  );
+  const canSeeProfit = user && (user.role === "ceo" || user.role === "manager");
 
   useEffect(() => {
     if (!posBranch) return;
@@ -175,8 +252,8 @@ export default function POSPage() {
     }
   }
 
-  async function showSubs(item) {
-    setSubsFor({ product_id: item.product_id, name: item.name });
+  async function showSubs(item, outOfStock = false) {
+    setSubsFor({ product_id: item.product_id, name: item.name, outOfStock });
     setSubs(null);
     try {
       const r = await api.substitutions(item.product_id, posBranch, lang);
@@ -187,16 +264,36 @@ export default function POSPage() {
   }
 
   function swapToSub(s) {
-    // Replace the original cart line with the chosen alternative.
-    setCart((c) =>
-      c.map((x) =>
-        x.product_id === subsFor.product_id
-          ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
-          : x
-      )
-    );
+    // From an out-of-stock trigger there is no cart line yet → add the chosen
+    // in-stock alternative. Otherwise replace the original cart line.
+    if (subsFor?.outOfStock) {
+      addToCart({ product_id: s.product_id, name_ar: s.name, name_en: s.name, sell_price: s.sell_price, on_hand: 1 });
+    } else {
+      setCart((c) =>
+        c.map((x) =>
+          x.product_id === subsFor.product_id
+            ? { ...x, product_id: s.product_id, name: s.name, sell_price: s.sell_price }
+            : x
+        )
+      );
+    }
     setSubsFor(null);
     setSubs(null);
+  }
+
+  // Order the product from another branch that has stock: creates a transfer
+  // request (a manager approves it — nothing moves until then).
+  async function orderFromBranch(fromBranchId, productId, name) {
+    try {
+      await api.requestTransfer({
+        from_branch_id: fromBranchId,
+        to_branch_id: posBranch,
+        lines: [{ product_id: productId, amount: 1 }],
+      });
+      setShiftMsg({ ok: true, text: L("transfer_requested") + ": " + name });
+    } catch {
+      setShiftMsg({ ok: false, text: L("transfer_request_failed") });
+    }
   }
 
   async function doPrintReceipt() {
@@ -223,6 +320,11 @@ export default function POSPage() {
         redeem_points: Number(redeemIn) || 0,
       };
       const r = await api.createSale(payload);
+      // If this sale came from a prescription, mark it dispensed.
+      if (rxId) {
+        api.rxDispensed(rxId).catch(() => {});
+        setRxId(null);
+      }
       let msg = `${L("sale_done")} ${r.sale_id} · ${fmt(r.total_net)} ${L("egp")}`;
       if (r.loyalty_points !== undefined) msg += ` · ${L("points_balance")}: ${fmt(r.loyalty_points)} ⭐`;
       if (r.whatsapp_sent) msg += ` · ${L("wa_sent")} ✓`;
@@ -388,24 +490,60 @@ export default function POSPage() {
               placeholder={L("search") + "…"}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter = take the top suggestion straight into the cart.
+                if (e.key === "Enter" && products.length > 0 && products[0].on_hand > 0) {
+                  addToCart(products[0]);
+                  setSearch("");
+                }
+              }}
               style={{ width: "100%" }}
             />
+            {search && (
+              <p className="muted" style={{ margin: "6px 2px 0", fontSize: 12 }}>
+                {products.length} {L("search_matches")} — Enter {L("search_enter_hint")}
+              </p>
+            )}
           </div>
           <div style={{ maxHeight: 460, overflowY: "auto" }}>
             <table className="tbl">
               <tbody>
                 {products.map((p) => (
-                  <tr key={p.product_id} style={{ cursor: "pointer" }} onClick={() => p.on_hand > 0 && addToCart(p)}>
-                    <td>{lang === "ar" ? p.name_ar : p.name_en || p.name_ar}</td>
+                  <tr
+                    key={p.product_id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() =>
+                      p.on_hand > 0
+                        ? addToCart(p)
+                        : showSubs({ product_id: p.product_id, name: lang === "ar" ? p.name_ar : p.name_en || p.name_ar }, true)
+                    }
+                    title={p.on_hand > 0 ? "" : L("oos_show_alts")}
+                  >
+                    <td>
+                      {lang === "ar" ? p.name_ar : p.name_en || p.name_ar}
+                      {p.unit_small && p.unit_factor > 1 && (
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {" "}· {p.unit_big || ""} = {fmt(p.unit_factor)} {p.unit_small}
+                        </span>
+                      )}
+                    </td>
                     <td className="num muted">{fmt(p.sell_price)}</td>
                     <td className="num">
                       {p.on_hand > 0 ? (
                         <span className="muted">{fmt(p.on_hand)}</span>
                       ) : (
-                        <span className="badge danger">0</span>
+                        <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <span className="badge danger">0</span>
+                          {/* أثناء البيع: هل الصنف متوفر في الفرع الآخر؟ */}
+                          {(p.other_branches || []).map((b) => (
+                            <span key={b.branch_id} className="badge ok" style={{ fontSize: 11 }}>
+                              {L("available_in")} {b.branch}: {fmt(b.on_hand)}
+                            </span>
+                          ))}
+                        </span>
                       )}
                     </td>
-                    <td>＋</td>
+                    <td>{p.on_hand > 0 ? "＋" : "⇄"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -423,11 +561,22 @@ export default function POSPage() {
               <button className="btn icon" onClick={() => showSubs(x)} title={L("alternatives")}>
                 ⇄
               </button>
+              {/* Unit selector (وحدة كبرى/صغرى): sell by علبة or by شريط/أمبول. */}
+              {x.unit_small && x.unit_factor > 1 && (
+                <button
+                  className="btn"
+                  style={{ padding: "2px 8px", fontSize: 12 }}
+                  title={`1 ${x.unit_big || ""} = ${x.unit_factor} ${x.unit_small}`}
+                  onClick={() => toggleUnit(x.product_id)}
+                >
+                  {x.unit === "small" ? x.unit_small : x.unit_big || L("unit_lbl")} ▾
+                </button>
+              )}
               <input
                 className="input"
                 type="number"
                 min={1}
-                value={x.amount}
+                value={shownQty(x)}
                 onChange={(e) => setQty(x.product_id, Number(e.target.value))}
                 style={{ width: 64 }}
               />
@@ -446,7 +595,7 @@ export default function POSPage() {
             <div className="card" style={{ margin: "10px 0", padding: 10, background: "var(--bg)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <strong style={{ fontSize: 13 }}>
-                  ⇄ {L("alt_for")}: {subsFor.name}
+                  {subsFor.outOfStock ? "⚠ " + L("oos_alts_title") : "⇄ " + L("alt_for")}: {subsFor.name}
                 </strong>
                 <button className="btn icon" onClick={() => { setSubsFor(null); setSubs(null); }}>✕</button>
               </div>
@@ -466,9 +615,19 @@ export default function POSPage() {
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
                     {(s.branches || []).map((b) => (
-                      <span key={b.branch_id} className="badge" style={{ fontSize: 11 }}>
+                      <span key={b.branch_id} className="badge" style={{ fontSize: 11, display: "inline-flex", gap: 4, alignItems: "center" }}>
                         {b.branch_name}: {fmt(b.qty)}
                         {b.nearest_expiry ? ` · ${L("expiry_lbl")} ${b.nearest_expiry}` : ""}
+                        {b.branch_id !== posBranch && b.qty > 0 && (
+                          <button
+                            className="btn"
+                            style={{ padding: "0 6px", fontSize: 11 }}
+                            title={L("order_from_branch")}
+                            onClick={() => orderFromBranch(b.branch_id, s.product_id, s.name)}
+                          >
+                            ⇩ {L("order")}
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>
@@ -484,6 +643,14 @@ export default function POSPage() {
                 {fmt(total)} {L("egp")}
               </span>
             </div>
+            {canSeeProfit && cart.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 4 }} className="muted">
+                <span>{L("invoice_profit")}</span>
+                <span className="num" style={{ color: invoiceProfit >= 0 ? "var(--ok)" : "var(--danger)" }}>
+                  {fmt(invoiceProfit)} {L("egp")}
+                </span>
+              </div>
+            )}
 
             {advisory.length > 0 && (
               <div

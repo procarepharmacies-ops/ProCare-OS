@@ -74,6 +74,67 @@ def trial_balance(session: Session, branch_id: int | None = None) -> dict:
     }
 
 
+_ACCOUNT_TYPE_LABELS = {
+    "customer": "العملاء",
+    "vendor": "الموردون",
+    "cash": "النقدية (الخزينة)",
+    "bank": "البنوك",
+    "branch": "الفروع",
+    "general": "حسابات عامة",
+}
+
+
+def chart_of_accounts(session: Session, branch_id: int | None = None) -> dict:
+    """شجرة الحسابات — the account tree grouped by type, each type carrying its
+    sub-accounts with resolved names (customer/vendor/branch) and net balance.
+    Builds on the trial-balance aggregation, adding readable names + Arabic
+    group headers so it reads like eStock's chart of accounts."""
+    tb = trial_balance(session, branch_id)
+    # Resolve names for the ref-bearing account types in one pass each.
+    cust_names = dict(session.execute(select(m.Customer.customer_id, m.Customer.name_ar)).all())
+    vend_names = dict(session.execute(select(m.Vendor.vendor_id, m.Vendor.name_ar)).all())
+    branch_names = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_ar)).all())
+
+    groups: dict[str, dict] = {}
+    for acc in tb["accounts"].values():
+        atype = acc["type"]
+        g = groups.setdefault(
+            atype,
+            {
+                "type": atype,
+                "label": _ACCOUNT_TYPE_LABELS.get(atype, atype),
+                "debit": 0.0,
+                "credit": 0.0,
+                "balance": 0.0,
+                "accounts": [],
+            },
+        )
+        ref = acc["ref"]
+        name = None
+        if ref is not None:
+            if atype == "customer":
+                name = cust_names.get(ref)
+            elif atype == "vendor":
+                name = vend_names.get(ref)
+            elif atype == "branch":
+                name = branch_names.get(ref)
+        g["accounts"].append({**acc, "name": name or (f"#{ref}" if ref else g["label"])})
+        g["debit"] += acc["debit"]
+        g["credit"] += acc["credit"]
+        g["balance"] += acc["balance"]
+
+    ordered = [groups[k] for k in _ACCOUNT_TYPE_LABELS if k in groups]
+    ordered += [g for k, g in groups.items() if k not in _ACCOUNT_TYPE_LABELS]
+    for g in ordered:
+        g["accounts"].sort(key=lambda a: abs(a["balance"]), reverse=True)
+    return {
+        "groups": ordered,
+        "total_debit": tb["total_debit"],
+        "total_credit": tb["total_credit"],
+        "balanced": abs(tb["total_debit"] - tb["total_credit"]) < 0.01,
+    }
+
+
 def account_balance(session: Session, account_type: str, account_ref: int | None = None) -> dict:
     q = select(
         func.sum(m.LedgerEntry.debit).label("total_debit"),
@@ -155,14 +216,36 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         m.Sale.sale_date >= cutoff,
     )
 
+    # Paid amounts by payment type over the same non-return window. Cash
+    # received nets out any change handed back (change_given is 0 for POS
+    # sales but populated on ETL-imported sales).
+    base_paid = select(
+        func.coalesce(func.sum(m.Sale.cash_paid - m.Sale.change_given), 0),
+        func.coalesce(func.sum(m.Sale.card_paid), 0),
+    ).where(
+        m.Sale.is_return == False,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
+    base_credit = select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
+        m.Sale.is_return == False,  # noqa: E712
+        m.Sale.is_credit == True,  # noqa: E712
+        m.Sale.sale_date >= cutoff,
+    )
+
     if branch_id:
         base_sales = base_sales.where(m.Sale.branch_id == branch_id)
         base_returns = base_returns.where(m.Sale.branch_id == branch_id)
         base_count = base_count.where(m.Sale.branch_id == branch_id)
+        base_paid = base_paid.where(m.Sale.branch_id == branch_id)
+        base_credit = base_credit.where(m.Sale.branch_id == branch_id)
 
     total_sales = float(session.scalar(base_sales) or 0)
     total_returns = float(session.scalar(base_returns) or 0)
     num_sales = int(session.scalar(base_count) or 0)
+    cash_paid_row, card_paid_row = session.execute(base_paid).one()
+    cash_paid = round(float(cash_paid_row or 0), 2)
+    card_paid = round(float(card_paid_row or 0), 2)
+    credit_sales = round(float(session.scalar(base_credit) or 0), 2)
 
     return {
         "period_days": days,
@@ -170,6 +253,10 @@ def sales_summary(session: Session, branch_id: int | None = None, days: int = 30
         "total_returns_net": total_returns,
         "num_sales": num_sales,
         "net_revenue": total_sales - total_returns,
+        "cash_paid": cash_paid,
+        "card_paid": card_paid,
+        "total_paid": round(cash_paid + card_paid, 2),
+        "credit_sales": credit_sales,
     }
 
 

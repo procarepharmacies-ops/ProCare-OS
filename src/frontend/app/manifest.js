@@ -23,6 +23,7 @@ export default function manifest() {
       { src: "/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
+      { name: "قارئ الروشتات / Rx Camera", url: "/prescriptions?mode=camera", icons: [{ src: "/icon-192.png", sizes: "192x192" }] },
       { name: "نقطة البيع / POS", url: "/pos", icons: [{ src: "/icon-192.png", sizes: "192x192" }] },
       { name: "المخزون / Inventory", url: "/inventory", icons: [{ src: "/icon-192.png", sizes: "192x192" }] },
       { name: "التقارير / Reports", url: "/reports", icons: [{ src: "/icon-192.png", sizes: "192x192" }] },

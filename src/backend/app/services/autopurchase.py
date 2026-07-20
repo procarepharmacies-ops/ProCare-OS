@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.db import models as m
 from app.services import prescriptions as rx
 from app.services.alerts import _avg_daily_consumption
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, sql_day, today
 
 
 def budget_pct() -> float:
@@ -36,12 +36,12 @@ def budget_pct() -> float:
 
 def daily_budget(session: Session, branch_id: int | None = None, days: int = 30) -> dict:
     """The purchasing budget: 80% (configurable) of average daily sales."""
-    start = TODAY - timedelta(days=days - 1)
+    start = today() - timedelta(days=days - 1)
     revenue = session.execute(
         select(func.coalesce(func.sum(m.Sale.total_net), 0)).where(
             m.Sale.is_return == False,  # noqa: E712
             branch_filter(m.Sale, branch_id),
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
         )
     ).scalar_one()
     avg_daily = float(revenue) / days
@@ -51,7 +51,7 @@ def daily_budget(session: Session, branch_id: int | None = None, days: int = 30)
         select(func.coalesce(func.sum(m.Purchase.total_gross), 0)).where(
             m.Purchase.is_return == False,  # noqa: E712
             branch_filter(m.Purchase, branch_id),
-            m.Purchase.bill_date == TODAY,
+            m.Purchase.bill_date == today(),
         )
     ).scalar_one()
     budget = avg_daily * pct
@@ -96,6 +96,148 @@ def _rx_boost(product: m.Product, rx_counts: dict[str, int]) -> int:
                 hits += count
                 break
     return hits
+
+
+def _other_branch_stock(session: Session, branch_id: int, product_ids: list[int]) -> dict[int, list[dict]]:
+    """Live availability of these products at every OTHER branch."""
+    if not product_ids:
+        return {}
+    rows = session.execute(
+        select(
+            m.StockBatch.product_id, m.Branch.branch_id, m.Branch.name_ar,
+            func.sum(m.StockBatch.amount),
+        )
+        .join(m.Branch, m.Branch.branch_id == m.StockBatch.branch_id)
+        .where(
+            m.StockBatch.product_id.in_(product_ids),
+            m.StockBatch.branch_id != branch_id,
+            available_stock_filter(),
+        )
+        .group_by(m.StockBatch.product_id, m.Branch.branch_id, m.Branch.name_ar)
+    ).all()
+    out: dict[int, list[dict]] = {}
+    for pid, bid, bname, qty in rows:
+        if qty and float(qty) > 0:
+            out.setdefault(pid, []).append({"branch_id": bid, "branch": bname, "on_hand": money(qty)})
+    return out
+
+
+def purchase_plan(session: Session, branch_id: int) -> dict:
+    """كشكول نواقص الفرع — the owner's purchasing doctrine, in order:
+
+    1. أصناف رصيدها صفر (stocked-out items that actually sell),
+    2. طلبات العملاء (open shortage-sheet requests),
+    3. أصناف تحت الحد الأدنى (below min-stock).
+
+    THE RULE: before buying anything, look at the other branches — if the item
+    is available there, transfer it NOW and defer the purchase. Each row says
+    ``action: transfer`` (with where/how much) or ``action: buy``.
+    """
+    consumption = _avg_daily_consumption(session, branch_id)
+    on_hand = _on_hand(session, branch_id)
+    requests = _shortage_signal(session, branch_id)
+
+    entries: list[dict] = []
+    seen: set[int] = set()
+
+    def _need(pid: int, min_stock: float, req_qty: float) -> float:
+        daily = consumption.get(pid, 0.0)
+        cover = daily * 14  # two weeks of demand
+        return max(cover, float(min_stock or 0), req_qty, 1.0) - on_hand.get(pid, 0.0)
+
+    products = {
+        p.product_id: p
+        for p in session.scalars(
+            select(m.Product).where(m.Product.is_deleted == False)  # noqa: E712
+        )
+    }
+    # Priority 1: sells (recent consumption) but the shelf is EMPTY.
+    for pid, daily in consumption.items():
+        if daily > 0 and on_hand.get(pid, 0.0) <= 0 and pid in products:
+            entries.append({"product_id": pid, "priority": 1, "reason": "رصيد صفر"})
+            seen.add(pid)
+    # Priority 2: a customer asked for it (open shortage sheet).
+    for pid in requests:
+        if pid not in seen and pid in products:
+            entries.append({"product_id": pid, "priority": 2, "reason": "طلب عميل"})
+            seen.add(pid)
+    # Priority 3: below its minimum.
+    for pid, p in products.items():
+        if pid in seen or float(p.min_stock or 0) <= 0:
+            continue
+        if on_hand.get(pid, 0.0) < float(p.min_stock):
+            entries.append({"product_id": pid, "priority": 3, "reason": "تحت الحد الأدنى"})
+
+    others = _other_branch_stock(session, branch_id, [e["product_id"] for e in entries])
+    rows = []
+    for e in entries:
+        p = products[e["product_id"]]
+        need = round(_need(p.product_id, p.min_stock, requests.get(p.product_id, 0.0)), 3)
+        if need <= 0:
+            continue
+        avail = others.get(p.product_id, [])
+        transferable = sum(b["on_hand"] for b in avail)
+        action = "transfer" if transferable >= min(need, 1.0) else "buy"
+        rows.append(
+            {
+                "product_id": p.product_id,
+                "name_ar": p.name_ar,
+                "name_en": p.name_en,
+                "priority": e["priority"],
+                "reason": e["reason"],
+                "on_hand": money(on_hand.get(p.product_id, 0.0)),
+                "need": money(need),
+                "requested_by_customers": money(requests.get(p.product_id, 0.0)),
+                "other_branches": avail,
+                "action": action,
+                "buy_price": money(p.buy_price),
+                "est_cost": money(need * float(p.buy_price or 0)),
+            }
+        )
+    rows.sort(key=lambda r: (r["priority"], -r["est_cost"]))
+    return {
+        "branch_id": branch_id,
+        "rows": rows,
+        "transfer_first": sum(1 for r in rows if r["action"] == "transfer"),
+        "to_buy": sum(1 for r in rows if r["action"] == "buy"),
+        "budget": daily_budget(session, branch_id),
+    }
+
+
+def consolidated_plan(session: Session) -> dict:
+    """طلبية شراء مجمعة للفروع — one vendor order combining every branch's BUY
+    rows (transfer-first rows are excluded: they're moved, not bought), under
+    the whole-network 80% budget."""
+    branches = session.scalars(select(m.Branch).where(m.Branch.is_active == True)).all()  # noqa: E712
+    per_product: dict[int, dict] = {}
+    for b in branches:
+        plan = purchase_plan(session, b.branch_id)
+        for r in plan["rows"]:
+            if r["action"] != "buy":
+                continue
+            agg = per_product.setdefault(
+                r["product_id"],
+                {
+                    "product_id": r["product_id"],
+                    "name_ar": r["name_ar"],
+                    "priority": r["priority"],
+                    "total_need": 0.0,
+                    "buy_price": r["buy_price"],
+                    "per_branch": [],
+                },
+            )
+            agg["total_need"] = round(agg["total_need"] + r["need"], 3)
+            agg["priority"] = min(agg["priority"], r["priority"])
+            agg["per_branch"].append({"branch_id": b.branch_id, "branch": b.name_ar, "need": r["need"]})
+    rows = sorted(per_product.values(), key=lambda r: (r["priority"], -r["total_need"] * r["buy_price"]))
+    for r in rows:
+        r["est_cost"] = money(r["total_need"] * r["buy_price"])
+    budget = daily_budget(session, None)
+    return {
+        "rows": rows,
+        "total_cost": money(sum(r["est_cost"] for r in rows)),
+        "budget": budget,
+    }
 
 
 def propose(

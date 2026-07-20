@@ -29,7 +29,7 @@ Related docs: [`01-architecture.md`](01-architecture.md) ·
 | Opening stock | 249 headers / 3,400 lines |
 | Customers | 1,197 |
 | Vendors | 87 / Manufacturer companies 1,210 |
-| Branches | **2 (Main الرئيسي + Elsanta السنتا)** |
+| Branches | **2 (Elsanta السنطه + Mas-hala مسهله)** |
 | Stock batches (Product_Amount) | 35,404 |
 | Per‑branch stock rows (Branches_Product_Amount) | 121,625 |
 | Stock‑change audit rows | 265,249 |
@@ -153,10 +153,10 @@ forward only what is live, but documents the lot so nothing is silently dropped.
 | `Jobs` | 8 | Job title definitions |
 | `user_login` | 4,057 | Login audit trail |
 
-### Module 7 — Branches / Multi‑Store  ← **Main + Elsanta**
+### Module 7 — Branches / Multi‑Store  ← **Elsanta + Mas-hala**
 | Table | Rows | Purpose |
 |-------|-----:|---------|
-| `Branches` | **2** | Branch definitions (52 columns — full config per branch) — Main + Elsanta |
+| `Branches` | **2** | Branch definitions (52 columns — full config per branch) — Elsanta + Mas-hala |
 | `Branches_Product_Amount` | 121,625 | Stock per branch (mirrors `Product_Amount`) |
 | `Branches_sales_header/details` | 0 | Branch‑specific sales (replication target) |
 | `Branches_purchase_header/details` | 0 | Branch purchasing |
@@ -167,7 +167,7 @@ forward only what is live, but documents the lot so nothing is silently dropped.
 | `Branch_money_convert` | 1,098 | Executed cash transfers |
 | `Gedo_branches` | 9,271 | Branch financial ledger |
 
-> This module is how Main (الرئيسي) and Elsanta (السنتا) are connected. ProCare replicates it — every
+> This module is how Mas-hala (مسهله) and Elsanta (السنطه) are connected. ProCare replicates it — every
 > operational row carries a `branch_id`. See [`07-multi-branch.md`](07-multi-branch.md).
 
 ### Module 8 — System / Config

@@ -8,7 +8,7 @@ equivalents of the ``sp_*`` procedures sketched in ``sql/procare-schema.sql``):
   * ``deduct_stock_fefo`` — sp_deduct_stock: FEFO, never goes negative.
   * ``create_sale``     — sp_create_sale: atomic invoice (header + lines +
                           stock movements + ledger), credit-checked, expiry-locked.
-  * ``transfer_stock``  — sp_transfer_stock: atomic Main <-> Elsanta move.
+  * ``transfer_stock``  — sp_transfer_stock: atomic Elsanta <-> Mas-hala move.
 
 Guardrails baked in (fixing the eStock issues named in the docs):
   * a sale that would exceed the credit limit needs an explicit override by an
@@ -20,14 +20,28 @@ Guardrails baked in (fixing the eStock issues named in the docs):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.services import loyalty as loyalty_svc
-from app.services.common import TODAY, money
+from app.services.common import fefo_order, money, today
+
+
+def _parse_date(value) -> date | None:
+    """Accept an ISO 'YYYY-MM-DD' string (or a date/datetime) and return a date."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
 
 
 class POSError(Exception):
@@ -94,9 +108,9 @@ def deduct_stock_fefo(
             m.StockBatch.product_id == product_id,
             m.StockBatch.branch_id == branch_id,
             m.StockBatch.amount > 0,
-            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
     ).all()
 
     available = sum(float(b.amount) for b in batches)
@@ -220,18 +234,32 @@ def create_sale(
                 employee_id=cashier_id,
             )
             primary_batch = taken[0][0] if taken else None
-            session.add(
-                m.SaleLine(
-                    sale_id=sale.sale_id,
-                    product_id=product.product_id,
-                    batch_id=primary_batch,
-                    amount=float(ln.amount),
-                    sell_price=price,
-                    buy_price=float(product.buy_price),
-                    disc_money=float(ln.disc_money),
-                    total_sell=line_total,
-                )
+            sale_line = m.SaleLine(
+                sale_id=sale.sale_id,
+                product_id=product.product_id,
+                batch_id=primary_batch,
+                amount=float(ln.amount),
+                sell_price=price,
+                buy_price=float(product.buy_price),
+                disc_money=float(ln.disc_money),
+                total_sell=line_total,
             )
+            session.add(sale_line)
+            session.flush()  # assign line_id
+
+            # Incentives: track employee points for incentivized products sold.
+            if cashier_id is not None and float(product.incentive_points) > 0:
+                points = float(ln.amount) * float(product.incentive_points)
+                session.add(
+                    m.IncentiveLedger(
+                        employee_id=cashier_id,
+                        sale_id=sale.sale_id,
+                        sale_line_id=sale_line.line_id,
+                        product_id=product.product_id,
+                        branch_id=branch_id,
+                        points=points,
+                    )
+                )
 
         # Ledger + customer balance for on-account sales.
         if is_credit and customer_id is not None:
@@ -403,6 +431,8 @@ def return_sale(
                 )
             )
 
+        session.flush()
+
         if original.is_credit and original.customer_id is not None:
             customer = session.get(m.Customer, original.customer_id)
             customer.current_balance = float(customer.current_balance or 0) - total_refund
@@ -431,6 +461,26 @@ def return_sale(
 
         # Loyalty: claw back the points the refunded amount had earned.
         loyalty_svc.clawback_for_return(session, ret)
+
+        # Incentives: claw back the employee points for refunded items.
+        if original.cashier_id is not None:
+            for orig_line, qty_returned, refund in resolved:
+                product = session.get(m.Product, orig_line.product_id)
+                if product and float(product.incentive_points) > 0:
+                    points = float(qty_returned) * float(product.incentive_points)
+                    # Find the corresponding return line to link to.
+                    ret_line = next((l for l in ret.lines if l.product_id == orig_line.product_id), None)
+                    if ret_line:
+                        session.add(
+                            m.IncentiveLedger(
+                                employee_id=original.cashier_id,
+                                sale_id=ret.sale_id,
+                                sale_line_id=ret_line.line_id,
+                                product_id=orig_line.product_id,
+                                branch_id=original.branch_id,
+                                points=-points,
+                            )
+                        )
 
         session.commit()
         session.refresh(ret)
@@ -468,59 +518,287 @@ def transfer_stock(
         )
         session.add(transfer)
         session.flush()
+        _move_transfer_lines(session, transfer, lines, actor=requested_by)
+        session.commit()
+        session.refresh(transfer)
+        return transfer
+    except Exception:
+        session.rollback()
+        raise
 
+
+def _move_transfer_lines(session: Session, transfer: m.StockTransfer, lines, actor: int | None) -> None:
+    """FEFO-move each (product_id, amount) line from the transfer's source branch
+    to its destination, recording two stock movements + a detailed transfer line
+    per hit batch. Shared by the immediate transfer and the approve-request path."""
+    from_branch_id = transfer.from_branch_id
+    to_branch_id = transfer.to_branch_id
+    for ln in lines:
+        # Decrement the source FEFO; each hit batch's expiry travels along.
+        src_batches = session.scalars(
+            select(m.StockBatch)
+            .where(
+                m.StockBatch.product_id == ln.product_id,
+                m.StockBatch.branch_id == from_branch_id,
+                m.StockBatch.amount > 0,
+                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
+            )
+            .order_by(*fefo_order())
+        ).all()
+        available = sum(float(b.amount) for b in src_batches)
+        if available < ln.amount:
+            raise POSError(
+                "insufficient_stock",
+                f"مخزون غير كافٍ للتحويل: متاح {money(available)} مطلوب {money(ln.amount)}",
+            )
+        remaining = float(ln.amount)
+        for src in src_batches:
+            if remaining <= 0:
+                break
+            take = min(float(src.amount), remaining)
+            src.amount = float(src.amount) - take
+            remaining -= take
+            session.add(
+                m.StockMovement(
+                    batch_id=src.batch_id, branch_id=from_branch_id, delta=-take,
+                    reason="transfer_out", ref_id=transfer.transfer_id, employee_id=actor,
+                )
+            )
+            # Destination batch mirrors expiry + cost so FEFO stays correct.
+            dst = m.StockBatch(
+                product_id=ln.product_id, branch_id=to_branch_id, amount=take,
+                buy_price=src.buy_price, sell_price=src.sell_price, exp_date=src.exp_date,
+            )
+            session.add(dst)
+            session.flush()
+            session.add(
+                m.StockMovement(
+                    batch_id=dst.batch_id, branch_id=to_branch_id, delta=take,
+                    reason="transfer_in", ref_id=transfer.transfer_id, employee_id=actor,
+                )
+            )
+            session.add(
+                m.StockTransferLine(
+                    transfer_id=transfer.transfer_id, product_id=ln.product_id,
+                    from_batch_id=src.batch_id, to_batch_id=dst.batch_id,
+                    amount=take, buy_price=src.buy_price, exp_date=src.exp_date,
+                )
+            )
+
+
+def request_transfer(
+    session: Session,
+    from_branch_id: int,
+    to_branch_id: int,
+    lines: list[SaleLineInput],
+    *,
+    requested_by: int | None = None,
+) -> m.StockTransfer:
+    """Record a transfer REQUEST (status='requested') without moving any stock —
+    a manager approves it later. Lines store product_id + amount only (batches
+    are picked at approval time). Validates source availability up front so an
+    impossible request is rejected immediately."""
+    if from_branch_id == to_branch_id:
+        raise POSError("same_branch", "لا يمكن التحويل لنفس الفرع / cannot transfer to the same branch")
+    if not lines:
+        raise POSError("empty_transfer", "لا توجد أصناف للتحويل / no lines to transfer")
+    try:
+        transfer = m.StockTransfer(
+            from_branch_id=from_branch_id,
+            to_branch_id=to_branch_id,
+            status="requested",
+            requested_by=requested_by,
+        )
+        session.add(transfer)
+        session.flush()
         for ln in lines:
-            # Decrement the source FEFO; each hit batch's expiry travels along.
-            src_batches = session.scalars(
-                select(m.StockBatch)
-                .where(
-                    m.StockBatch.product_id == ln.product_id,
-                    m.StockBatch.branch_id == from_branch_id,
-                    m.StockBatch.amount > 0,
-                    (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > TODAY),  # noqa: E711
+            if ln.amount <= 0:
+                continue
+            session.add(
+                m.StockTransferLine(
+                    transfer_id=transfer.transfer_id,
+                    product_id=ln.product_id,
+                    amount=float(ln.amount),
                 )
-                .order_by(m.StockBatch.exp_date.asc().nulls_last())
-            ).all()
-            available = sum(float(b.amount) for b in src_batches)
-            if available < ln.amount:
-                raise POSError(
-                    "insufficient_stock",
-                    f"مخزون غير كافٍ للتحويل: متاح {money(available)} مطلوب {money(ln.amount)}",
-                )
-            remaining = float(ln.amount)
-            for src in src_batches:
-                if remaining <= 0:
-                    break
-                take = min(float(src.amount), remaining)
-                src.amount = float(src.amount) - take
-                remaining -= take
-                session.add(
-                    m.StockMovement(
-                        batch_id=src.batch_id, branch_id=from_branch_id, delta=-take,
-                        reason="transfer_out", ref_id=transfer.transfer_id, employee_id=requested_by,
-                    )
-                )
-                # Destination batch mirrors expiry + cost so FEFO stays correct.
-                dst = m.StockBatch(
-                    product_id=ln.product_id, branch_id=to_branch_id, amount=take,
-                    buy_price=src.buy_price, sell_price=src.sell_price, exp_date=src.exp_date,
-                )
-                session.add(dst)
-                session.flush()
-                session.add(
-                    m.StockMovement(
-                        batch_id=dst.batch_id, branch_id=to_branch_id, delta=take,
-                        reason="transfer_in", ref_id=transfer.transfer_id, employee_id=requested_by,
-                    )
-                )
-                session.add(
-                    m.StockTransferLine(
-                        transfer_id=transfer.transfer_id, product_id=ln.product_id,
-                        from_batch_id=src.batch_id, to_batch_id=dst.batch_id,
-                        amount=take, buy_price=src.buy_price, exp_date=src.exp_date,
-                    )
-                )
+            )
+        session.commit()
+        session.refresh(transfer)
+        return transfer
+    except Exception:
+        session.rollback()
+        raise
 
+
+def approve_transfer(session: Session, transfer_id: int, *, approved_by: int | None = None) -> m.StockTransfer:
+    """Approve a requested transfer: execute the FEFO stock move now and mark it
+    received. Idempotency-guarded — only a 'requested' transfer can be approved."""
+    transfer = session.get(m.StockTransfer, transfer_id)
+    if transfer is None:
+        raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
+    if transfer.status != "requested":
+        raise POSError("bad_status", f"لا يمكن اعتماد تحويل حالته {transfer.status}")
+    # The requested lines carry (product_id, amount); replace them with the
+    # detailed, batch-linked lines the move produces.
+    requested = [SaleLineInput(product_id=l.product_id, amount=float(l.amount)) for l in transfer.lines]
+    try:
+        for l in list(transfer.lines):
+            session.delete(l)
+        session.flush()
+        transfer.status = "received"
+        transfer.shipped_at = datetime.now()
+        transfer.received_at = datetime.now()
+        _move_transfer_lines(session, transfer, requested, actor=approved_by)
+        session.commit()
+        session.refresh(transfer)
+        return transfer
+    except Exception:
+        session.rollback()
+        raise
+
+
+def reject_transfer(session: Session, transfer_id: int) -> m.StockTransfer:
+    """Reject a requested transfer (status -> cancelled). No stock moves."""
+    transfer = session.get(m.StockTransfer, transfer_id)
+    if transfer is None:
+        raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
+    if transfer.status != "requested":
+        raise POSError("bad_status", f"لا يمكن رفض تحويل حالته {transfer.status}")
+    transfer.status = "cancelled"
+    session.commit()
+    session.refresh(transfer)
+    return transfer
+
+
+def _ship_transfer_lines(session: Session, transfer: m.StockTransfer, lines, actor: int | None) -> None:
+    """OUT side only: FEFO-decrement the source and record transfer_out. Each hit
+    batch becomes a transfer line carrying its expiry + cost (to_batch_id stays
+    NULL — the goods are in transit, not yet in destination stock)."""
+    from_branch_id = transfer.from_branch_id
+    for ln in lines:
+        src_batches = session.scalars(
+            select(m.StockBatch)
+            .where(
+                m.StockBatch.product_id == ln.product_id,
+                m.StockBatch.branch_id == from_branch_id,
+                m.StockBatch.amount > 0,
+                (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
+            )
+            .order_by(*fefo_order())
+        ).all()
+        available = sum(float(b.amount) for b in src_batches)
+        if available < ln.amount:
+            raise POSError(
+                "insufficient_stock",
+                f"مخزون غير كافٍ للتحويل: متاح {money(available)} مطلوب {money(ln.amount)}",
+            )
+        remaining = float(ln.amount)
+        for src in src_batches:
+            if remaining <= 0:
+                break
+            take = min(float(src.amount), remaining)
+            src.amount = float(src.amount) - take
+            remaining -= take
+            session.add(
+                m.StockMovement(
+                    batch_id=src.batch_id, branch_id=from_branch_id, delta=-take,
+                    reason="transfer_out", ref_id=transfer.transfer_id, employee_id=actor,
+                )
+            )
+            session.add(
+                m.StockTransferLine(
+                    transfer_id=transfer.transfer_id, product_id=ln.product_id,
+                    from_batch_id=src.batch_id, to_batch_id=None,
+                    amount=take, buy_price=src.buy_price, exp_date=src.exp_date,
+                )
+            )
+
+
+def ship_transfer(session: Session, transfer_id: int, *, shipped_by: int | None = None) -> m.StockTransfer:
+    """Two-phase step 1 (صرف/شحن): the source releases the goods. Stock leaves
+    the source now (transfer_out); it is NOT yet in destination stock — the
+    destination must confirm receipt (expiry + quantity) to complete it."""
+    transfer = session.get(m.StockTransfer, transfer_id)
+    if transfer is None:
+        raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
+    if transfer.status != "requested":
+        raise POSError("bad_status", f"لا يمكن شحن تحويل حالته {transfer.status}")
+    requested = [SaleLineInput(product_id=l.product_id, amount=float(l.amount)) for l in transfer.lines]
+    try:
+        for l in list(transfer.lines):
+            session.delete(l)
+        session.flush()
+        transfer.status = "in_transit"
+        transfer.shipped_at = datetime.now()
+        _ship_transfer_lines(session, transfer, requested, actor=shipped_by)
+        session.commit()
+        session.refresh(transfer)
+        return transfer
+    except Exception:
+        session.rollback()
+        raise
+
+
+def receive_transfer(
+    session: Session,
+    transfer_id: int,
+    confirmations: dict | None = None,
+    *,
+    received_by: int | None = None,
+) -> m.StockTransfer:
+    """Two-phase step 2 (استلام الإذن): the destination reviews the in-transit
+    lines, confirms/corrects each line's received quantity and expiry date, and
+    only then does the stock enter destination inventory (transfer_in). A short
+    receipt (breakage in transit) simply adds less than was shipped — the
+    difference is visible in the movement ledger as shrinkage.
+
+    ``confirmations``: ``{line_id: {"amount": float, "exp_date": "YYYY-MM-DD"}}``.
+    Missing lines default to the shipped amount + expiry (accept as sent).
+    """
+    transfer = session.get(m.StockTransfer, transfer_id)
+    if transfer is None:
+        raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
+    if transfer.status != "in_transit":
+        raise POSError("bad_status", f"لا يمكن استلام تحويل حالته {transfer.status}")
+    confirmations = confirmations or {}
+    # Product sell prices for the new destination batches (destination sells at
+    # its own catalogue price).
+    prod_ids = {l.product_id for l in transfer.lines}
+    sell_prices = dict(
+        session.execute(
+            select(m.Product.product_id, m.Product.sell_price).where(m.Product.product_id.in_(prod_ids))
+        ).all()
+    ) if prod_ids else {}
+    try:
+        for line in transfer.lines:
+            conf = confirmations.get(line.line_id) or confirmations.get(str(line.line_id)) or {}
+            recv_amount = float(conf.get("amount", line.amount))
+            if recv_amount < 0:
+                raise POSError("bad_quantity", "الكمية لا يمكن أن تكون سالبة / amount cannot be negative")
+            exp = conf.get("exp_date", None)
+            exp_date = _parse_date(exp) if exp else line.exp_date
+            if recv_amount <= 0:
+                # Nothing arrived for this line (fully lost in transit) — leave
+                # the shipped record, create no destination batch.
+                continue
+            dst = m.StockBatch(
+                product_id=line.product_id, branch_id=transfer.to_branch_id,
+                amount=recv_amount, buy_price=line.buy_price,
+                sell_price=float(sell_prices.get(line.product_id, 0) or 0),
+                exp_date=exp_date,
+            )
+            session.add(dst)
+            session.flush()
+            line.to_batch_id = dst.batch_id
+            line.amount = recv_amount  # what was actually received
+            line.exp_date = exp_date
+            session.add(
+                m.StockMovement(
+                    batch_id=dst.batch_id, branch_id=transfer.to_branch_id, delta=recv_amount,
+                    reason="transfer_in", ref_id=transfer.transfer_id, employee_id=received_by,
+                )
+            )
+        transfer.status = "received"
+        transfer.received_at = datetime.now()
         session.commit()
         session.refresh(transfer)
         return transfer

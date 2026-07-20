@@ -15,8 +15,10 @@ export default function TasksPage() {
   const [summary, setSummary] = useState({ pending: 0, done_today: 0 });
   const [assignees, setAssignees] = useState([]);
   const [mineOnly, setMineOnly] = useState(!canAssign);
-  const [form, setForm] = useState({ title: "", details: "", assignee_id: "", due_date: "" });
+  const [form, setForm] = useState({ title: "", details: "", assignee_id: "", due_date: "", priority: "normal", category: "general" });
   const [saving, setSaving] = useState(false);
+
+  const PRIORITY_CLASS = { high: "danger", normal: "warn", low: "" };
 
   const load = useCallback(async () => {
     try {
@@ -50,8 +52,10 @@ export default function TasksPage() {
         assignee_id: form.assignee_id ? Number(form.assignee_id) : null,
         branch_id: branch || null,
         due_date: form.due_date || null,
+        priority: form.priority,
+        category: form.category,
       });
-      setForm({ title: "", details: "", assignee_id: "", due_date: "" });
+      setForm({ title: "", details: "", assignee_id: "", due_date: "", priority: "normal", category: "general" });
       await load();
     } finally {
       setSaving(false);
@@ -102,6 +106,22 @@ export default function TasksPage() {
               <span className="muted">{L("due_date_lbl")}</span>
               <input className="input" type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
             </label>
+            <label style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+              <span className="muted">{L("priority")}</span>
+              <select className="select" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+                <option value="high">{L("priority_high")}</option>
+                <option value="normal">{L("priority_normal")}</option>
+                <option value="low">{L("priority_low")}</option>
+              </select>
+            </label>
+            <label style={{ flex: "1 1 130px", display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+              <span className="muted">{L("category")}</span>
+              <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                {["general", "opening", "closing", "inventory", "ordering", "cleaning", "approval"].map((c) => (
+                  <option key={c} value={c}>{L(`cat_${c}`)}</option>
+                ))}
+              </select>
+            </label>
             <button className="btn primary" type="submit" disabled={!form.title.trim() || saving}>
               {L("add_task")}
             </button>
@@ -114,48 +134,74 @@ export default function TasksPage() {
           </label>
         </div>
 
-        <div className="table-wrapper">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>{L("task_title")}</th>
-                <th>{L("assignee")}</th>
-                <th>{L("due_date_lbl")}</th>
-                <th>{L("status")}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {!tasks && (
-                <tr><td colSpan="5" className="empty">{L("loading")}</td></tr>
-              )}
-              {tasks && tasks.length === 0 && (
-                <tr><td colSpan="5" className="empty">{L("none")}</td></tr>
-              )}
-              {tasks?.map((task) => (
-                <tr key={task.task_id} style={{ opacity: task.status === "done" ? 0.55 : 1 }}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{task.title}</div>
-                    {task.details && <div className="muted" style={{ fontSize: 12 }}>{task.details}</div>}
-                  </td>
-                  <td>{task.assignee_name || L("unassigned")}</td>
-                  <td>{task.due_date || "-"}</td>
-                  <td>
-                    <span className={`badge ${task.status === "done" ? "ok" : "warn"}`}>
-                      {task.status === "done" ? L("mark_done") : L("pending_tasks")}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="btn" onClick={() => toggle(task)}>
-                      {task.status === "done" ? L("reopen") : L("mark_done")}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {!tasks && <p className="muted">{L("loading")}</p>}
+        {tasks && tasks.length === 0 && <p className="empty">{L("none")}</p>}
+        {tasks && tasks.length > 0 && groupTasks(tasks).map((grp) => (
+          grp.items.length === 0 ? null : (
+            <div key={grp.key} style={{ marginBottom: 18 }}>
+              <h3 className="section-title" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {L(grp.key)}
+                <span className="badge">{grp.items.length}</span>
+              </h3>
+              <div className="table-wrapper">
+                <table className="tbl">
+                  <tbody>
+                    {grp.items.map((task) => (
+                      <tr key={task.task_id} style={{ opacity: task.status === "done" ? 0.5 : 1 }}>
+                        <td style={{ width: 8, background: task.status === "pending" && task.priority === "high" ? "var(--danger)" : "transparent" }} />
+                        <td>
+                          <div style={{ fontWeight: 600, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            {task.priority !== "normal" && (
+                              <span className={`badge ${PRIORITY_CLASS[task.priority] || ""}`} style={{ fontSize: 10 }}>
+                                {L(`priority_${task.priority}`)}
+                              </span>
+                            )}
+                            {task.category && task.category !== "general" && (
+                              <span className="badge" style={{ fontSize: 10 }}>{L(`cat_${task.category}`)}</span>
+                            )}
+                            <span>{task.title}</span>
+                          </div>
+                          {task.details && <div className="muted" style={{ fontSize: 12 }}>{task.details}</div>}
+                        </td>
+                        <td className="muted" style={{ whiteSpace: "nowrap" }}>{task.assignee_name || L("unassigned")}</td>
+                        <td className="muted" style={{ whiteSpace: "nowrap" }}>{task.due_date || "-"}</td>
+                        <td>
+                          <button className="btn" onClick={() => toggle(task)}>
+                            {task.status === "done" ? L("reopen") : L("mark_done")}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        ))}
       </div>
     </Shell>
   );
+}
+
+// Group tasks into Overdue / Today / This week / Later buckets (pending
+// overdue/today first — that's the daily plan the staff work from).
+function groupTasks(tasks) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(today);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const buckets = { overdue: [], today: [], week: [], later: [] };
+  for (const t of tasks) {
+    const due = t.due_date ? new Date(t.due_date + "T00:00:00") : null;
+    if (t.status === "pending" && due && due < today) buckets.overdue.push(t);
+    else if (due && +due === +today) buckets.today.push(t);
+    else if (due && due <= weekEnd) buckets.week.push(t);
+    else buckets.later.push(t);
+  }
+  return [
+    { key: "tasks_overdue", items: buckets.overdue },
+    { key: "tasks_today", items: buckets.today },
+    { key: "tasks_week", items: buckets.week },
+    { key: "tasks_later", items: buckets.later },
+  ];
 }

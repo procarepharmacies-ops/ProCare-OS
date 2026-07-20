@@ -104,7 +104,7 @@ EMPLOYEES = [
     ("مدير النظام", "admin", "Admin", True, "ceo"),
     ("أحمد الكاشير", "ahmed", "Cashier", False, "assistant"),
     ("سارة الصيدلانية", "sara", "Pharmacist", False, "manager"),
-    ("محمد فرع السنتا", "mohamed", "Cashier", False, "assistant"),
+    ("محمد فرع مسهله", "mohamed", "Cashier", False, "assistant"),
 ]
 
 
@@ -128,24 +128,60 @@ def reset_and_seed() -> dict:
 
 
 def ensure_seeded() -> dict:
-    """Create tables and seed once if the catalogue is empty. Idempotent."""
+    """Create tables and seed once if the catalogue is empty. Idempotent.
+
+    When a live eStock source is configured, DEMO data is never seeded — the
+    branch-scoped sync fills the database with real rows and would have no way
+    to clear demo rows sitting in other branches. Only the branch rows (which
+    the mirror requires) are ensured in that case.
+    """
     Base.metadata.create_all(engine)
     with SessionLocal() as s:
         count = s.scalar(select(func.count()).select_from(m.Product)) or 0
         if count > 0:
             return {"already_seeded": True, "products": count}
+        from app.config import settings
+
+        if settings.estock_configured:
+            # Real branches only (owner spelling): Elsanta السنطه is the main
+            # branch, Mas-hala مسهله the second. The mirror's store_branch_map
+            # auto-creates any further codes it meets.
+            if s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first() is None:
+                s.add(m.Branch(code="ELSANTA", name_ar="السنطة", name_en="Elsanta", is_pilot=True))
+            if s.scalars(select(m.Branch).where(m.Branch.code == "MASHALA")).first() is None:
+                s.add(m.Branch(code="MASHALA", name_ar="مسهلة", name_en="Mas-hala", is_pilot=False))
+            s.commit()
+            return {"skipped_demo": True, "reason": "live eStock source configured — sync fills the DB"}
         summary = _seed(s)
         s.commit()
         return summary
 
 
+def _ensure_branches(s: Session) -> list:
+    """The two real pharmacy branches, created only if missing (mirror needs ≥1).
+
+    Procare runs exactly two locations: Elsanta (السنطه) and Mas-hala (مسهله).
+    There is no separate 'Main' branch — Elsanta is the primary.
+    """
+    elsanta = s.scalars(select(m.Branch).where(m.Branch.code == "ELSANTA")).first()
+    if elsanta is None:
+        elsanta = m.Branch(code="ELSANTA", name_ar="السنطة", name_en="Elsanta", is_pilot=True)
+        s.add(elsanta)
+    mashala = s.scalars(select(m.Branch).where(m.Branch.code == "MASHALA")).first()
+    if mashala is None:
+        mashala = m.Branch(code="MASHALA", name_ar="مسهلة", name_en="Mas-hala", is_pilot=False)
+        s.add(mashala)
+    s.flush()
+    return [elsanta, mashala]
+
+
 def _seed(s: Session) -> dict:
     # --- Branches (the schema seeds these; we own them here on SQLite) --------
-    main = m.Branch(code="MAIN", name_ar="الرئيسي", name_en="Main", is_pilot=False)
-    elsanta = m.Branch(code="ELSANTA", name_ar="السنتا", name_en="Elsanta", is_pilot=True)
-    s.add_all([main, elsanta])
-    s.flush()
-    branches = [main, elsanta]
+    # Check-before-insert: a partially-seeded DB (tables/branches already present
+    # but zero products) must not crash ensure_seeded() with a duplicate-key
+    # error on ELSANTA/MASHALA — reuse the existing rows instead of re-inserting.
+    elsanta, mashala = _ensure_branches(s)
+    branches = [elsanta, mashala]
 
     # --- Reference data -------------------------------------------------------
     companies = [m.Company(name_ar=n) for n in COMPANIES]
@@ -169,7 +205,7 @@ def _seed(s: Session) -> dict:
             password_hash=_hash("procare123"),
             role=login_role,
             job_id=jobs[0].job_id if is_admin else jobs[1].job_id,
-            branch_id=elsanta.branch_id if "السنتا" in name_ar else main.branch_id,
+            branch_id=mashala.branch_id if "مسهله" in name_ar else elsanta.branch_id,
             can_see_buy_price=is_admin,
             can_edit_sell_price=is_admin,
             can_sale_credit=is_admin or role_en == "Pharmacist",
@@ -202,6 +238,15 @@ def _seed(s: Session) -> dict:
             tax_price=0,
             wholesale_price=round(sell * 0.92, 2),
             min_stock=RNG.choice([10, 15, 20, 25, 30]),
+            unit_big="علبة",
+            unit_small=RNG.choice(["شريط", "شريط", "أمبول", "كبسولة"]),
+            unit_factor=RNG.choice([2, 3, 3, 6, 10]),
+            dosage_form=RNG.choice(["أقراص", "أقراص", "شراب", "حقن", "كريم", "نقط", "لبوس"]),
+            is_otc=(i % 3 == 0),
+            uses=RNG.choice([
+                "مسكن وخافض للحرارة", "مضاد حيوي واسع المجال", "مضاد للالتهاب",
+                "علاج البرد والاحتقان", "فيتامينات ومكملات", "علاج الحموضة والمعدة",
+            ]),
         )
         products.append(p)
     s.add_all(products)
@@ -254,6 +299,7 @@ def _seed(s: Session) -> dict:
             m.Customer(
                 name_ar=name,
                 mobile="011" + "".join(str(RNG.randint(0, 9)) for _ in range(8)),
+                address=RNG.choice(["ش الجمهورية", "ش النصر", "ميدان المحطة", "ش سعد زغلول", "أمام المستشفى"]) + f" - عقار {RNG.randint(1, 90)}",
                 customer_class_id=classes[1 if is_org else 0].customer_class_id,
                 credit_limit=limit,
                 current_balance=balance,

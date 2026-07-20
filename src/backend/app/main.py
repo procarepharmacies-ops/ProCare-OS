@@ -22,14 +22,28 @@ from app.api.routes import router as api_router
 from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
+    ensure_assigned_agent_column,
+    ensure_branch_names_corrected,
+    ensure_customer_address_column,
+    ensure_customer_crm_columns,
+    ensure_employee_reset_columns,
+    ensure_fk_indexes,
+    ensure_incentive_points_column,
     ensure_loyalty_points_column,
+    ensure_loyalty_tier_columns,
     ensure_original_sale_id_column,
+    ensure_prescription_status_columns,
+    ensure_product_classification_columns,
+    ensure_product_unit_columns,
     ensure_role_column,
     ensure_roster,
     ensure_shelf_location_column,
+    ensure_task_priority_columns,
+    ensure_titan_match_columns,
+    ensure_titan_drug_columns,
 )
 from app.db.seed import ensure_seeded
-from app.services import sync
+from app.services import scheduler, sync
 
 
 @asynccontextmanager
@@ -41,11 +55,33 @@ async def lifespan(_app: FastAPI):
     ensure_original_sale_id_column(engine)
     ensure_shelf_location_column(engine)
     ensure_loyalty_points_column(engine)
+    ensure_task_priority_columns(engine)
+    ensure_prescription_status_columns(engine)
+    ensure_employee_reset_columns(engine)
+    ensure_titan_match_columns(engine)
+    ensure_titan_drug_columns(engine)
+    ensure_product_unit_columns(engine)
+    ensure_product_classification_columns(engine)
+    ensure_customer_address_column(engine)
+    ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix
+    ensure_assigned_agent_column(engine)
+    # FK-check indexes: without them the sync's batch wipe is quadratic
+    # (~500s/cycle on real data); with them it's instant.
+    ensure_fk_indexes(engine)
+    ensure_incentive_points_column(engine)
+    # Phase 3: Loyalty tiers and CRM engagement
+    ensure_loyalty_tier_columns(engine)
+    ensure_customer_crm_columns(engine)
+    # Daily safety net: the pharmacy never opens without a fresh backup.
+    from app.services import backup
+
+    backup.backup_if_stale(24, "startup-daily")
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
-    # eStock sync never mirrors employees, so a freshly-synced production DB
-    # has no login at all unless BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
+    # Mirrored eStock employees arrive with unusable sentinel passwords, so a
+    # freshly-synced production DB still has no working login unless
+    # BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
     with SessionLocal() as session:
         bootstrap_ceo_if_configured(session)
         # The pharmacy's real staff accounts (create-only, survives restarts).
@@ -55,13 +91,24 @@ async def lifespan(_app: FastAPI):
         from app.services import tasks as tasks_svc
 
         tasks_svc.ensure_weekly_ops_tasks(session)
+        # Today's daily operations checklist (opening/closing/inventory), once
+        # per day per branch, auto-assigned by role where the template names one.
+        tasks_svc.ensure_daily_ops_tasks(session)
     # Start the continuous eStock→ProCare sync when enabled (SYNC_ENABLED + a
     # read-only eStock source configured); otherwise it stays idle.
     sync.start()
+    # Start the automation scheduler (expiry alerts / auto-purchase drafts /
+    # auto-reports) when AUTOMATION_ENABLED is set and APScheduler is installed;
+    # otherwise it stays idle and jobs remain fireable on demand.
+    scheduler.start()
+    # Index business knowledge graph (docs, schemas, findings).
+    from app.services import knowledge as knowledge_svc
+    knowledge_svc.refresh()
     try:
         yield
     finally:
         sync.stop()
+        scheduler.shutdown()
 
 
 app = FastAPI(
@@ -75,16 +122,14 @@ app = FastAPI(
 # proxies /api to the backend server-side (same origin), so CORS isn't strictly
 # needed — but allow it to be configured for setups that call the API directly.
 # Set PROCARE_CORS_ORIGINS to a comma-separated list, or "*" to allow any origin.
-_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").strip()
+_cors_env = os.environ.get("PROCARE_CORS_ORIGINS", "http://localhost:3100,http://localhost:3000,http://localhost:3001,http://127.0.0.1:3100,http://127.0.0.1:3000,http://127.0.0.1:3001").strip()
 _allow_all = _cors_env == "*"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if _allow_all else [o.strip() for o in _cors_env.split(",") if o.strip()],
-    # "*" origins and credentials can't be combined per the CORS spec; the app
-    # uses no cookies/auth, so dropping credentials in that mode is safe.
-    allow_credentials=not _allow_all,
+    allow_origin_regex=".*",  # Allow all origins (browser will include Origin header)
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,  # Cookies/auth not used
 )
 
 app.include_router(api_router, prefix="/api")

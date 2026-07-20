@@ -86,6 +86,10 @@ class Product(Base):
     name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     titan_drug_id: Mapped[int | None] = mapped_column(nullable=True)
+    # How that Titan link was resolved (tools/titan_extract.py): exact_name /
+    # name_no_pack / name_tokens, with its confidence score. NULL = unmapped.
+    titan_match_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    titan_match_score: Mapped[int | None] = mapped_column(nullable=True)
 
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.company_id"), nullable=True)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("product_groups.group_id"), nullable=True)
@@ -101,9 +105,23 @@ class Product(Base):
     wholesale_price: Mapped[float | None] = mapped_column(Money, nullable=True)
 
     min_stock: Mapped[float] = mapped_column(Qty, default=0)
+    # Units (وحدات الصنف): the big unit (علبة) subdivides into ``unit_factor``
+    # small units (شريط/أمبول/كبسولة). Stock amounts are ALWAYS in big units;
+    # selling one small unit deducts 1/unit_factor of a big unit.
+    unit_big: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_small: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_factor: Mapped[float] = mapped_column(Qty, default=1)
+    # Classification (التصنيف): pharmaceutical form (أقراص/شراب/حقن/كريم…),
+    # OTC vs prescription, and free-text uses/indications (الاستخدامات) — the
+    # filter axes of the items screen alongside scientific name and shelf place.
+    dosage_form: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_otc: Mapped[bool] = mapped_column(default=False)
+    uses: Mapped[str | None] = mapped_column(String(300), nullable=True)
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
     shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Incentive points earned per unit sold (for OTC incentive list).
+    incentive_points: Mapped[float] = mapped_column(Qty, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -116,6 +134,40 @@ class Product(Base):
     )
 
 
+class TitanDrug(Base):
+    """Read-only mirror of the Titan / Drug-Eye drug master (docs/03).
+
+    Loaded by ``tools/titan_extract.py`` from ``D:\\Labirdo\\TITAN.W1``'s
+    ``tar.phy`` fixed-width file. ``titan_drug_id`` is the 1-based record slot
+    in that file — Titan appends, so slots are stable between reloads.
+    ``products.titan_drug_id`` points here once the mapping job resolves it.
+    """
+
+    __tablename__ = "titan_drugs"
+
+    titan_drug_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    # Nullable: the TITAN.349 build carries drugs with an Arabic name only.
+    name_en: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    name_ar: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    manufacturer: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    scientific_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Derived in tools/titan_extract.py — Titan stores no such flags directly.
+    # origin: 'local' | 'import' | NULL (from manufacturer nationality).
+    origin: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # is_medicine: from the therapeutic category (NULL = undetermined).
+    is_medicine: Mapped[bool | None] = mapped_column(nullable=True)
+    # Pre-computed normalised join keys (see tools/titan_extract.py `norm`).
+    name_norm: Mapped[str] = mapped_column(String(80))
+    sci_norm: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    loaded_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_titan_drugs_name_norm", "name_norm"),
+        Index("IX_titan_drugs_sci_norm", "sci_norm"),
+    )
+
+
 class Customer(Base):
     __tablename__ = "customers"
 
@@ -123,6 +175,7 @@ class Customer(Base):
     name_ar: Mapped[str] = mapped_column(String(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(300), nullable=True)
     customer_class_id: Mapped[int | None] = mapped_column(
         ForeignKey("customer_classes.customer_class_id"), nullable=True
     )
@@ -131,6 +184,15 @@ class Customer(Base):
     opening_balance: Mapped[float] = mapped_column(Money, default=0)
     # Loyalty programme: whole points, earned on sales, spent via redemption.
     loyalty_points: Mapped[float] = mapped_column(Qty, default=0)
+    # Phase 3: Loyalty tiers (silver/gold/platinum) computed nightly from 12-month spend.
+    tier: Mapped[str] = mapped_column(String(20), default="silver")
+    tier_spend_12m: Mapped[float] = mapped_column(Money, default=0)
+    # CRM: Birthday (optional, captured at POS) + WhatsApp opt-out.
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    wa_opt_out: Mapped[bool] = mapped_column(default=False)
+    # RFM segmentation (vip/regular/at_risk/dormant) computed daily.
+    rfm_segment: Mapped[str] = mapped_column(String(20), default="regular")
+    last_purchase_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -186,6 +248,14 @@ class Employee(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
+    # WhatsApp number for the self-service password reset (and future alerts).
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Pending reset code (hash only — the code itself is never stored) with a
+    # short expiry and an attempt counter to stop brute-forcing.
+    reset_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reset_code_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reset_attempts: Mapped[int] = mapped_column(default=0)
+
 
 class StockBatch(Base):
     __tablename__ = "stock_batches"
@@ -229,6 +299,7 @@ class StockMovement(Base):
             name="CK_movements_reason",
         ),
         Index("IX_movements_ref", "reason", "ref_id"),
+        Index("IX_movements_batch", "batch_id"),  # FK-check index (batch wipes)
     )
 
 
@@ -257,9 +328,14 @@ class Sale(Base):
     customer: Mapped[Customer | None] = relationship()
 
     __table_args__ = (
-        CheckConstraint("total_gross >= 0 AND total_net >= 0 AND total_discount >= 0", name="CK_sales_totals"),
+        # No totals CHECK: the eStock mirror must carry legacy correction rows
+        # verbatim (a handful of sales have small negative totals). Non-negative
+        # totals for ProCare-created sales are enforced in services/pos.py.
         Index("IX_sales_date", "sale_date"),
         Index("IX_sales_branch_date", "branch_id", "sale_date"),
+        # FK-check index for the self-reference: deleting sales must not scan
+        # the whole table per row to prove no return points at it.
+        Index("IX_sales_original", "original_sale_id"),
     )
 
 
@@ -281,9 +357,15 @@ class SaleLine(Base):
     product: Mapped[Product] = relationship()
 
     __table_args__ = (
-        CheckConstraint("amount > 0", name="CK_saleline_amount"),
+        # >= 0 (not > 0): legacy eStock lines include zero-amount bonus/free
+        # items. New POS lines are validated > 0 in services/pos.py.
+        CheckConstraint("amount >= 0", name="CK_saleline_amount"),
         Index("IX_sale_lines_sale", "sale_id"),
         Index("IX_sale_lines_product", "product_id"),
+        # FK-check index: without it, every stock_batches DELETE full-scans
+        # this table per deleted row (35K batches x 190K lines took ~500s on
+        # the dev SQLite before this index; 0.1s after).
+        Index("IX_sale_lines_batch", "batch_id"),
     )
 
 
@@ -318,6 +400,13 @@ class PurchaseLine(Base):
     exp_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     purchase: Mapped[Purchase] = relationship(back_populates="lines")
+
+    __table_args__ = (
+        # FK-check indexes: purchase wipes delete by purchase_id; batch wipes
+        # FK-check batch_id per deleted stock_batches row.
+        Index("IX_purchase_lines_purchase", "purchase_id"),
+        Index("IX_purchase_lines_batch", "batch_id"),
+    )
 
 
 class StockTransfer(Base):
@@ -356,7 +445,13 @@ class StockTransferLine(Base):
 
     transfer: Mapped[StockTransfer] = relationship(back_populates="lines")
 
-    __table_args__ = (CheckConstraint("amount > 0", name="CK_transferline_amount"),)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_transferline_amount"),
+        # FK-check indexes (batch/transfer wipes).
+        Index("IX_transfer_lines_transfer", "transfer_id"),
+        Index("IX_transfer_lines_from", "from_batch_id"),
+        Index("IX_transfer_lines_to", "to_batch_id"),
+    )
 
 
 class LedgerEntry(Base):
@@ -418,6 +513,11 @@ class EmployeeTask(Base):
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/done
+    # Priority (high/normal/low) drives ordering + colour; category groups the
+    # daily plan (opening/closing/inventory/ordering/cleaning/approval/general).
+    priority: Mapped[str] = mapped_column(String(10), default="normal")
+    category: Mapped[str] = mapped_column(String(20), default="general")
+    assigned_agent: Mapped[str | None] = mapped_column(String(20), nullable=True)  # hermes|claude|gemini|antigravity|me
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -519,6 +619,7 @@ class LoyaltyTransaction(Base):
     __table_args__ = (
         CheckConstraint("kind IN ('earn','redeem','clawback','adjust')", name="CK_loyalty_kind"),
         Index("IX_loyalty_customer", "customer_id", "created_at"),
+        Index("IX_loyalty_sale", "sale_id"),  # FK-check index (sale wipes)
     )
 
 
@@ -543,6 +644,10 @@ class Prescription(Base):
     drugs_json: Mapped[str] = mapped_column(String(4000), default="[]")
     raw_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # gemini/manual
+    # Workflow: captured (just read) -> reviewed (staff confirmed + matched to
+    # catalogue products) -> dispensed (turned into a sale).
+    status: Mapped[str] = mapped_column(String(20), default="captured")
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     captured_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -630,3 +735,196 @@ class Campaign(Base):
         CheckConstraint("audience IN ('all','debtors','top','inactive')", name="CK_campaign_audience"),
         CheckConstraint("status IN ('draft','sent')", name="CK_campaign_status"),
     )
+
+
+class StockCount(Base):
+    """Stocktaking session (الجرد) — eStock-style physical inventory count.
+
+    ``full`` counts every live batch at the branch; ``periodic`` (الجرد الدوري)
+    is the recurring spot-check of a subset (top movers / a shelf); ``partial``
+    is an ad-hoc count. Lines snapshot the expected quantity at creation;
+    posting applies counted quantities as adjustments (ضبط الأصناف) through the
+    normal stock-movement audit trail. New table — ``create_all`` adds it
+    automatically on existing databases.
+    """
+
+    __tablename__ = "stock_counts"
+
+    count_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    count_type: Mapped[str] = mapped_column(String(10), default="full")  # full/periodic/partial
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open/posted/cancelled
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("count_type IN ('full','periodic','partial')", name="CK_count_type"),
+        CheckConstraint("status IN ('open','posted','cancelled')", name="CK_count_status"),
+    )
+
+
+class StockCountLine(Base):
+    """One batch inside a stocktaking session: expected (snapshot) vs counted
+    (physical). ``posted_delta`` records the adjustment actually applied when
+    the session was posted (counted minus the batch's live amount at post time,
+    which may differ from the snapshot if sales happened during the count).
+
+    ``batch_id``/``product_id`` are deliberately NOT foreign keys: the eStock
+    mirror wipes and reloads batches/products every sync cycle, and جرد history
+    must survive that (it's pharmacy history eStock knows nothing about). The
+    count sheet outer-joins them and degrades gracefully when a reload removed
+    a row; ``name_ar`` snapshots the product name so posted reports stay
+    readable forever."""
+
+    __tablename__ = "stock_count_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.count_id"))
+    batch_id: Mapped[int] = mapped_column()
+    product_id: Mapped[int] = mapped_column()
+    name_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    expected_qty: Mapped[float] = mapped_column(Qty, default=0)
+    counted_qty: Mapped[float | None] = mapped_column(Qty, nullable=True)
+    posted_delta: Mapped[float | None] = mapped_column(Qty, nullable=True)
+
+    __table_args__ = (
+        Index("IX_count_lines_count", "count_id"),
+        Index("IX_count_lines_batch", "batch_id"),
+    )
+
+
+class AgentRun(Base):
+    """Audit trail for AI agent dispatches (absorbed from AgenticOS v2.0).
+
+    Every agent task — whether dry-run, blocked, or executed — is recorded
+    here for compliance and debugging. Linked optionally to an employee_task
+    via ``task_id``.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(12), unique=True)
+    agent: Mapped[str] = mapped_column(String(20))
+    task: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(12))  # running|done|error|blocked
+    output: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(nullable=True, default=0)
+    task_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('running','done','error','blocked')", name="CK_agent_run_status"),
+        Index("IX_agent_runs_agent", "agent"),
+        Index("IX_agent_runs_created", "created_at"),
+    )
+
+
+class SyncState(Base):
+    """Per-source sync bookkeeping for the eStock mirror.
+
+    ``full_synced_at`` records that this source completed a FULL branch load —
+    the gate that lets later cycles run the fast incremental window instead of
+    re-pulling all history. Kept in the database (not process memory) so a
+    backend restart never silently re-triggers a multi-minute WAN full pull,
+    and cleared naturally whenever the database is reset.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "sync_state"
+
+    source_name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    full_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class AuthEvent(Base):
+    """Security audit trail: every login attempt, password reset and password
+    change, with outcome. ``employee_id`` is NULL for failed attempts against
+    unknown usernames (the attempted username is still recorded).
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "auth_events"
+
+    event_id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(80))
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    event: Mapped[str] = mapped_column(String(20))  # login_ok/login_fail/reset_request/reset_ok/password_change
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('login_ok','login_fail','reset_request','reset_ok','password_change')",
+            name="CK_auth_event_kind",
+        ),
+        Index("IX_auth_events_created", "created_at"),
+        Index("IX_auth_events_username", "username"),
+    )
+
+
+class ProductAffinity(Base):
+    """Co-purchase affinity matrix for POS upsell/cross-sell suggestions.
+
+    Nightly scheduler job computes lift (P(B|A) / P(B)) and support
+    (% of all baskets containing both) from 90-day sales history. Ranked by lift.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "product_affinity"
+
+    affinity_id: Mapped[int] = mapped_column(primary_key=True)
+    product_a_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    product_b_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    lift: Mapped[float] = mapped_column(default=1.0)
+    support: Mapped[float] = mapped_column(default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("lift > 0", name="CK_affinity_lift"),
+        CheckConstraint("support >= 0 AND support <= 1", name="CK_affinity_support"),
+        Index("IX_affinity_product_a", "product_a_id"),
+        Index("IX_affinity_product_b", "product_b_id"),
+        Index("IX_affinity_branch", "branch_id"),
+    )
+
+
+class IncentiveLedger(Base):
+    """Incentive points earned/clawed-back per sale line by cashier.
+
+    POS creates entries when incentivized items (``products.incentive_points > 0``)
+    are sold; returns auto-claw back via negative entries. Monthly leaderboard
+    aggregates per employee by summing over a calendar month.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "incentive_ledger"
+
+    entry_id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    sale_id: Mapped[int] = mapped_column(ForeignKey("sales.sale_id"))
+    sale_line_id: Mapped[int] = mapped_column(ForeignKey("sale_lines.line_id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    points: Mapped[float] = mapped_column(Qty)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_incentive_employee_created", "employee_id", "created_at"),
+        Index("IX_incentive_sale", "sale_id"),
+        Index("IX_incentive_branch_created", "branch_id", "created_at"),
+    )
+
+

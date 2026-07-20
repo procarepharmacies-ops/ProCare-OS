@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.db.base import get_session
-from app.services import pos
+from app.services import pos, recommend
 from app.services.common import money
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -149,12 +149,21 @@ def return_sale(sale_id: int, payload: ReturnIn, session: Session = Depends(get_
         )
     except pos.POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
-    return {
+    out = {
         "return_id": ret.sale_id,
         "original_sale_id": ret.original_sale_id,
         "total_refund": money(ret.total_net),
         "lines": len(ret.lines),
     }
+    # Confirm the refund to the customer over WhatsApp (same seam as a sale).
+    customer = ret.customer
+    if customer is not None and customer.mobile:
+        from app.services import whatsapp as wa
+
+        text = wa.return_message(session, ret)
+        out["whatsapp_link"] = wa.wa_link(customer.mobile, text)
+        out["whatsapp_sent"] = wa.send_text(customer.mobile, text) if wa.is_configured() else False
+    return out
 
 
 @router.get("/recent")
@@ -182,6 +191,33 @@ def recent(branch_id: int | None = None, limit: int = 20, session: Session = Dep
             }
         )
     return {"sales": out}
+
+
+@router.get("/suggestions")
+def pos_suggestions(branch_id: int, cart: str = "", session: Session = Depends(get_session)):
+    """POS upsell/cross-sell suggestions for the current cart.
+
+    Args:
+        branch_id: current branch
+        cart: comma-separated product IDs already in cart (e.g. "5,12,3")
+
+    Returns:
+        {"suggestions": [{"product_id": ..., "name_ar": ..., "name_en": ...,
+                          "sell_price": ..., "on_hand": ..., "reason": "..."}]}
+        Reasons: "يُشترى معه عادة" (basket analysis), "مكمّل" (category rule),
+                 "بديل أفضل" (clinical upsell).
+
+        Never blocks checkout on failure (fail-soft).
+    """
+    cart_ids = []
+    if cart:
+        try:
+            cart_ids = [int(x.strip()) for x in cart.split(",") if x.strip()]
+        except ValueError:
+            cart_ids = []
+
+    suggestions = recommend.suggest_for_cart(session, branch_id, cart_ids, limit=3)
+    return {"suggestions": suggestions}
 
 
 @router.get("/{sale_id}")

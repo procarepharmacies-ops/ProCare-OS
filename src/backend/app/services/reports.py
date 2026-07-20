@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, fefo_order, money, sql_day, today
 
 
 def stock_on_hand(session: Session, branch_id: int | None = None, limit: int = 2000) -> list[dict]:
@@ -68,7 +68,7 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .join(m.Branch, m.Branch.branch_id == m.StockBatch.branch_id)
         .where(m.StockBatch.amount > 0, branch_filter(m.StockBatch, branch_id))
-        .order_by(m.StockBatch.exp_date.asc().nulls_last())
+        .order_by(*fefo_order())
         .limit(limit)
     ).all()
     return [
@@ -82,8 +82,8 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
             "buy_price": money(b.buy_price),
             "sell_price": money(b.sell_price),
             "exp_date": b.exp_date.isoformat() if b.exp_date else None,
-            "days_to_expiry": (b.exp_date - TODAY).days if b.exp_date else None,
-            "expired": bool(b.exp_date and b.exp_date <= TODAY),
+            "days_to_expiry": (b.exp_date - today()).days if b.exp_date else None,
+            "expired": bool(b.exp_date and b.exp_date <= today()),
         }
         for b, name_ar, name_en, branch in rows
     ]
@@ -92,13 +92,13 @@ def stock_by_batch(session: Session, branch_id: int | None = None, limit: int = 
 def stock_movements(
     session: Session, branch_id: int | None = None, days: int = 30, limit: int = 1000
 ) -> list[dict]:
-    start = TODAY - timedelta(days=days)
+    start = today() - timedelta(days=days)
     rows = session.execute(
         select(m.StockMovement, m.StockBatch.product_id, m.Product.name_ar, m.Branch.name_ar.label("branch"))
         .join(m.StockBatch, m.StockBatch.batch_id == m.StockMovement.batch_id)
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .join(m.Branch, m.Branch.branch_id == m.StockMovement.branch_id)
-        .where(branch_filter(m.StockMovement, branch_id), func.date(m.StockMovement.created_at) >= start)
+        .where(branch_filter(m.StockMovement, branch_id), sql_day(m.StockMovement.created_at) >= start)
         .order_by(m.StockMovement.created_at.desc())
         .limit(limit)
     ).all()
@@ -147,6 +147,159 @@ def stock_valuation(session: Session) -> list[dict]:
             }
         )
     return out
+
+
+# --- item sales-movement report (eStock: تقرير حركة مبيعات صنف في فترة) -------
+def _daily_sum(session, day_col, amount_expr, *filters) -> dict[date, float]:
+    """{day -> summed amount} for one product's flow, grouped by calendar day."""
+    rows = session.execute(
+        select(day_col.label("d"), func.coalesce(func.sum(amount_expr), 0))
+        .where(*filters)
+        .group_by(day_col)
+    ).all()
+    out: dict[date, float] = {}
+    for d, total in rows:
+        # sql_day returns a date on SQLite, a str on some drivers — normalise.
+        if isinstance(d, str):
+            d = date.fromisoformat(d[:10])
+        out[d] = float(total or 0)
+    return out
+
+
+def item_movement(
+    session: Session,
+    product_id: int,
+    start: date,
+    end: date,
+    branch_id: int | None = None,
+) -> dict:
+    """Per-day stock movement of ONE item over a period — the eStock
+    "حركة مبيعات صنف في فترة" report: opening balance, then purchases in,
+    sales out, customer returns in, purchase returns out, جرد adjustments,
+    and the running closing balance for each day.
+
+    Balances are PHYSICAL (include expired stock, like eStock's ledger). The
+    opening balance is derived from the live on-hand rolled back through every
+    flow between the period start and today, so the last day's closing equals
+    on-hand when the period ends today (``reconciles``).
+    """
+    product = session.get(m.Product, product_id)
+    if product is None:
+        from app.services.pos import POSError
+
+        raise POSError("product_not_found", f"No product #{product_id}")
+    if end < start:
+        start, end = end, start
+
+    now = today()
+    horizon = max(end, now)  # roll opening back through everything up to today
+
+    sday_s = sql_day(m.Sale.sale_date)
+    pday = sql_day(m.Purchase.bill_date)
+    mday = sql_day(m.StockMovement.created_at)
+
+    # Each flow, per day, over [start .. horizon].
+    sold = _daily_sum(
+        session, sday_s, m.SaleLine.amount,
+        m.SaleLine.sale_id == m.Sale.sale_id,
+        m.SaleLine.product_id == product_id,
+        m.Sale.is_return == False,  # noqa: E712
+        branch_filter(m.Sale, branch_id),
+        sday_s >= start, sday_s <= horizon,
+    )
+    sale_returned = _daily_sum(
+        session, sday_s, m.SaleLine.amount,
+        m.SaleLine.sale_id == m.Sale.sale_id,
+        m.SaleLine.product_id == product_id,
+        m.Sale.is_return == True,  # noqa: E712
+        branch_filter(m.Sale, branch_id),
+        sday_s >= start, sday_s <= horizon,
+    )
+    purchased = _daily_sum(
+        session, pday, m.PurchaseLine.amount + m.PurchaseLine.bonus,
+        m.PurchaseLine.purchase_id == m.Purchase.purchase_id,
+        m.PurchaseLine.product_id == product_id,
+        m.Purchase.is_return == False,  # noqa: E712
+        branch_filter(m.Purchase, branch_id),
+        pday >= start, pday <= horizon,
+    )
+    purchase_returned = _daily_sum(
+        session, pday, m.PurchaseLine.amount + m.PurchaseLine.bonus,
+        m.PurchaseLine.purchase_id == m.Purchase.purchase_id,
+        m.PurchaseLine.product_id == product_id,
+        m.Purchase.is_return == True,  # noqa: E712
+        branch_filter(m.Purchase, branch_id),
+        pday >= start, pday <= horizon,
+    )
+    adjusted = _daily_sum(
+        session, mday, m.StockMovement.delta,
+        m.StockMovement.batch_id == m.StockBatch.batch_id,
+        m.StockBatch.product_id == product_id,
+        m.StockMovement.reason == "adjust",
+        branch_filter(m.StockMovement, branch_id),
+        mday >= start, mday <= horizon,
+    )
+
+    def net(d: date) -> float:
+        return (
+            purchased.get(d, 0) + sale_returned.get(d, 0) + adjusted.get(d, 0)
+            - sold.get(d, 0) - purchase_returned.get(d, 0)
+        )
+
+    # Current physical on-hand (include expired: a ledger balance is physical).
+    on_hand = float(session.scalar(
+        select(func.coalesce(func.sum(m.StockBatch.amount), 0)).where(
+            m.StockBatch.product_id == product_id,
+            branch_filter(m.StockBatch, branch_id),
+        )
+    ) or 0)
+
+    # Opening at period start = on-hand today minus every net flow since start.
+    total_flow_to_today = sum(net(start + timedelta(days=i))
+                              for i in range((horizon - start).days + 1))
+    opening = on_hand - total_flow_to_today
+
+    rows = []
+    running = opening
+    tot = {"purchased": 0.0, "sold": 0.0, "sale_returned": 0.0,
+           "purchase_returned": 0.0, "adjusted": 0.0}
+    for i in range((end - start).days + 1):
+        d = start + timedelta(days=i)
+        running += net(d)
+        day = {
+            "date": d.isoformat(),
+            "purchased": money(purchased.get(d, 0)),
+            "sold": money(sold.get(d, 0)),
+            "sale_returned": money(sale_returned.get(d, 0)),
+            "purchase_returned": money(purchase_returned.get(d, 0)),
+            "adjusted": money(adjusted.get(d, 0)),
+            "closing": money(running),
+        }
+        # Skip fully-idle days to keep the sheet as tight as eStock's.
+        if any(day[k] for k in ("purchased", "sold", "sale_returned",
+                                "purchase_returned", "adjusted")):
+            rows.append(day)
+            for k in tot:
+                tot[k] += day[k]
+
+    closing = money(running)
+    return {
+        "product": {
+            "product_id": product.product_id,
+            "code": product.code,
+            "name_ar": product.name_ar,
+            "name_en": product.name_en,
+            "unit": product.unit_big,
+        },
+        "period": {"start": start.isoformat(), "end": end.isoformat(),
+                   "branch_id": branch_id or 0},
+        "opening": money(opening),
+        "rows": rows,
+        "totals": {k: money(v) for k, v in tot.items()} | {"closing": closing},
+        # When the period ends today, the last closing must equal live on-hand.
+        "reconciles": (end >= now and abs(closing - money(on_hand)) < 0.01),
+        "on_hand_now": money(on_hand),
+    }
 
 
 # --- CSV export ---------------------------------------------------------------

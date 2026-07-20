@@ -17,6 +17,39 @@ from app.db import models as m
 from app.services import auth as auth_svc
 
 
+# FK-check indexes: SQLite (and SQL Server) verify child references on every
+# parent-row DELETE. Without an index on the child FK column that check is a
+# full table scan PER DELETED ROW — the branch-scoped sync wipe of 35K stock
+# batches against 190K unindexed sale_lines.batch_id took ~500 seconds on the
+# dev database; 0.1s with the index. Names must match the models' Index()
+# declarations so fresh (create_all) and migrated databases end up identical.
+_FK_INDEXES = [
+    ("sale_lines", "IX_sale_lines_batch", "batch_id"),
+    ("purchase_lines", "IX_purchase_lines_purchase", "purchase_id"),
+    ("purchase_lines", "IX_purchase_lines_batch", "batch_id"),
+    ("loyalty_transactions", "IX_loyalty_sale", "sale_id"),
+    ("stock_movements", "IX_movements_batch", "batch_id"),
+    ("stock_transfer_lines", "IX_transfer_lines_transfer", "transfer_id"),
+    ("stock_transfer_lines", "IX_transfer_lines_from", "from_batch_id"),
+    ("stock_transfer_lines", "IX_transfer_lines_to", "to_batch_id"),
+    ("sales", "IX_sales_original", "original_sale_id"),
+]
+
+
+def ensure_fk_indexes(engine) -> None:
+    """Create any missing FK-check index (idempotent, SQLite + SQL Server)."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    for table, name, col in _FK_INDEXES:
+        if table not in tables:
+            continue  # create_all will make the table with its indexes.
+        existing = {ix["name"] for ix in inspector.get_indexes(table)}
+        if name in existing:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(f"CREATE INDEX {name} ON {table} ({col})"))
+
+
 def ensure_role_column(engine) -> None:
     """Add ``employees.role`` if the table predates it (default 'assistant',
     the most restrictive tier, so nobody is silently over-privileged)."""
@@ -69,6 +102,142 @@ def ensure_loyalty_points_column(engine) -> None:
         conn.execute(text("ALTER TABLE customers ADD COLUMN loyalty_points NUMERIC(18,3) DEFAULT 0"))
 
 
+def ensure_task_priority_columns(engine) -> None:
+    """Add ``employee_tasks.priority`` and ``.category`` if the table predates
+    the professional daily-plan upgrade. Existing tasks default to normal/general."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    with engine.begin() as conn:
+        if "priority" not in columns:
+            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"))
+        if "category" not in columns:
+            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN category VARCHAR(20) DEFAULT 'general'"))
+
+
+def ensure_prescription_status_columns(engine) -> None:
+    """Add ``prescriptions.status`` + ``.reviewed_by`` if the table predates the
+    capture -> review -> dispense workflow. Existing rows become 'captured'."""
+    inspector = inspect(engine)
+    if "prescriptions" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("prescriptions")}
+    with engine.begin() as conn:
+        if "status" not in columns:
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN status VARCHAR(20) DEFAULT 'captured'"))
+        if "reviewed_by" not in columns:
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN reviewed_by INTEGER NULL"))
+
+
+def ensure_titan_match_columns(engine) -> None:
+    """Add ``products.titan_match_method`` + ``.titan_match_score`` if the table
+    predates the Titan/Drug-Eye mapping job (docs/03 §4). Existing rows stay
+    NULL = unmapped; ``tools/titan_extract.py`` fills them."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "titan_match_method" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} titan_match_method VARCHAR(20) NULL"))
+        if "titan_match_score" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} titan_match_score INTEGER NULL"))
+
+
+def ensure_titan_drug_columns(engine) -> None:
+    """Add ``titan_drugs.origin`` + ``.is_medicine`` (derived by the extractor
+    from manufacturer nationality and therapeutic category — Titan stores no
+    such flags itself), and relax ``name_en`` to NULL: the TITAN.349 build
+    carries drugs with an Arabic name only."""
+    inspector = inspect(engine)
+    if "titan_drugs" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("titan_drugs")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "origin" not in columns:
+            conn.execute(text(f"ALTER TABLE titan_drugs {add} origin VARCHAR(10) NULL"))
+        if "is_medicine" not in columns:
+            col_type = "BIT" if engine.dialect.name == "mssql" else "BOOLEAN"
+            conn.execute(text(f"ALTER TABLE titan_drugs {add} is_medicine {col_type} NULL"))
+        # SQLite cannot ALTER a column's nullability; it is only a constraint on
+        # new writes there and the table is reloaded wholesale, so skip it.
+        if engine.dialect.name == "mssql":
+            conn.execute(text("ALTER TABLE titan_drugs ALTER COLUMN name_en VARCHAR(60) NULL"))
+
+
+def ensure_employee_reset_columns(engine) -> None:
+    """Add the WhatsApp password-reset columns if the table predates them.
+
+    Dialect-aware: SQL Server wants ``ADD``, SQLite wants ``ADD COLUMN``.
+    """
+    inspector = inspect(engine)
+    if "employees" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employees")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "phone" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} phone VARCHAR(20) NULL"))
+        if "reset_code_hash" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_code_hash VARCHAR(255) NULL"))
+        if "reset_code_expires" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_code_expires DATETIME NULL"))
+        if "reset_attempts" not in columns:
+            conn.execute(text(f"ALTER TABLE employees {add} reset_attempts INTEGER DEFAULT 0"))
+
+
+def ensure_product_unit_columns(engine) -> None:
+    """Add ``products.unit_big/unit_small/unit_factor`` (وحدة كبرى/صغرى) if the
+    table predates the units feature. Existing products default to factor 1
+    (no subdivision) until the next eStock sync refreshes them."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "unit_big" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_big VARCHAR(50) NULL"))
+        if "unit_small" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_small VARCHAR(50) NULL"))
+        if "unit_factor" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} unit_factor NUMERIC(18,3) DEFAULT 1"))
+
+
+def ensure_customer_address_column(engine) -> None:
+    """Add ``customers.address`` (العنوان) if the table predates the customer
+    360 screen."""
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    if "address" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE customers {add} address VARCHAR(300) NULL"))
+
+
+def ensure_product_classification_columns(engine) -> None:
+    """Add ``products.dosage_form/is_otc/uses`` (الشكل الصيدلاني / OTC /
+    الاستخدامات) if the table predates the classification feature."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "dosage_form" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} dosage_form VARCHAR(50) NULL"))
+        if "is_otc" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} is_otc BIT DEFAULT 0"))
+        if "uses" not in columns:
+            conn.execute(text(f"ALTER TABLE products {add} uses VARCHAR(300) NULL"))
+
+
 # The pharmacy's real staff, as given by the owner (2026-07-02). Ensured at
 # every startup so both the dev-seeded DB and the eStock-synced production DB
 # (which never gets employees from the sync) have the same real logins.
@@ -99,7 +268,7 @@ def _find_branch(session: Session, hint: str | None) -> int | None:
     from sqlalchemy import select
 
     hint = hint.lower()
-    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنتا")}
+    aliases = {"mashal": ("mashal", "mashala", "mas-hala", "مشعل"), "santa": ("santa", "elsanta", "السنطه")}
     needles = aliases.get(hint, (hint,))
     for b in session.scalars(select(m.Branch)):
         haystack = " ".join(filter(None, (b.code, b.name_en, b.name_ar))).lower()
@@ -167,3 +336,93 @@ def bootstrap_ceo_if_configured(session: Session) -> None:
         )
     )
     session.commit()
+
+
+def ensure_assigned_agent_column(engine) -> None:
+    """Add ``employee_tasks.assigned_agent`` so tasks can be routed to AI agents."""
+    inspector = inspect(engine)
+    if "employee_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    if "assigned_agent" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE employee_tasks ADD assigned_agent VARCHAR(20) NULL"))
+
+
+def ensure_incentive_points_column(engine) -> None:
+    """Add ``products.incentive_points`` (OTC incentive list points per unit sold)
+    if the table predates the employee incentive feature. Existing products
+    default to 0 (no incentive)."""
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("products")}
+    if "incentive_points" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE products {add} incentive_points NUMERIC(18,3) DEFAULT 0"))
+
+
+def ensure_branch_names_corrected(engine) -> None:
+    """Fix old Arabic branch name spelling in existing DBs.
+
+    Seed used to write السنطه/مسهله (ه = ha) instead of the correct
+    السنطة/مسهلة (ة = taa marbuta). This migration updates any rows that
+    still carry the old spelling. Safe no-op if already correct or if the
+    branches table doesn't exist yet.
+    """
+    inspector = inspect(engine)
+    if "branches" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE branches SET name_ar = 'السنطة' WHERE code = 'ELSANTA' AND name_ar = 'السنطه'"
+        ))
+        conn.execute(text(
+            "UPDATE branches SET name_ar = 'مسهلة' WHERE code = 'MASHALA' AND name_ar = 'مسهله'"
+        ))
+
+
+def ensure_loyalty_tier_columns(engine) -> None:
+    """Add ``customers.tier`` and ``.tier_spend_12m`` (Phase 3: loyalty tiers).
+
+    Existing customers default to 'silver' tier with 0 spend tracked.
+    Nightly scheduler job recomputes tiers based on 12-month transaction history.
+    """
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "tier" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} tier VARCHAR(20) DEFAULT 'silver'"))
+        if "tier_spend_12m" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} tier_spend_12m NUMERIC(18,3) DEFAULT 0"))
+
+
+def ensure_customer_crm_columns(engine) -> None:
+    """Add ``customers.birthday``, ``.wa_opt_out``, ``.rfm_segment``,
+    ``.last_purchase_date`` (Phase 3: CRM engagement + RFM segmentation).
+
+    Existing customers: no birthday, not opted out, default to 'regular' segment,
+    last_purchase_date NULL.
+    """
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "birthday" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} birthday DATE NULL"))
+        if "wa_opt_out" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} wa_opt_out BIT DEFAULT 0"))
+        if "rfm_segment" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} rfm_segment VARCHAR(20) DEFAULT 'regular'"))
+        if "last_purchase_date" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} last_purchase_date DATETIME NULL"))
+
+

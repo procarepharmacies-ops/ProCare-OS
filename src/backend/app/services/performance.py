@@ -30,7 +30,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import TODAY, available_stock_filter, branch_filter, money
+from app.services.common import available_stock_filter, branch_filter, money, today
 
 
 def _pct(numerator: float, denominator: float) -> float | None:
@@ -42,7 +42,7 @@ def overview(session: Session, years: int = 5, branch_id: int | None = None) -> 
     """Per-year and per-month pharmacy performance for the last ``years`` years.
 
     When run consolidated (``branch_id`` is None) the result also carries a
-    ``by_branch`` comparison so the owner can see each branch (Main vs Elsanta)
+    ``by_branch`` comparison so the owner can see each branch (Elsanta vs Mas-hala)
     side by side; when scoped to one branch it's that branch only.
     """
     result = _overview_core(session, years=years, branch_id=branch_id)
@@ -84,7 +84,7 @@ def _branch_summary(session: Session, years: int, branch: m.Branch) -> dict:
 def _overview_core(session: Session, years: int = 5, branch_id: int | None = None) -> dict:
     """Per-year and per-month pharmacy performance for the last ``years`` years."""
     years = max(1, min(int(years), 15))
-    year_list = list(range(TODAY.year - years + 1, TODAY.year + 1))
+    year_list = list(range(today().year - years + 1, today().year + 1))
     window_start = datetime(year_list[0], 1, 1)
 
     # Blank per-year accumulator.
@@ -223,7 +223,7 @@ def _overview_core(session: Session, years: int = 5, branch_id: int | None = Non
     }
 
     return {
-        "as_of": TODAY.isoformat(),
+        "as_of": today().isoformat(),
         "branch_id": branch_id or 0,
         "years": years,
         "year_range": [year_list[0], year_list[-1]],
@@ -253,7 +253,7 @@ def _snapshot(session: Session, branch_id: int | None) -> dict:
             m.StockBatch.amount > 0,
             branch_filter(m.StockBatch, branch_id),
             m.StockBatch.exp_date != None,  # noqa: E711
-            m.StockBatch.exp_date <= TODAY,
+            m.StockBatch.exp_date <= today(),
         )
     ).one()
 
@@ -326,7 +326,7 @@ def audit(session: Session, branch_id: int | None = None) -> dict:
             func.coalesce(func.sum(m.StockBatch.amount * m.StockBatch.buy_price), 0),
         ).where(
             m.StockBatch.amount > 0, branch_filter(m.StockBatch, branch_id),
-            m.StockBatch.exp_date != None, m.StockBatch.exp_date <= TODAY,  # noqa: E711
+            m.StockBatch.exp_date != None, m.StockBatch.exp_date <= today(),  # noqa: E711
         )
     ).one()
     add("expired_in_stock", "Expired stock still on hand", "مخزون منتهي الصلاحية",
@@ -399,7 +399,7 @@ def audit(session: Session, branch_id: int | None = None) -> dict:
     fails = sum(1 for c in checks if c["status"] == "fail")
     warns = sum(1 for c in checks if c["status"] == "warn")
     return {
-        "as_of": TODAY.isoformat(),
+        "as_of": today().isoformat(),
         "branch_id": branch_id or 0,
         "overall": "fail" if fails else ("warn" if warns else "ok"),
         "fail_count": fails,
@@ -433,7 +433,7 @@ def vendor_purchasing(session: Session, query: str | int = "pharmaoverseas",
     """Purchasing history for one supplier: spend/orders/items per year, top
     products, current payable, and share of total purchasing (+ vendor ranking)."""
     years = max(1, min(int(years), 15))
-    year_list = list(range(TODAY.year - years + 1, TODAY.year + 1))
+    year_list = list(range(today().year - years + 1, today().year + 1))
     window_start = date(year_list[0], 1, 1)
 
     vendor = _resolve_vendor(session, query)
@@ -465,7 +465,7 @@ def vendor_purchasing(session: Session, query: str | int = "pharmaoverseas",
 
     if vendor is None:
         return {
-            "as_of": TODAY.isoformat(), "query": str(query), "found": False,
+            "as_of": today().isoformat(), "query": str(query), "found": False,
             "message": "No matching vendor — showing full purchasing ranking instead.",
             "total_purchasing_spend": money(total_spend), "vendor_ranking": ranking,
         }
@@ -521,7 +521,7 @@ def vendor_purchasing(session: Session, query: str | int = "pharmaoverseas",
 
     vendor_spend = sum(y["spend"] for y in yearly)
 
-    # Spend from this supplier split by branch (Main vs Elsanta).
+    # Spend from this supplier split by branch (Elsanta vs Mas-hala).
     branch_names = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_ar)).all())
     branch_names_en = dict(session.execute(select(m.Branch.branch_id, m.Branch.name_en)).all())
     by_branch = [
@@ -542,7 +542,7 @@ def vendor_purchasing(session: Session, query: str | int = "pharmaoverseas",
     by_branch.sort(key=lambda r: -r["spend"])
 
     return {
-        "as_of": TODAY.isoformat(),
+        "as_of": today().isoformat(),
         "query": str(query),
         "found": True,
         "by_branch": by_branch,

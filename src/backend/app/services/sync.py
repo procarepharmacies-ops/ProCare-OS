@@ -26,8 +26,30 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 
 from app.config import settings
+from app.db import models as m
 from app.db.base import SessionLocal
 from app.services import etl
+
+
+def _record_cycle(source_name: str, mode: str) -> None:
+    """Persist the cycle outcome so the incremental gate survives restarts.
+
+    Fail-soft: bookkeeping must never fail a cycle that already mirrored fine.
+    """
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with SessionLocal() as st:
+            row = st.get(m.SyncState, source_name)
+            if row is None:
+                row = m.SyncState(source_name=source_name)
+                st.add(row)
+            if not mode.startswith("incremental"):
+                row.full_synced_at = now
+            row.last_cycle_at = now
+            row.last_mode = mode or None
+            st.commit()
+    except Exception:  # noqa: BLE001
+        pass
 
 _DEFAULT_INTERVAL = 30
 
@@ -54,8 +76,19 @@ def interval_seconds() -> int:
 
 
 def is_configured() -> bool:
-    """True when a read-only eStock source is configured to sync from."""
-    return settings.estock_sqlalchemy_url() is not None
+    """True when at least one eStock source is configured to sync from."""
+    return bool(settings.estock_sources())
+
+
+def incremental_days() -> int:
+    """Trailing re-pull window (days) for the incremental sync. Once a branch
+    is filled, each cycle re-pulls only this window instead of all history —
+    what makes a short cadence viable over the flaky Elsanta WAN and keeps
+    SQL Server write transactions small. 0 disables (always full reload)."""
+    try:
+        return max(0, int(os.environ.get("SYNC_INCREMENTAL_DAYS", "7")))
+    except (TypeError, ValueError):
+        return 7
 
 
 def is_enabled() -> bool:
@@ -65,45 +98,79 @@ def is_enabled() -> bool:
 
 
 def run_once(source_engine=None) -> dict:
-    """One sync cycle: mirror eStock → ProCare. Returns a result dict.
+    """One sync cycle: mirror EVERY configured eStock source → ProCare.
+
+    Each source (one per branch server — e.g. Elsanta live + Mashala live)
+    refreshes ONLY its own branches (``etl.mirror(branch_scoped=True)``), so the
+    sources never wipe each other and imported branch history survives every
+    cycle. One source failing (e.g. a LAN drop to one branch) does not block the
+    others — its error is recorded and the cycle continues.
 
     ``source_engine`` lets tests pass a SQLite eStock-shaped source; in
-    production it's built from the configured read-only eStock URL.
+    production engines are built from the configured source URLs.
     """
-    own_engine = False
-    eng = source_engine
-    if eng is None:
-        url = settings.estock_sqlalchemy_url()
-        if not url:
+    if source_engine is not None:
+        sources = [
+            {
+                "name": "source",
+                "engine": source_engine,
+                "store_branch_map": settings.estock_store_branch_map(),
+                "own": False,
+            }
+        ]
+    else:
+        blocks = settings.estock_sources()
+        if not blocks:
             with _lock:
                 _state["last_status"] = "idle"
             return {"ran": False, "reason": "no eStock source configured"}
-        eng = create_engine(url, echo=False)
-        own_engine = True
+        sources = [
+            {
+                "name": b["name"],
+                "engine": create_engine(b["url"], echo=False),
+                "store_branch_map": b["store_branch_map"],
+                "own": True,
+            }
+            for b in blocks
+        ]
+
+    all_counts: dict[str, dict] = {}
+    errors: dict[str, str] = {}
     try:
-        store_map = settings.estock_store_branch_map()
-        with SessionLocal() as dst:
-            counts = etl.mirror(eng, dst, store_map)
+        for s in sources:
+            try:
+                # Incremental only after this source has completed a FULL load
+                # (recorded in sync_state) — a fresh/reset database, or demo
+                # data sitting in the branch, must never suppress the initial
+                # history pull.
+                with SessionLocal() as st:
+                    state = st.get(m.SyncState, s["name"])
+                    inc = incremental_days() if (state and state.full_synced_at) else 0
+                with SessionLocal() as dst:
+                    counts = etl.mirror(
+                        s["engine"], dst, s["store_branch_map"], branch_scoped=True,
+                        incremental_days=inc or None,
+                    )
+                all_counts[s["name"]] = counts
+                _record_cycle(s["name"], counts.get("sync_mode", ""))
+            except Exception as e:  # noqa: BLE001 — soft-fail per source
+                errors[s["name"]] = f"{type(e).__name__}: {e}"
+        ok = not errors
         with _lock:
             _state.update(
                 runs=_state["runs"] + 1,
                 last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_status="ok",
-                last_counts=counts,
-                last_error=None,
+                last_status="ok" if ok else ("error" if not all_counts else "partial"),
+                last_counts=all_counts or None,
+                last_error="; ".join(f"{k}: {v}" for k, v in errors.items()) or None,
             )
-        return {"ran": True, "counts": counts}
-    except Exception as e:  # noqa: BLE001
-        with _lock:
-            _state.update(
-                last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_status="error",
-                last_error=f"{type(e).__name__}: {e}",
-            )
-        return {"ran": False, "error": f"{type(e).__name__}: {e}"}
+        if all_counts:
+            return {"ran": True, "counts": all_counts, **({"errors": errors} if errors else {})}
+        return {"ran": False, "errors": errors}
     finally:
-        if own_engine:
-            eng.dispose()
+        for s in sources:
+            if s["own"]:
+                s["engine"].dispose()
 
 
 def _loop() -> None:
@@ -144,5 +211,6 @@ def status() -> dict:
         s = dict(_state)
     s["configured"] = is_configured()
     s["interval_seconds"] = interval_seconds()
+    s["incremental_days"] = incremental_days()
     s["mode"] = "live read-only eStock mirror" if is_configured() else "offline (own seeded data)"
     return s
