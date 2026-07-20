@@ -6,6 +6,7 @@ import { BarChart, HBar } from "../components/charts";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
+import { downloadCSV, downloadExcel, printReport } from "../lib/print";
 
 // Severity → the app's badge class + a stripe colour.
 const SEV = {
@@ -43,11 +44,34 @@ export default function DeepAnalysisPage() {
         {!data && <p className="muted">{L("loading")}</p>}
         {data?.error && <p className="badge danger">{L("offline")}</p>}
 
-        {data && !data.error && (
+        {data && !data.error && (() => {
+          const t0 = data.period.range[0], t1 = data.period.range[1];
+          const cols = [
+            { key: "area", label: L("deep_findings") },
+            { key: "severity", label: L("status") },
+            { key: "finding", label: L("perf_result") },
+            { key: "detail", label: L("note") },
+          ];
+          const rows = data.findings.map((f) => ({
+            area: f.area,
+            severity: L(`deep_sev_${f.severity}`),
+            finding: lang === "ar" ? f.title_ar : f.title_en,
+            detail: lang === "ar" ? f.detail_ar : f.detail_en,
+          }));
+          const title = `${L("nav_deep")} ${t0}–${t1}`;
+          const sub = `${L("deep_subtitle")} · ${L("perf_revenue")} ${fmt(data.sales.totals.revenue)} · ${L("perf_gross_profit")} ${fmt(data.sales.totals.gross_profit)} · ${L("perf_invoices")} ${fmt(data.sales.totals.invoices)} · ⚠ ${data.scorecard.high_risks}/${data.scorecard.medium_risks}`;
+          return (
           <>
-            <p className="muted" style={{ marginTop: -4, marginBottom: 14, fontSize: 13 }}>
-              {L("deep_subtitle")} · {data.period.range[0]}–{data.period.range[1]} · {data.as_of}
-            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 14, flexWrap: "wrap" }}>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                {L("deep_subtitle")} · {t0}–{t1} · {data.as_of}
+              </p>
+              <span style={{ display: "inline-flex", gap: 6, marginInlineStart: "auto" }}>
+                <button className="btn" onClick={() => downloadCSV(title, cols, rows)}>{L("export_csv")}</button>
+                <button className="btn" onClick={() => downloadExcel(title, cols, rows)}>{L("export_excel")}</button>
+                <button className="btn" onClick={() => printReport(title, cols, rows, { lang, subtitle: sub })}>{L("print_branded")}</button>
+              </span>
+            </div>
 
             {/* Scorecard */}
             <div className="kpi-row">
@@ -210,7 +234,8 @@ export default function DeepAnalysisPage() {
               </div>
             </div>
           </>
-        )}
+          );
+        })()}
       </div>
 
       <style jsx>{`
