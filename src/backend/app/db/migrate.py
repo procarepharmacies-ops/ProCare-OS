@@ -146,6 +146,28 @@ def ensure_titan_match_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE products {add} titan_match_score INTEGER NULL"))
 
 
+def ensure_titan_drug_columns(engine) -> None:
+    """Add ``titan_drugs.origin`` + ``.is_medicine`` (derived by the extractor
+    from manufacturer nationality and therapeutic category — Titan stores no
+    such flags itself), and relax ``name_en`` to NULL: the TITAN.349 build
+    carries drugs with an Arabic name only."""
+    inspector = inspect(engine)
+    if "titan_drugs" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("titan_drugs")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "origin" not in columns:
+            conn.execute(text(f"ALTER TABLE titan_drugs {add} origin VARCHAR(10) NULL"))
+        if "is_medicine" not in columns:
+            col_type = "BIT" if engine.dialect.name == "mssql" else "BOOLEAN"
+            conn.execute(text(f"ALTER TABLE titan_drugs {add} is_medicine {col_type} NULL"))
+        # SQLite cannot ALTER a column's nullability; it is only a constraint on
+        # new writes there and the table is reloaded wholesale, so skip it.
+        if engine.dialect.name == "mssql":
+            conn.execute(text("ALTER TABLE titan_drugs ALTER COLUMN name_en VARCHAR(60) NULL"))
+
+
 def ensure_employee_reset_columns(engine) -> None:
     """Add the WhatsApp password-reset columns if the table predates them.
 

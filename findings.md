@@ -172,3 +172,41 @@
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the
   snapshot) so sales during the count never corrupt the final quantity.
+- 2026-07-20 · Titan moved and CHANGED LAYOUT: the install is now
+  `D:\AgenticOS\TITAN.349` (old `D:\Labirdo\TITAN.W1` is gone). The 349 build
+  writes the ARABIC name at offset 0-40 and English at 40-70 — the REVERSE of
+  W1 — and its category sits at 796 (not 792). Running the old hardcoded
+  offsets over it silently files Arabic text into the English column, so
+  `titan_extract.parse_tar_phy` now DETECTS the layout (`detect_layout`, sniffs
+  where the Arabic script is) instead of assuming. RULE: never hardcode a
+  binary vendor layout; sniff it.
+- 2026-07-20 · The two Titan builds are COMPLEMENTARY, so the loader merges
+  rather than reloads: W1 (already in the DB) has ~3k more scientific names but
+  lost its Arabic to encoding damage; 349 has 13,598 intact Arabic names but
+  fewer scientific ones. Slot ids are per-build, so a DELETE+reload would BOTH
+  drop the richer scientific data AND orphan every `products.titan_drug_id`.
+  Merge strategy: keep the loaded build as the base (its ids are what products
+  point at), fill only its BLANK fields from the new file, append genuinely new
+  drugs with fresh ids. Result: 15,373 -> 23,063 drugs, name_ar 23 -> 13,962,
+  sci 13,986 -> 19,209, and matching IMPROVED 4,145 -> 4,322 (349 alone would
+  have scored 2,049).
+- 2026-07-20 · Titan stores NO local/import or medicine flag. Audited every
+  unmapped byte (130..796) against manufacturer-nationality ground truth: best
+  single-byte separation was 0.36 — unusable. Both are DERIVED instead:
+  origin from manufacturer nationality (1,095 makers; EIPICO/AMOUN/SIGMA...
+  = local), is_medicine from the therapeutic category (922 categories;
+  HAIR CARE/SOAP/MASSAGE = not medicine). Auditable and correctable, unlike a
+  guessed byte.
+- 2026-07-20 · eStock's own catalogue flags are UNRELIABLE, which is why this
+  job exists: `product_drug` marks Rivotril (a controlled benzo) as 0 and a
+  shampoo as 1; `product_made` disagrees with itself across one brand (Nexium
+  40 vial vs Nexium 20 tabs). Field population: scientific 14%, name_en 99%,
+  name_ar 100%, notes/uses 0.1% (61 rows).
+- 2026-07-20 · Duplicate detection safety rule: pack-count tokens may be
+  stripped when grouping, but STRENGTH tokens never (500 MG vs 1 GM must not
+  group — merging them is a dispensing error; regression-tested). Tiers carry a
+  `confidence`: code/exact_name = high (safe to bulk-action), name_pack =
+  "review" because it also catches LEGITIMATE pack variants (3 TAB vs 5 TAB are
+  two real SKUs). Live: 869 groups, 23 high-risk (live stock split across
+  copies, e.g. "ماء مذيب 50 مل" entered twice with a double space, 65 + 258
+  units on hand).

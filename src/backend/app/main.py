@@ -38,6 +38,7 @@ from app.db.migrate import (
     ensure_shelf_location_column,
     ensure_task_priority_columns,
     ensure_titan_match_columns,
+    ensure_titan_drug_columns,
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
@@ -56,6 +57,7 @@ async def lifespan(_app: FastAPI):
     ensure_prescription_status_columns(engine)
     ensure_employee_reset_columns(engine)
     ensure_titan_match_columns(engine)
+    ensure_titan_drug_columns(engine)
     ensure_product_unit_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)

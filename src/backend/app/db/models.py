@@ -86,6 +86,10 @@ class Product(Base):
     name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     titan_drug_id: Mapped[int | None] = mapped_column(nullable=True)
+    # How that Titan link was resolved (tools/titan_extract.py): exact_name /
+    # name_no_pack / name_tokens, with its confidence score. NULL = unmapped.
+    titan_match_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    titan_match_score: Mapped[int | None] = mapped_column(nullable=True)
 
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.company_id"), nullable=True)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("product_groups.group_id"), nullable=True)
@@ -142,11 +146,17 @@ class TitanDrug(Base):
     __tablename__ = "titan_drugs"
 
     titan_drug_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
-    name_en: Mapped[str] = mapped_column(String(60))
+    # Nullable: the TITAN.349 build carries drugs with an Arabic name only.
+    name_en: Mapped[str | None] = mapped_column(String(60), nullable=True)
     name_ar: Mapped[str | None] = mapped_column(String(60), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(40), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Derived in tools/titan_extract.py — Titan stores no such flags directly.
+    # origin: 'local' | 'import' | NULL (from manufacturer nationality).
+    origin: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # is_medicine: from the therapeutic category (NULL = undetermined).
+    is_medicine: Mapped[bool | None] = mapped_column(nullable=True)
     # Pre-computed normalised join keys (see tools/titan_extract.py `norm`).
     name_norm: Mapped[str] = mapped_column(String(80))
     sci_norm: Mapped[str | None] = mapped_column(String(80), nullable=True)

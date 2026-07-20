@@ -234,3 +234,28 @@
   molecule field needs a sanity check / future enrichment from Titan drug master.
 - Tests: 209/209 (2 new in test_incentives.py). next build clean.
 - Also: run.py reload now env-gated (was dropping the backend); ports 8100/3100.
+
+## 2026-07-20 (later) · Catalogue fix Phase 0 — Titan enrichment + duplicates
+- Goal (owner): correct eStock products against Titan — scientific name, AR/EN
+  names, medicine flag, local/import, category/uses — without touching data,
+  and handle the duplicated products professionally.
+- AUDIT: Titan had MOVED (D:\AgenticOS\TITAN.349) and changed record layout
+  (AR/EN swapped, category 792->796). Made the extractor layout-detecting.
+  Its Arabic is INTACT (13,598) — reversing the old "Arabic unrecoverable"
+  caveat. No local/import or medicine flag exists in the file (byte audit:
+  best separation 0.36), so both are derived from manufacturer + category.
+- MERGED the two Titan builds instead of reloading (would have lost 3k
+  scientific names + orphaned 2,096 product mappings): 23,063 drugs,
+  name_ar 23 -> 13,962, sci 13,986 -> 19,209, matches 4,145 -> 4,322.
+- BUILT services/catalogue.py: `duplicate_groups` (tiered code/exact_name/
+  name_pack with per-tier CONFIDENCE, survivor-choice evidence = on-hand,
+  lifetime sales, last sale; strength never normalised away) and
+  `enrichment_proposals` (per-field current-vs-Titan diffs, fill vs replace).
+  GET /catalogue/duplicates + /catalogue/enrichment (ceo/manager, READ-ONLY).
+- Live: 869 duplicate groups (23 high-risk = live stock split across copies);
+  1,791 products with staged proposals (category 1,790 / is_medicine 1,752 /
+  origin 1,111).
+- Tests: 214/214 (5 new in test_catalogue.py incl. the 500MG-vs-1GM
+  dispensing-safety invariant).
+- NOT DONE yet: review UI (Phase 1) and the approved eStock write-back
+  (Phase 2, separate explicitly-launched script, backup-gated).
