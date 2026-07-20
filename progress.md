@@ -332,5 +332,13 @@
   * test_promo.py (26): code creation validation, runtime validation, calculations, reports.
   * All with unique code generation (timestamp-based) to avoid test database collisions.
 - All 272 tests pass. next build clean. Backend health: OK.
-- Created PR #26 (draft) with full API + services + tests + documentation.
-- Next: Frontend UI (content calendar, AI copywriter tool, offer-card image generator).
+- COMPLETED: Frontend UI with 5 tabs in marketing page:
+  * Content Calendar: month-grid view with date + channel filtering
+  * AI Copywriter: bilingual copy generation with LLM + fallback templates
+  * Offer Card Generator: canvas-based PNG export (no external libs)
+  * Promo Code Manager: create/list codes with % or fixed EGP discounts
+  * Campaigns: existing Phase 3 WhatsApp campaign builder
+- Bilingual i18n: 40 new keys (AR/EN) for social media + promo features
+- API integration: 13 new api.* methods with auth + error handling
+- Frontend build clean: marketing page 1.76 → 4.41 kB (4 new tabs)
+- Created PR #26 (draft) with API + services + tests + frontend UI.
