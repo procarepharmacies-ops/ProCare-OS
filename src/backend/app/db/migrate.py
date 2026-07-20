@@ -426,5 +426,17 @@ def ensure_customer_crm_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE customers {add} last_purchase_date DATETIME NULL"))
 
 
+def ensure_forecast_tables(engine) -> None:
+    """Ensure forecasts and decision_cards tables exist (Phase 5).
+
+    Creates tables via create_all if missing; idempotent (safe to re-run).
+    """
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    if "forecasts" not in table_names or "decision_cards" not in table_names:
+        from app.db.models import Forecast, DecisionCard, Base
+        Base.metadata.create_all(engine, tables=[Forecast.__table__, DecisionCard.__table__] if "forecasts" not in table_names else [])
+
+
 
 
