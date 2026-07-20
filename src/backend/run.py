@@ -30,10 +30,15 @@ import uvicorn  # noqa: E402  (import after sys.path is set)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PROCARE_API_PORT", "8100"))
+    # Reload is a DEV convenience and a PRODUCTION hazard: the file-watcher
+    # restarts the API on any file touch and the reloader dies with its parent
+    # console, so an unattended pharmacy PC loses the backend mid-day. Default
+    # OFF; opt in with PROCARE_RELOAD=1 while developing.
+    reload = os.environ.get("PROCARE_RELOAD", "0") == "1"
     uvicorn.run(
         "app.main:app",
         host="127.0.0.1",
         port=port,
-        reload=True,
-        reload_dirs=[os.path.join(BASE, "app")],
+        reload=reload,
+        reload_dirs=[os.path.join(BASE, "app")] if reload else None,
     )

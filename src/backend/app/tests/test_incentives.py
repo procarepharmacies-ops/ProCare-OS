@@ -168,6 +168,68 @@ def test_employee_incentive_history(client):
     assert len(body["entries"]) >= 1
 
 
+@pytest.fixture
+def molecule():
+    """Three brands of one active ingredient with distinct margins:
+      A sell100/buy40 -> margin 60, 60.0%
+      B sell200/buy130-> margin 70, 35.0%   (top by EGP margin)
+      C sell80/buy24  -> margin 56, 70.0%   (top by margin %)
+    """
+    s = SessionLocal()
+    ids = {}
+    try:
+        specs = {"A": (100, 40), "B": (200, 130), "C": (80, 24)}
+        for tag, (sell, buy) in specs.items():
+            p = m.Product(code=f"ZZMOL-{tag}", name_ar=f"صنف {tag}", name_en=f"Brand {tag}",
+                          scientific_name="ZZTESTMOLECULE", sell_price=sell, buy_price=buy)
+            s.add(p)
+            s.flush()
+            ids[tag] = p.product_id
+        s.commit()
+    finally:
+        s.close()
+    try:
+        yield ids
+    finally:
+        s2 = SessionLocal()
+        try:
+            s2.execute(delete(m.Product).where(m.Product.code.like("ZZMOL-%")))
+            s2.commit()
+        finally:
+            s2.close()
+
+
+def test_incentive_candidates_ranks_and_toggles(client, molecule):
+    # Default metric = egp_margin: B(70) > A(60) > C(56)
+    r = client.get("/api/incentives/candidates?metric=egp_margin&top_n=3&branch_id=1")
+    assert r.status_code == 200
+    grp = next(g for g in r.json()["groups"] if g["ingredient"] == "ZZTESTMOLECULE")
+    assert grp["brand_count"] == 3
+    assert [b["code"] for b in grp["top"]] == ["ZZMOL-B", "ZZMOL-A", "ZZMOL-C"]
+    # every brand carries all three metric values for live re-ranking
+    assert set(("egp_margin", "margin_pct", "profit_volume")).issubset(grp["top"][0].keys())
+
+    # Toggle to margin_pct: C(70%) > A(60%) > B(35%)
+    r2 = client.get("/api/incentives/candidates?metric=margin_pct&top_n=3&branch_id=1")
+    grp2 = next(g for g in r2.json()["groups"] if g["ingredient"] == "ZZTESTMOLECULE")
+    assert [b["code"] for b in grp2["top"]] == ["ZZMOL-C", "ZZMOL-A", "ZZMOL-B"]
+
+
+def test_incentive_apply_bulk(client, molecule):
+    a, b = molecule["A"], molecule["B"]
+    r = client.post("/api/incentives/apply", json={"items": [
+        {"product_id": a, "points": 5}, {"product_id": b, "points": 3},
+    ]})
+    assert r.status_code == 200
+    assert r.json()["set"] == 2
+    listed = {p["product_id"]: p["incentive_points"] for p in client.get("/api/incentives/products").json()["products"]}
+    assert listed.get(a) == 5 and listed.get(b) == 3
+    # points 0 clears it
+    client.post("/api/incentives/apply", json={"items": [{"product_id": a, "points": 0}]})
+    listed2 = {p["product_id"] for p in client.get("/api/incentives/products").json()["products"]}
+    assert a not in listed2 and b in listed2
+
+
 def test_zero_incentive_removes_points(client):
     """Setting incentive_points to 0 removes the OTC incentive."""
     products = client.get("/api/inventory/products?branch_id=1").json()["products"]

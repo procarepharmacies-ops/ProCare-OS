@@ -138,7 +138,103 @@
     branch_scoped full → sync._record_cycle('elsanta') flips the incremental
     gate). Needs MSSQLSERVER started by admin.
 
+- 2026-07-20 · Employee-mirror lockout (took TWO fixes): the eStock Employee
+  mirror set ProCare `is_active` from the source row every cycle, so a stale
+  source employee (active='0'/deleted='1') disabled the matched ProCare login.
+  Fix #1 gated the is_active-skip on `password_hash LIKE 'sha256$%'` — but
+  `authenticate()` transparently upgrades sha256 → pbkdf2 on first successful
+  login, so once the owner logged in, their hash no longer matched the gate and
+  the next sync re-locked them. Fix #2: gate on "hash is NOT a sentinel" —
+  `not cur_hash.startswith("!")` (the mirror sentinel is `!estock-mirror`) —
+  covers sha256$, pbkdf2$, and any future real algorithm. RULE: never gate
+  "is this a real login" on a specific hash-algorithm prefix; the hash format
+  migrates under you.
+- 2026-07-20 · run.py had `reload=True` hardcoded. uvicorn's reloader watches
+  app/ and restarts the worker on any file touch, and the reloader dies with
+  its parent console — so an unattended pharmacy PC (or any file edit) drops the
+  backend. Now `PROCARE_RELOAD` env, default off. Production = single stable
+  process; dev opts in.
+- 2026-07-20 · Cheque module UNUSED: `Checks` table has 0 rows on BOTH branch
+  servers (elsanta DESKTOP-DUTL25M + mashala DESKTOP-SHTFS3J). Columns exist
+  (ch_id, gf_id, ch_number, ch_valid_date, ch_status, cashed…) but the pharmacy
+  never issued a cheque. A cheque-due alert is dead weight until they start
+  using it — deferred.
+- 2026-07-20 · Item sales-movement report design: balances are PHYSICAL
+  (include expired). Opening is derived, not stored — roll the live on-hand
+  back through every flow (sale_lines/purchase_lines + adjust movements) from
+  the period start to today, so the last day's closing == on-hand when the
+  period ends today (`reconciles` flag). Sale/purchase flow comes from the
+  mirrored *_lines (complete), NOT stock_movements (which the mirror doesn't
+  write for historical rows — only 'adjust' from ProCare-native جرد). Verified
+  live: reconciles exactly on real Elsanta items.
+
 ## Data-quality rules
 - "Available" stock = amount > 0 AND not expired (`available_stock_filter`).
 - Posting a جرد uses counted minus LIVE batch amount at post time (not the
   snapshot) so sales during the count never corrupt the final quantity.
+- 2026-07-20 · Titan moved and CHANGED LAYOUT: the install is now
+  `D:\AgenticOS\TITAN.349` (old `D:\Labirdo\TITAN.W1` is gone). The 349 build
+  writes the ARABIC name at offset 0-40 and English at 40-70 — the REVERSE of
+  W1 — and its category sits at 796 (not 792). Running the old hardcoded
+  offsets over it silently files Arabic text into the English column, so
+  `titan_extract.parse_tar_phy` now DETECTS the layout (`detect_layout`, sniffs
+  where the Arabic script is) instead of assuming. RULE: never hardcode a
+  binary vendor layout; sniff it.
+- 2026-07-20 · The two Titan builds are COMPLEMENTARY, so the loader merges
+  rather than reloads: W1 (already in the DB) has ~3k more scientific names but
+  lost its Arabic to encoding damage; 349 has 13,598 intact Arabic names but
+  fewer scientific ones. Slot ids are per-build, so a DELETE+reload would BOTH
+  drop the richer scientific data AND orphan every `products.titan_drug_id`.
+  Merge strategy: keep the loaded build as the base (its ids are what products
+  point at), fill only its BLANK fields from the new file, append genuinely new
+  drugs with fresh ids. Result: 15,373 -> 23,063 drugs, name_ar 23 -> 13,962,
+  sci 13,986 -> 19,209, and matching IMPROVED 4,145 -> 4,322 (349 alone would
+  have scored 2,049).
+- 2026-07-20 · Titan stores NO local/import or medicine flag. Audited every
+  unmapped byte (130..796) against manufacturer-nationality ground truth: best
+  single-byte separation was 0.36 — unusable. Both are DERIVED instead:
+  origin from manufacturer nationality (1,095 makers; EIPICO/AMOUN/SIGMA...
+  = local), is_medicine from the therapeutic category (922 categories;
+  HAIR CARE/SOAP/MASSAGE = not medicine). Auditable and correctable, unlike a
+  guessed byte.
+- 2026-07-20 · eStock's own catalogue flags are UNRELIABLE, which is why this
+  job exists: `product_drug` marks Rivotril (a controlled benzo) as 0 and a
+  shampoo as 1; `product_made` disagrees with itself across one brand (Nexium
+  40 vial vs Nexium 20 tabs). Field population: scientific 14%, name_en 99%,
+  name_ar 100%, notes/uses 0.1% (61 rows).
+- 2026-07-20 · Duplicate detection safety rule: pack-count tokens may be
+  stripped when grouping, but STRENGTH tokens never (500 MG vs 1 GM must not
+  group — merging them is a dispensing error; regression-tested). Tiers carry a
+  `confidence`: code/exact_name = high (safe to bulk-action), name_pack =
+  "review" because it also catches LEGITIMATE pack variants (3 TAB vs 5 TAB are
+  two real SKUs). Live: 869 groups, 23 high-risk (live stock split across
+  copies, e.g. "ماء مذيب 50 مل" entered twice with a double space, 65 + 258
+  units on hand).
+- 2026-07-20 · Drug-Eye ONLINE (drugeye.pharorg.com) is scrapeable and carries
+  what the local Titan file lacks — indications/uses and substitution sets.
+  Mechanics: ASP.NET WebForms; search is a POSTBACK (needs __VIEWSTATE +
+  __EVENTVALIDATION from a fresh GET, fields `ttt` + `b1`). Results render as
+  FIVE <tr> per drug keyed by inline colour: Blue=trade name, Red=price,
+  Black=scientific, Green=use/category, BlueViolet=manufacturer, plus an
+  options row whose `title` holds the numeric drug id. TRAP: test for
+  "color:Blue;" WITH the semicolon — "color:BlueViolet" also contains "Blue",
+  so a loose test turns every manufacturer row into a phantom drug (inflated
+  a 92-drug list to 184).
+  Sub-lookups are plain GETs on the id (no viewstate): `?gname=<id>geno` =
+  same-molecule generics, `?gname=<id>alto` = same-class alternatives,
+  `apiforus/gi.aspx?passed=<trade name>` = clinical monograph. A bare
+  `?gname=<molecule>` returns only the page shell — the id+suffix form is
+  required. Their TLS chain is incomplete, so verification must be relaxed
+  for this host only.
+  Monograph parsing: the layout is NOT consistent — some drugs separate
+  sections with '^^' (Esomeprazole), some with single '^' (Metformin), some
+  open with unheaded body text (Augmentin), and single '^' ALSO separates
+  numbered list items. So split on every caret and recognise HEADINGS by shape
+  instead of trusting separators. Heading regex must end `\w*` not `\b`:
+  headings are plural ("Indications for X") and `indication\b` cannot match
+  "Indications". Unheaded monographs fall into a `notes` section — captured,
+  just not sectioned.
+  Scale rule: query by MOLECULE, not per product — one geno/alto pair returns
+  ~100-200 drugs, so the 53k catalogue needs a few thousand requests, not
+  100k. Tool caches every response to disk (re-runs cost nothing), throttles
+  to one request per DRUGEYE_DELAY seconds (default 2.5) and is resumable.

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, incentives, insights, inventory, knowledge, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
+from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, crm, dashboard, employees, footfall, incentives, insights, inventory, knowledge, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -152,6 +152,8 @@ router.include_router(vendors.router, dependencies=[Depends(auth_guard())])
 router.include_router(tasks.router, dependencies=[Depends(auth_guard())])
 # Employee incentives: points for selling OTC items, leaderboard.
 router.include_router(incentives.router)
+# Catalogue quality: duplicate detection + Titan enrichment review (read-only).
+router.include_router(catalogue.router)
 # NVR door-counter ingestion + visitor analytics (POST is key-protected via
 # FOOTFALL_KEY, not bearer auth — the NVR can't do a login flow).
 router.include_router(footfall.router)

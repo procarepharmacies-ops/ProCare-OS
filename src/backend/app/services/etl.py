@@ -973,12 +973,15 @@ def _load_employees(insp, src, dst, counts) -> None:
         )
         eid, cur_hash = existing.get(uname.lower(), (None, None))
         if eid is not None:
-            # A usable ProCare password (``sha256$…``) marks a REAL ProCare
-            # login (roster or admin-granted). eStock's active/deleted state
-            # must never disable it — otherwise a stale source employee row
-            # locks the owner out on every sync cycle. Mirror-created rows
-            # (sentinel hash, cannot log in) keep following the source.
-            if cur_hash and cur_hash.startswith("sha256$"):
+            # A usable ProCare password marks a REAL ProCare login (roster or
+            # admin-granted). eStock's active/deleted state must never disable
+            # it — otherwise a stale source employee row locks the owner out on
+            # every sync cycle. Only the mirror sentinel (``!estock-mirror``,
+            # any ``!``-prefixed unusable hash) follows the source. NB: a real
+            # hash may be ``sha256$…`` OR ``pbkdf2$…`` — the login path upgrades
+            # sha256 → pbkdf2 in place — so gate on "not a sentinel", never on a
+            # specific algorithm prefix (that was the original lockout bug).
+            if cur_hash and not cur_hash.startswith("!"):
                 fields.pop("is_active")
             dst.execute(
                 m.Employee.__table__.update()

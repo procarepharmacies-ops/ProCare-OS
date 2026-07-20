@@ -177,3 +177,103 @@
 - SYNC_ENABLED=1 restored in .env (the condition in its own comment — the
   incremental upgrade landing — is met). Kept: .bak + stock_elsanta on D:
   as re-verification insurance.
+
+## 2026-07-20 (later) · Production install + eStock gap #1 (item movement)
+- Installed production ProCare v1 on the pharmacy PC: ports moved to 8100/3100
+  (owner runs another project on 8000/3000), desktop icon + Windows autostart,
+  same-origin proxy build. Logged into the live dashboard as CEO — real data.
+- FIXED (twice) a production login lockout: the eStock employee mirror wrote
+  is_active from the source row every cycle, so a stale eStock employee row
+  deactivated the matched ProCare login. First fix gated on `sha256$` only —
+  but the login path upgrades sha256 → pbkdf2, so a logged-in account slipped
+  through and got re-locked. Correct gate: protect any hash NOT starting with
+  `!` (the mirror sentinel). Regression test now covers the pbkdf2 case.
+- FIXED backend instability: run.py had reload=True hardcoded — the file
+  watcher restarted the API on every edit and died with its parent console,
+  dropping the backend mid-session. Now env-gated (PROCARE_RELOAD, default off);
+  production stays up as a single stable process.
+- Reviewed 5 unmerged branches: 3 stale (pre-refactor / SQL-compat already in
+  main), 2 clean value-adds (accounting KPIs; deep-analysis frontend for the
+  /performance/deep backend already in main) — left for owner's merge call.
+- Audited codebase vs owner's eStock illustrated feature map: strong coverage;
+  4 real gaps (item-movement report, rep commission, news/notif center,
+  cheque-due). Cheque data is EMPTY on both servers → cheque-due deferred.
+- BUILT gap #1 — item sales-movement report: reports.item_movement (per-day
+  opening/purchases/sales/returns/adjust/closing, reconciles to live on-hand),
+  GET /reports/item-movement (+CSV), /reports-item screen (product search +
+  window + reconcile badge + export). Verified live on Elsanta (سرنجة: opening
+  2060.1 → closing 7.6 == on-hand; Augmentin 1g: 13.5 → 2 == on-hand).
+- Tests: 207/207 (4 new in test_item_movement.py). next build clean.
+
+## 2026-07-20 (later) · Incentive builder by active ingredient (CEO vision)
+- Owner's vision: the incentive/OTC list should push the 2-3 MOST PROFITABLE
+  brands of each active ingredient, so cashiers steer customers to the
+  best-margin brand of the molecule they ask for.
+- Discovered the incentive ENGINE already existed (revenue-engine merge):
+  set points per product, auto-accrue on sale (points = qty × product points),
+  clawback on return, per-employee history, leaderboard — all tested, and
+  sync-SAFE (the product mirror never overwrites incentive_points). What was
+  missing was the FRONTEND (no way to choose products or show the employee his
+  tally).
+- BUILT: services/incentives.py `incentive_candidates` — groups catalogue by
+  scientific_name, ranks brands within each ingredient by 3 metrics
+  (egp_margin / margin_pct / profit_volume), returns top-N per ingredient with
+  all three metric values for live re-ranking + current points. `apply_incentives`
+  bulk set/clear. Endpoints GET /incentives/candidates + POST /incentives/apply
+  (ceo/manager). SQL Server 2008-safe (no func.trim/length — the local instance
+  is MSSQL10 too).
+- Frontend: /incentives builder (metric toggle, top-N, ingredient search,
+  per-brand tick+points, bulk apply) + "حوافزي هذا الشهر" card on the Operations
+  screen (logged-in employee's monthly points). api helpers, nav, AR/EN i18n.
+- Verified live: 1,243 competing-ingredient groups; ranking + metric toggle +
+  bulk apply all work (ESOMEPRAZOLE by margin% → AIG 50% / ESMATAC 41% → applied
+  → landed on the incentive list; test values then cleared).
+- DATA CAVEAT surfaced: scientific_name is only 16% populated, and some are
+  MIS-TAGGED in eStock (e.g. the METFORMIN group contained SPRYCEL/dasatinib
+  and MESTINON/pyridostigmine). Grouping is correct given the data; the source
+  molecule field needs a sanity check / future enrichment from Titan drug master.
+- Tests: 209/209 (2 new in test_incentives.py). next build clean.
+- Also: run.py reload now env-gated (was dropping the backend); ports 8100/3100.
+
+## 2026-07-20 (later) · Catalogue fix Phase 0 — Titan enrichment + duplicates
+- Goal (owner): correct eStock products against Titan — scientific name, AR/EN
+  names, medicine flag, local/import, category/uses — without touching data,
+  and handle the duplicated products professionally.
+- AUDIT: Titan had MOVED (D:\AgenticOS\TITAN.349) and changed record layout
+  (AR/EN swapped, category 792->796). Made the extractor layout-detecting.
+  Its Arabic is INTACT (13,598) — reversing the old "Arabic unrecoverable"
+  caveat. No local/import or medicine flag exists in the file (byte audit:
+  best separation 0.36), so both are derived from manufacturer + category.
+- MERGED the two Titan builds instead of reloading (would have lost 3k
+  scientific names + orphaned 2,096 product mappings): 23,063 drugs,
+  name_ar 23 -> 13,962, sci 13,986 -> 19,209, matches 4,145 -> 4,322.
+- BUILT services/catalogue.py: `duplicate_groups` (tiered code/exact_name/
+  name_pack with per-tier CONFIDENCE, survivor-choice evidence = on-hand,
+  lifetime sales, last sale; strength never normalised away) and
+  `enrichment_proposals` (per-field current-vs-Titan diffs, fill vs replace).
+  GET /catalogue/duplicates + /catalogue/enrichment (ceo/manager, READ-ONLY).
+- Live: 869 duplicate groups (23 high-risk = live stock split across copies);
+  1,791 products with staged proposals (category 1,790 / is_medicine 1,752 /
+  origin 1,111).
+- Tests: 214/214 (5 new in test_catalogue.py incl. the 500MG-vs-1GM
+  dispensing-safety invariant).
+- NOT DONE yet: review UI (Phase 1) and the approved eStock write-back
+  (Phase 2, separate explicitly-launched script, backup-gated).
+
+## 2026-07-20 (later) · Drug-Eye online harvest (uses + substitution)
+- Owner asked to pull uses / substitution / scientific names from the Drug-Eye
+  web app to enrich beyond the local Titan file.
+- REVERSE-ENGINEERED the site: WebForms postback search; 5-rows-per-drug
+  colour-keyed result grid; id-based GET sub-lookups for generics (`geno`),
+  therapeutic alternatives (`alto`), and a clinical monograph endpoint.
+  All three verified live: ESOMEPRAZOLE -> 92 generics, 100 alternatives,
+  full indications list (gastric ulcer / GERD / oesophagitis / NSAID ulcer).
+- BUILT tools/drugeye_scrape.py: disk-cached (re-runs free), throttled
+  (default 2.5s/request), resumable, writes JSONL to a STAGING file — nothing
+  is applied to products; it feeds the catalogue review flow.
+- THREE parser bugs found and fixed by probing real data: "color:Blue" also
+  matched "BlueViolet" (doubled every result list); monograph sections use
+  inconsistent separators across drugs; heading regex `indication\b` could not
+  match the plural "Indications" (silently emptied every uses field).
+- NOT started: bulk harvest (needs owner go-ahead — ~1,500-3,000 molecules,
+  4 requests each at 2.5s = one overnight run) and the review UI.

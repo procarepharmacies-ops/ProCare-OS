@@ -10,7 +10,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useUI } from "../providers";
 import { t } from "../i18n";
-import { apiFetch } from "../api";
+import { apiFetch, api } from "../api";
 import Icon from "../components/icons";
 
 const money = (n) => (Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -25,7 +25,7 @@ function bucketOf(task, today) {
 }
 
 export default function OperationsPage() {
-  const { lang, branch } = useUI();
+  const { lang, branch, user } = useUI();
   const L = (k) => t(lang, k);
 
   const [loading, setLoading] = useState(true);
@@ -36,6 +36,7 @@ export default function OperationsPage() {
   const [agents, setAgents] = useState([]);
   const [team, setTeam] = useState(null);
   const [busyTask, setBusyTask] = useState(null);
+  const [myInc, setMyInc] = useState(null);
 
   const bq = branch ? `?branch_id=${branch}` : "";
 
@@ -55,10 +56,14 @@ export default function OperationsPage() {
       setPerf((prod?.employees || []).filter((e) => e.bills > 0));
       setAgents(agentsRes?.agents || []);
       setTeam(teamRes || null);
+      // The logged-in employee's own incentive tally this month (motivational).
+      if (user?.employee_id) {
+        api.employeeIncentives(user.employee_id).then(setMyInc).catch(() => setMyInc(null));
+      }
     } finally {
       setLoading(false);
     }
-  }, [bq]);
+  }, [bq, user?.employee_id]);
 
   useEffect(() => {
     load();
@@ -160,6 +165,27 @@ export default function OperationsPage() {
             />
           ))}
         </div>
+
+        {/* My incentives this month — motivates the logged-in employee */}
+        {myInc && (
+          <div className="card" style={{ borderInlineStart: "3px solid var(--ok)" }}>
+            <div className="section-title">{L("inc_my_title")}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: "var(--ok)" }}>{money(myInc.total_points)}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{L("inc_my_total")}</div>
+              </div>
+              {myInc.entries?.length === 0 && (
+                <span className="muted" style={{ fontSize: 13 }}>{L("inc_my_none")}</span>
+              )}
+              {myInc.entries?.length > 0 && (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {myInc.entries.length} {L("ops_bills")} · {myInc.month}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Performance leaderboard */}
         <div className="card">
