@@ -277,3 +277,24 @@
   match the plural "Indications" (silently emptied every uses field).
 - NOT started: bulk harvest (needs owner go-ahead — ~1,500-3,000 molecules,
   4 requests each at 2.5s = one overnight run) and the review UI.
+
+## 2026-07-20 (later) · PR #23 merged; Drug-Eye wired into catalogue proposals
+- Merged PR #23 into main (item-movement report, incentive builder, catalogue
+  Phase 0, Drug-Eye harvester, production hardening). New branch
+  feat/catalogue-enrichment-review.
+- STARTED the bulk harvest: 1,847 molecules on products the pharmacy actually
+  sells, heaviest sellers first, 2.5s delay, cached + resumable (~6-7h).
+- WIRED the harvest into services/catalogue.py: `drugeye_lookup()` indexes the
+  JSONL by normalised trade name (mtime-keyed cache so a growing harvest is
+  picked up without a restart) and `enrichment_proposals` now offers Titan AND
+  Drug-Eye values with a `source` on every diff.
+- FIXED a design limitation found by testing: proposals INNER-joined TitanDrug,
+  so Drug-Eye data could never reach the 49k products Titan doesn't match —
+  which defeats the harvest, since `uses` comes only from Drug-Eye. Now an
+  outer join; a product qualifies on either source, and Titan-sourced fields
+  are gated on the match score so a weak match lends no authority.
+- Efficiency confirmed: 17 molecules harvested already yielded 1,306 distinct
+  trade names (one molecule query returns its whole substitution set).
+- Verified live: CEFOTAX 1GM/2GM now propose real indications (meningitis,
+  resistant hospital-acquired infections, septicemia).
+- Tests: 228/228.

@@ -20,8 +20,11 @@ pharmacy loses stock or history. Tiers, strongest first:
 """
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
+from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -181,7 +184,59 @@ def duplicate_groups(
 
 # Fields the enrichment can propose. eStock columns are the write-back target;
 # ProCare mirrors them, so a proposal is expressed in ProCare terms.
-PROPOSABLE = ("scientific_name", "name_en", "name_ar", "is_medicine", "origin", "category")
+PROPOSABLE = ("scientific_name", "name_en", "name_ar", "is_medicine", "origin",
+              "category", "uses")
+
+# Where the Drug-Eye harvester writes its JSONL (tools/drugeye_scrape.py).
+_HARVEST = Path(__file__).resolve().parents[2] / "data" / "drugeye_harvest.jsonl"
+
+
+@lru_cache(maxsize=1)
+def _drugeye_index(mtime: float) -> dict[str, dict]:
+    """{normalised trade name -> {scientific_name, use_category, uses,
+    manufacturer}} from the harvest file.
+
+    Keyed on the file's mtime so the cache invalidates itself when a new
+    harvest lands, without a restart. A missing or partially-written file is
+    not an error: Drug-Eye enrichment is additive, and Titan alone must still
+    work (the harvest is a long background run, so partial reads are normal).
+    """
+    idx: dict[str, dict] = {}
+    if not _HARVEST.exists():
+        return idx
+    with _HARVEST.open(encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            indications = (rec.get("monograph") or {}).get("indications") or ""
+            # The term's own hits plus every generic/alternative it returned —
+            # one molecule query enriches ~200 trade names.
+            for bucket in ("results", "generics", "alternatives"):
+                for d in rec.get(bucket) or []:
+                    name = _norm(d.get("trade_name"))
+                    if not name:
+                        continue
+                    entry = idx.setdefault(name, {})
+                    for src, dst in (("scientific_name", "scientific_name"),
+                                     ("use_category", "category"),
+                                     ("manufacturer", "manufacturer")):
+                        if d.get(src) and not entry.get(dst):
+                            entry[dst] = d[src]
+                    # Indications belong to the queried drug, not its whole
+                    # substitution set — only attach to the term's own hits.
+                    if bucket == "results" and indications and not entry.get("uses"):
+                        entry["uses"] = indications[:300]
+    return idx
+
+
+def drugeye_lookup() -> dict[str, dict]:
+    """Harvest index, auto-refreshed when the file changes."""
+    try:
+        return _drugeye_index(_HARVEST.stat().st_mtime)
+    except FileNotFoundError:
+        return {}
 
 
 def enrichment_proposals(
@@ -199,30 +254,50 @@ def enrichment_proposals(
     rows = session.execute(
         select(
             m.Product.product_id, m.Product.code, m.Product.name_ar, m.Product.name_en,
-            m.Product.scientific_name, m.Product.dosage_form, m.Product.titan_match_method,
+            m.Product.scientific_name, m.Product.dosage_form, m.Product.uses,
+            m.Product.titan_match_method,
             m.Product.titan_match_score,
             m.TitanDrug.name_en.label("t_name_en"), m.TitanDrug.name_ar.label("t_name_ar"),
             m.TitanDrug.scientific_name.label("t_sci"), m.TitanDrug.category.label("t_cat"),
             m.TitanDrug.origin.label("t_origin"), m.TitanDrug.is_medicine.label("t_med"),
         )
-        .join(m.TitanDrug, m.TitanDrug.titan_drug_id == m.Product.titan_drug_id)
-        .where(m.Product.is_deleted == False,  # noqa: E712
-               m.Product.titan_match_score >= min_score)
+        # OUTER join: a product needs a Titan match OR a Drug-Eye hit to be
+        # proposable. Requiring Titan would lock out `uses`, which only
+        # Drug-Eye supplies — and Titan matches just 4.3k of 53k products.
+        .outerjoin(m.TitanDrug, m.TitanDrug.titan_drug_id == m.Product.titan_drug_id)
+        .where(m.Product.is_deleted == False)  # noqa: E712
     ).all()
 
+    de = drugeye_lookup()
     proposals = []
     field_counts: dict[str, int] = defaultdict(int)
+    source_counts: dict[str, int] = defaultdict(int)
     for r in rows:
         diffs = {}
+        # Drug-Eye (online, has indications) supplements Titan (local, has
+        # identity). Titan wins where both know a field — it is the licensed
+        # local master; Drug-Eye fills what Titan cannot supply, above all
+        # `uses`, which neither Titan nor eStock carries.
+        d = de.get(_norm(r.name_en)) or de.get(_norm(r.name_ar)) or {}
+        # A weak/absent Titan match must not lend authority to Titan fields;
+        # below the score threshold, only Drug-Eye's contribution is offered.
+        titan_ok = (r.titan_match_score or 0) >= min_score
+        if not titan_ok and not d:
+            continue
+        t_sci = r.t_sci if titan_ok else None
+        t_cat = r.t_cat if titan_ok else None
         pairs = (
-            ("scientific_name", r.scientific_name, r.t_sci),
-            ("name_en", r.name_en, r.t_name_en),
-            ("name_ar", r.name_ar, r.t_name_ar),
-            ("category", r.dosage_form, r.t_cat),
-            ("origin", None, r.t_origin),
-            ("is_medicine", None, r.t_med),
+            ("scientific_name", r.scientific_name, t_sci or d.get("scientific_name"),
+             "titan" if t_sci else "drugeye"),
+            ("name_en", r.name_en, r.t_name_en if titan_ok else None, "titan"),
+            ("name_ar", r.name_ar, r.t_name_ar if titan_ok else None, "titan"),
+            ("category", r.dosage_form, t_cat or d.get("category"),
+             "titan" if t_cat else "drugeye"),
+            ("origin", None, r.t_origin if titan_ok else None, "titan"),
+            ("is_medicine", None, r.t_med if titan_ok else None, "titan"),
+            ("uses", r.uses, d.get("uses"), "drugeye"),
         )
-        for field, current, proposed in pairs:
+        for field, current, proposed, source in pairs:
             if proposed in (None, ""):
                 continue
             cur_blank = current in (None, "") or not str(current).strip()
@@ -230,9 +305,10 @@ def enrichment_proposals(
                 continue
             if not cur_blank and str(current).strip().upper() == str(proposed).strip().upper():
                 continue
-            diffs[field] = {"current": current, "proposed": proposed,
+            diffs[field] = {"current": current, "proposed": proposed, "source": source,
                             "action": "fill" if cur_blank else "replace"}
             field_counts[field] += 1
+            source_counts[source] += 1
         if diffs:
             proposals.append({
                 "product_id": r.product_id,
@@ -245,11 +321,14 @@ def enrichment_proposals(
             })
 
     total = len(proposals)
-    proposals.sort(key=lambda p: (-p["match_score"], p["product_id"]))
+    # Drug-Eye-only products have no Titan score; sort them after the
+    # Titan-matched ones rather than crashing on the None.
+    proposals.sort(key=lambda p: (-(p["match_score"] or 0), p["product_id"]))
     return {
         "proposal_count": total,
         "shown": min(total, limit),
         "by_field": dict(field_counts),
+        "by_source": dict(source_counts),
         "only_missing": only_missing,
         "proposals": proposals[:limit],
     }
