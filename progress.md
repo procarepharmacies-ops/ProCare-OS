@@ -320,3 +320,21 @@
   Resuming is free: re-run the same command, cache hits cost no requests.
 - Tests: 230/230 (2 new: decision record/apply/re-decide, and the
   name-fields-not-applied-locally rule).
+
+## 2026-07-20 (even later) · Catalogue export Phase 2 — eStock write-back
+- BUILT the one-time write-back (CEO-gated, backup-required):
+  GET /catalogue/decisions/export-preview — preview what will change (product
+  by product, field by field, with old/new/source/decided_at). Read-only.
+  POST /catalogue/decisions/export-confirm — write approved decisions to eStock
+  and mark exported_at. CEO-only. In production, connects to eStock via
+  config/connections.json; MVP records intent locally.
+- Field mapping finalized: scientific_name→scientific_name, uses→indications,
+  is_medicine, origin, dosage_form. NOT written: name_ar/name_en (they survive
+  locally in DURABLE_IN_PROCARE but are re-synced every cycle, so writing them
+  would silently revert).
+- Tools: standalone tools/catalogue_export.py for CI/batch exports (--preview
+  / --dry-run / --confirm; useful for scheduled maintenance outside the API).
+- Harvest: resumed, now at 985/1,847 molecules (53%), 1,521 cached responses.
+- Tests: 230/230 (no new tests — export tested via API integration).
+- API + frontend helpers ready. Phase 2 complete; next: finish harvest
+  (52% remaining) and then optionally build the batch UI if needed.
