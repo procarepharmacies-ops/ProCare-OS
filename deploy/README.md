@@ -162,6 +162,17 @@ plain Ubuntu desktop use `deploy/procare.desktop` (edit the two paths inside).
    `http://frontend:3000` (type: HTTP).
 4. `./deploy/procare.sh start` — the tunnel container joins automatically.
 
+**No-Docker (local Ubuntu) tunnel** — one command, runs cloudflared as an
+always-on systemd service pointing at the local frontend (`localhost:3000`):
+
+```bash
+./deploy/install-cloudflare.sh <TUNNEL_TOKEN>
+```
+
+Get `<TUNNEL_TOKEN>` from the same Zero Trust → Tunnels page, and set that
+tunnel's Public Hostname service to `HTTP://localhost:3000`. Manage it with
+`systemctl status procare-tunnel` / `journalctl -u procare-tunnel -f`.
+
 Because the app is now reachable from the internet, keep `AUTH_ENABLED=true`
 (the default) and set a strong `AUTH_SECRET` in `.env` — the login screen is
 what stands between the internet and your pharmacy data.
