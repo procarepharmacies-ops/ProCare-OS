@@ -876,28 +876,3 @@ class IncentiveLedger(Base):
     )
 
 
-class Campaign(Base):
-    """WhatsApp campaign audit log: tier-up, birthday, expiry nudge, win-back.
-
-    Tracks configuration (enabled flag, templates) and sends (sent/failed counts,
-    last run timestamp). Phase 3: CRM engagement automation.
-
-    New table — ``create_all`` adds it automatically on existing databases.
-    """
-
-    __tablename__ = "campaigns"
-
-    campaign_id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True)  # tier_up, birthday, expiry_nudge, winback
-    enabled: Mapped[bool] = mapped_column(default=True)
-    template_ar: Mapped[str] = mapped_column(String(1000), default="")
-    template_en: Mapped[str] = mapped_column(String(1000), default="")
-    sent_count: Mapped[int] = mapped_column(default=0)
-    failed_count: Mapped[int] = mapped_column(default=0)
-    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-
-    __table_args__ = (
-        Index("IX_campaigns_name", "name"),
-        Index("IX_campaigns_last_run", "last_run_at"),
-    )
