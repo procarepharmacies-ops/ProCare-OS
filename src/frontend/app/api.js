@@ -299,6 +299,27 @@ export const api = {
   sendCampaign: (campaignId) => http(`/crm/campaigns/${campaignId}/send`, { method: "POST" }),
   campaignLinks: (campaignId) => http(`/crm/campaigns/${campaignId}/links`),
 
+  // Phase 4: Social media + promo codes
+  generateSocialCopy: (context, brandName) =>
+    http("/marketing/posts/generate-copy", { method: "POST", body: JSON.stringify({ context, brand_name: brandName }) }),
+  createSocialPost: (payload) =>
+    http("/marketing/posts", { method: "POST", body: JSON.stringify(payload) }),
+  getSocialPost: (postId) => http(`/marketing/posts/${postId}`),
+  socialCalendar: (channel, month) =>
+    http(`/marketing/calendar${channel ? `?channel=${channel}&month=${month}` : ""}`),
+  approveSocialPost: (postId) =>
+    http(`/marketing/posts/${postId}/approve`, { method: "PATCH" }),
+  publishSocialPost: (postId) =>
+    http(`/marketing/posts/${postId}/publish`, { method: "POST" }),
+  createPromoCode: (payload) =>
+    http("/marketing/promo-codes", { method: "POST", body: JSON.stringify(payload) }),
+  listPromoCodes: () => http("/marketing/promo-codes"),
+  getActivePromoCodes: () => http("/marketing/promo-codes/active"),
+  validatePromoCode: (code, invoiceTotal) =>
+    http(`/marketing/promo-codes/${code}/validate?invoice_total=${invoiceTotal}`),
+  deactivatePromoCode: (code) =>
+    http(`/marketing/promo-codes/${code}/deactivate`, { method: "PATCH" }),
+
   // Phase 6 Dashboard — new KPI endpoints.
   purchasing: (branch) => http(`/dashboard/purchasing${bq(branch)}`),
   yoy: (branch) => http(`/dashboard/yoy${bq(branch)}`),
