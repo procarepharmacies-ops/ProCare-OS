@@ -737,6 +737,71 @@ class Campaign(Base):
     )
 
 
+class SocialPost(Base):
+    """Social media content calendar post (فيسبوك/انستغرام/ستاتس واتس).
+
+    Tracks content drafts, approvals, and publishing to multiple channels
+    with bilingual captions and media refs. Phase 4: marketing studio.
+    """
+
+    __tablename__ = "social_posts"
+
+    post_id: Mapped[int] = mapped_column(primary_key=True)
+    channel: Mapped[str] = mapped_column(String(20))  # fb / ig / wa-status
+    title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    body_ar: Mapped[str] = mapped_column(String(2000))
+    body_en: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    image_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)  # URL or base64 ref
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/approved/published
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    promo_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # link to promotion
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("channel IN ('fb','ig','wa-status','tiktok','linkedin')", name="CK_social_channel"),
+        CheckConstraint("status IN ('draft','approved','published','scheduled')", name="CK_social_status"),
+        Index("IX_social_posts_channel_date", "channel", "scheduled_at"),
+        Index("IX_social_posts_promo", "promo_code"),
+    )
+
+
+class PromoCode(Base):
+    """Discount promotion code (كود الخصم) — redeemable at POS.
+
+    Tracks code, discount amount/percentage, validity window, usage limits.
+    Phase 4: campaign→sales ROI tracking.
+    """
+
+    __tablename__ = "promo_codes"
+
+    promo_code_id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True)
+    description_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    description_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    discount_type: Mapped[str] = mapped_column(String(10))  # percentage / fixed
+    discount_value: Mapped[float] = mapped_column(Money)  # % or EGP amount
+    valid_from: Mapped[datetime] = mapped_column(DateTime)
+    valid_until: Mapped[datetime] = mapped_column(DateTime)
+    max_uses: Mapped[int | None] = mapped_column(nullable=True)  # NULL = unlimited
+    current_uses: Mapped[int] = mapped_column(default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("discount_type IN ('percentage','fixed')", name="CK_promo_type"),
+        CheckConstraint("discount_value > 0", name="CK_promo_value"),
+        CheckConstraint("current_uses >= 0", name="CK_promo_uses"),
+        Index("IX_promo_codes_code", "code"),
+        Index("IX_promo_codes_valid", "valid_from", "valid_until"),
+    )
+
+
 class StockCount(Base):
     """Stocktaking session (الجرد) — eStock-style physical inventory count.
 

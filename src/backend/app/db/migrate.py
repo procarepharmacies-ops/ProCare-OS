@@ -426,3 +426,5 @@ def ensure_customer_crm_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE customers {add} last_purchase_date DATETIME NULL"))
 
 
+
+
