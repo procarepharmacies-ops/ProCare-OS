@@ -277,3 +277,68 @@
   match the plural "Indications" (silently emptied every uses field).
 - NOT started: bulk harvest (needs owner go-ahead — ~1,500-3,000 molecules,
   4 requests each at 2.5s = one overnight run) and the review UI.
+
+## 2026-07-20 · Phase 3 — Loyalty tiers + CRM engagement (برنامج الولاء)
+
+- COMPLETED: Tier system on top of existing loyalty points with earn multipliers.
+  * Tier thresholds from settings (default silver/gold/VIP at 5000/10000 EGP 12m spend).
+  * Tier multipliers (×1/×1.25/×1.5) applied to loyalty earn.
+  * Tier recomputed nightly (task runs; customer.tier cached column).
+  * Nightly SQL computation moved to a dedicated job for efficiency.
+- COMPLETED: RFM segmentation (Recency/Frequency/Monetary).
+  * VIP (spent 10k+), Regular (5k–10k / recent activity), At-Risk (spent 5k+ but inactive 60+ days), Dormant (else).
+  * Segments queryable; API endpoint listing + filter chips.
+  * RFM job runs nightly; last segment change tracked.
+- COMPLETED: WhatsApp engagement automation (fail-soft).
+  * Tier-up congratulations; birthday offers (new `customers.birthday` column).
+  * Win-back nudges for At-Risk and Dormant segments.
+  * All campaigns logged and throttled; opt-out respected.
+- Models: `Tier`, `CustomerSegment` added; `customers` extended with birthday + segment.
+- Services: `services/crm.py` (compute_tier_level, compute_rfm_segments, send_engagement).
+- Endpoints: GET /crm/segments, POST /crm/campaign/{segment_id}, GET /crm/tiers.
+- Tests: 25 new in test_crm.py covering tier computation, RFM logic, segment tracking.
+- All 210 tests pass. next build clean.
+- Merged PR #24 into main (commit: 8c2e4d5).
+
+## 2026-07-20 (current) · Phase 4 — Marketing & social studio (شبكات + عروض)
+
+- BUILT: Complete API layer for social media content calendar and promo code management.
+  * Services: social.py (AI copywriting + fallback templates, post lifecycle)
+              promo.py (discount codes, validation, usage tracking)
+  * Endpoints: /api/marketing/posts/* (create, approve, publish, calendar)
+              /api/marketing/promo-codes/* (create, validate, redeem, report)
+  * Models: SocialPost (multi-channel, bilingual, approval workflow)
+            PromoCode (discount types, usage limits, validity windows)
+- AI COPYWRITING: `generate_social_copy()` with LLM complete() + fallback to templates.
+  * Prompt returns bilingual (ARABIC: / ENGLISH:) with emoji and CTAs.
+  * Fail-soft: template fallback on API failure / unconfigured (never blocks).
+  * 5 Arabic + 5 English fallback templates.
+- PROMO CODES:
+  * Percentage (0–100%) and fixed (EGP) discount types.
+  * Validation at creation (dates, duplicates, discount caps).
+  * Runtime validation (active/expired/usage exhausted).
+  * Discount calculations (percentage capped, fixed bounded to invoice).
+  * Usage tracking and redemption with optional max_uses limit.
+  * Usage report with remaining_uses + status (active/expired/not_yet_active).
+- SOCIAL POSTS:
+  * Channels: fb, ig, wa-status, tiktok, linkedin.
+  * Lifecycle: draft → approved → published (or scheduled).
+  * Bilingual content (body_ar, body_en) with optional title and image_ref.
+  * Promo code linking for campaign ROI tracking.
+  * Calendar view (month + channel filtering).
+  * Approval chain (created_by, approved_by tracking).
+- TEST COVERAGE (44 new tests):
+  * test_social.py (18): AI fallback, post creation, scheduling, promo linking, lifecycle, calendar.
+  * test_promo.py (26): code creation validation, runtime validation, calculations, reports.
+  * All with unique code generation (timestamp-based) to avoid test database collisions.
+- All 272 tests pass. next build clean. Backend health: OK.
+- COMPLETED: Frontend UI with 5 tabs in marketing page:
+  * Content Calendar: month-grid view with date + channel filtering
+  * AI Copywriter: bilingual copy generation with LLM + fallback templates
+  * Offer Card Generator: canvas-based PNG export (no external libs)
+  * Promo Code Manager: create/list codes with % or fixed EGP discounts
+  * Campaigns: existing Phase 3 WhatsApp campaign builder
+- Bilingual i18n: 40 new keys (AR/EN) for social media + promo features
+- API integration: 13 new api.* methods with auth + error handling
+- Frontend build clean: marketing page 1.76 → 4.41 kB (4 new tabs)
+- Created PR #26 (draft) with API + services + tests + frontend UI.
