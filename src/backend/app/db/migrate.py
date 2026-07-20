@@ -330,3 +330,44 @@ def ensure_branch_names_corrected(engine) -> None:
         ))
 
 
+def ensure_loyalty_tier_columns(engine) -> None:
+    """Add ``customers.tier`` and ``.tier_spend_12m`` (Phase 3: loyalty tiers).
+
+    Existing customers default to 'silver' tier with 0 spend tracked.
+    Nightly scheduler job recomputes tiers based on 12-month transaction history.
+    """
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "tier" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} tier VARCHAR(20) DEFAULT 'silver'"))
+        if "tier_spend_12m" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} tier_spend_12m NUMERIC(18,3) DEFAULT 0"))
+
+
+def ensure_customer_crm_columns(engine) -> None:
+    """Add ``customers.birthday``, ``.wa_opt_out``, ``.rfm_segment``,
+    ``.last_purchase_date`` (Phase 3: CRM engagement + RFM segmentation).
+
+    Existing customers: no birthday, not opted out, default to 'regular' segment,
+    last_purchase_date NULL.
+    """
+    inspector = inspect(engine)
+    if "customers" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("customers")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "birthday" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} birthday DATE NULL"))
+        if "wa_opt_out" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} wa_opt_out BIT DEFAULT 0"))
+        if "rfm_segment" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} rfm_segment VARCHAR(20) DEFAULT 'regular'"))
+        if "last_purchase_date" not in columns:
+            conn.execute(text(f"ALTER TABLE customers {add} last_purchase_date DATETIME NULL"))
+
+

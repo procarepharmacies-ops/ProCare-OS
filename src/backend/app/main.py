@@ -25,9 +25,11 @@ from app.db.migrate import (
     ensure_assigned_agent_column,
     ensure_branch_names_corrected,
     ensure_customer_address_column,
+    ensure_customer_crm_columns,
     ensure_employee_reset_columns,
     ensure_incentive_points_column,
     ensure_loyalty_points_column,
+    ensure_loyalty_tier_columns,
     ensure_original_sale_id_column,
     ensure_prescription_status_columns,
     ensure_product_classification_columns,
@@ -61,6 +63,9 @@ async def lifespan(_app: FastAPI):
     ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix
     ensure_assigned_agent_column(engine)
     ensure_incentive_points_column(engine)
+    # Phase 3: Loyalty tiers and CRM engagement
+    ensure_loyalty_tier_columns(engine)
+    ensure_customer_crm_columns(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 
