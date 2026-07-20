@@ -136,6 +136,8 @@ export const api = {
   perfAudit: (branch) => http(`/performance/audit${bq(branch)}`),
   perfVendor: (branch, query = "pharmaoverseas", years = 5) =>
     http(`/performance/vendor${bq(branch, `query=${encodeURIComponent(query)}&years=${years}`)}`),
+  perfDeep: (branch, years = 5, lang = "en") =>
+    http(`/performance/deep${bq(branch, `years=${years}&lang=${lang}`)}`),
 
   cashShift: (branchId) => http(`/cashdesk/current?branch_id=${branchId}`),
   openShift: (payload) => http("/cashdesk/open", { method: "POST", body: JSON.stringify(payload) }),
