@@ -170,6 +170,14 @@ bilingual (Arabic RTL first).
       `_run_db_health` (alerts only on severity rise), `GET /api/automation/db-health`.
 - [x] Config `BRANCH_TIMEZONE`; dep `tzdata`; tests test_db_health.py (11) +
       test_ceo_digest.py (5) green; DEPLOYMENT.md watchdog section.
-- [ ] FOLLOW-UP (pre-existing, out of scope): test_forecast.py fails on a
-      date-dependent UNIQUE clash — forecast uses real date.today() vs the suite's
-      DEMO_TODAY anchor. Fix forecast to honour services.common.today().
+- [x] FOLLOW-UP (fixed): forecast + decision-card latent bugs.
+      * forecast.compute_nightly_forecasts deleted today's rows by the BUSINESS
+        clock (common.today()) while inserts stamp date.today() — mismatch left
+        the prior run's rows, so the re-insert tripped the (product,branch,date)
+        UNIQUE constraint. Fixed the delete to use date.today() (matches inserts
+        + the tests). Also fixed test_forecast_demand_with_history's schema drift
+        (string batch_id into an int PK; Sale(total=…) → total_net; SaleLine
+        missing buy_price/total_sell). Full suite now 308 passed / 0 failed.
+      * scheduler._alert_job_failure was referenced in _run_decision_card_
+        generation's error path but never defined (latent NameError) — added a
+        fail-soft helper (log + self-gating whatsapp.notify_manager).

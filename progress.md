@@ -472,3 +472,20 @@
   fails on a date-dependent UNIQUE clash on `forecasts` — the forecast code uses
   real date.today() (2026-07-20) while the suite anchors today() to DEMO_TODAY
   (2026-06-26). Out of scope for this branch; flagged for a follow-up.
+
+## 2026-07-21 · Follow-up fixes (forecast idempotency + scheduler NameError) — branch claude/operations-watchdog-digest-monitoring-mn5kxa (fresh, off merged main)
+- Two latent bugs pre-existing on main (surfaced during the PR #30 merge), now fixed:
+  1. forecast.compute_nightly_forecasts was NOT idempotent: it deleted "today's"
+     forecasts by common.today() (business clock = DEMO_TODAY offline) but every
+     insert stamps date.today() (real clock). The delete cleared the wrong day, so
+     a 2nd run re-inserted and hit the forecasts (product,branch,forecast_date)
+     UNIQUE constraint. Fix: delete by date.today() to match the inserts (+ a
+     comment explaining the clock-must-match invariant). Also repaired
+     test_forecast_demand_with_history, which drifted from the schema (string
+     batch_id into an INTEGER PK → "datatype mismatch"; Sale(total=…) → total_net;
+     SaleLine missing NOT NULL buy_price/total_sell).
+  2. scheduler._alert_job_failure(...) was called on the decision-card error path
+     but never defined → latent NameError when decision-card generation errors.
+     Added a fail-soft helper (log.error + self-gating whatsapp.notify_manager,
+     wrapped so alerting can't crash the scheduler thread).
+- Full suite: 308 passed, 0 failed (was 5 failing on main). New draft PR opened.

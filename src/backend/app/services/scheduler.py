@@ -38,6 +38,17 @@ def is_enabled() -> bool:
     return str(os.environ.get("AUTOMATION_ENABLED", "")).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _alert_job_failure(job: str, message: str) -> None:
+    """A scheduled job hit an unrecoverable error — log it and notify the manager
+    (self-gating on WhatsApp + manager phone). Never raises: an alerting failure
+    must not take down the scheduler thread with it."""
+    log.error("scheduled job %s failed: %s", job, message)
+    try:
+        whatsapp.notify_manager(f"⚠️ تعذّر تنفيذ مهمة بروكير المجدولة ({job}).\n{message}")
+    except Exception:  # noqa: BLE001 — alerting must never break the scheduler
+        log.exception("failed to send job-failure alert for %s", job)
+
+
 # --- the jobs (shadow-safe: compute + log, never send or mutate) ------------
 def _run_expiry_alerts():
     with SessionLocal() as session:
