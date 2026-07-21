@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, crm, dashboard, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
+from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -139,6 +139,7 @@ router.include_router(sales.router, dependencies=[Depends(auth_guard())])
 router.include_router(cashdesk.router, dependencies=[Depends(auth_guard())])
 router.include_router(alerts.router, dependencies=[Depends(auth_guard())])
 router.include_router(forecast.router, dependencies=[Depends(auth_guard())])
+router.include_router(decisions.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 router.include_router(clinical.router, dependencies=[Depends(auth_guard())])
 router.include_router(ai.router, dependencies=[Depends(auth_guard())])
 router.include_router(purchasing.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])

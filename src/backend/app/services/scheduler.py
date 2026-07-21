@@ -121,6 +121,24 @@ def _run_forecast_computation():
     log.info("forecast_computation: computed %d product×branch forecasts.", count)
 
 
+def _run_decision_card_generation():
+    """Nightly: generate decision cards from forecast state (Phase 5).
+    Runs after forecast computation (1:30 AM) to ensure fresh forecast data."""
+    from app.services import decisions as decisions_svc
+
+    with SessionLocal() as session:
+        result = decisions_svc.generate_nightly_decision_cards(session)
+    _last_results["decision_cards"] = result
+    log.info(
+        "decision_card_generation: %s (total %d cards, by type: %s)",
+        result["status"],
+        result["total_cards_created"],
+        result["by_type"],
+    )
+    if result["status"] == "error":
+        _alert_job_failure("decision_cards", result["message"])
+
+
 # --- lifecycle --------------------------------------------------------------
 def build_scheduler():
     """Return a started BackgroundScheduler, or None if APScheduler is missing."""
@@ -151,9 +169,11 @@ def build_scheduler():
                   id="loyalty_tiers_nightly", replace_existing=True)
     sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0),
                   id="rfm_segmentation_daily", replace_existing=True)
-    # Phase 5: Demand forecasting
+    # Phase 5: Demand forecasting + decision card generation
     sched.add_job(_run_forecast_computation, CronTrigger(hour=1, minute=0),
                   id="forecast_computation_nightly", replace_existing=True)
+    sched.add_job(_run_decision_card_generation, CronTrigger(hour=1, minute=30),
+                  id="decision_cards_nightly", replace_existing=True)
     try:
         sched.start()
         _scheduler = sched
