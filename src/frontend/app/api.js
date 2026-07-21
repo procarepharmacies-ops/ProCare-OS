@@ -287,6 +287,16 @@ export const api = {
   employeeIncentives: (employeeId, month) =>
     http(`/incentives/employee/${employeeId}${month ? `?month=${month}` : ""}`),
 
+  // Sales-rep commission calculator (net sales × % per rep, post + audit).
+  commissionPreview: (start, end, branch, rate) =>
+    http(`/commissions/preview${bq(branch, `period_start=${start}&period_end=${end}&default_rate_pct=${rate}`)}`),
+  commissionRuns: (branch) => http(`/commissions/runs${bq(branch)}`),
+  commissionRun: (runId) => http(`/commissions/runs/${runId}`),
+  postCommissionRun: (payload) =>
+    http("/commissions/runs", { method: "POST", body: JSON.stringify(payload) }),
+  voidCommissionRun: (runId) =>
+    http(`/commissions/runs/${runId}/void`, { method: "POST" }),
+
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),

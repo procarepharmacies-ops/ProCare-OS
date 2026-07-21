@@ -489,3 +489,38 @@
      Added a fail-soft helper (log.error + self-gating whatsapp.notify_manager,
      wrapped so alerting can't crash the scheduler thread).
 - Full suite: 308 passed, 0 failed (was 5 failing on main). New draft PR opened.
+
+## 2026-07-21 · Phase 6 — Sales-rep commission calculator — branch claude/phase-6-proceed-yju8m0
+- Built the eStock حاسبة عمولة مندوب البيع feature (task_plan Phase 6 tutorial gap).
+- SCHEMA: two new tables (create_all-safe, `ensure_commission_tables` idempotent,
+  wired into main.py lifespan after ensure_forecast_tables):
+  * `commission_runs` — a posted payout batch (branch nullable=consolidated,
+    period_start/end, default_rate_pct, total_sales/commission, status
+    posted|void, note, posted_by, voided_at). CHECK on status + period order.
+  * `commission_run_lines` — per-rep snapshot (sales_value, bills_count,
+    rate_pct, commission), cascade-deleted with the run.
+- SERVICE `services/commissions.py`:
+  * `_net_sales_by_rep` — one grouped scan; NET sales = Σ(non-return total_net)
+    − Σ(return total_net) via a dialect-portable `case` (SQLite + SQL Server
+    2008; no TRIM/LENGTH). bills_count = non-return invoices only. NULL
+    cashier_id skipped (no rep to pay).
+  * `compute_commissions` — read-only preview; per-rep rate override or default;
+    commission = sales_value × rate/100; sorted by commission desc; totals.
+  * `post_commission_run` — **recomputes** from live sales inside the txn (never
+    trusts a client preview), snapshots run + lines atomically (single commit).
+  * `list_runs` / `get_run` / `void_run` (void keeps row+lines, idempotent).
+- API `api/commissions.py` (CEO/manager via routes.py auth_guard): GET preview,
+  GET/POST runs, GET runs/{id}, POST runs/{id}/void. 400 on bad period, 404 on
+  missing run.
+- FRONTEND `/commissions` page: date-range + rate + this/last-month presets,
+  Calculate → editable per-rep rate table with live commission recompute + totals
+  footer, Post payout, posted-runs list with status badge + View/Void, run-detail
+  panel. Nav entry (coins icon, ceo/manager) under navg_people. api.js: 5 methods.
+  i18n: nav_commissions + 27 comm_* keys (AR/EN).
+- TESTS: test_commissions.py (9) — net-of-returns math, NULL-cashier skip, window
+  bounds, per-rep override post, re-post keeps history, void keeps lines, API
+  preview/post/void happy path, 400 bad period, 404 missing. Uses a 2030-03 sale
+  window so the ~1100 seeded 2026 sales never leak in.
+- VERIFIED: `pytest app/tests/` 317 passed / 0 failed (was 308 + 9 new).
+  `next build` clean, /commissions route emitted (2.33 kB). Migration idempotent
+  (ran twice on fresh DB), all 4 endpoints present in OpenAPI.

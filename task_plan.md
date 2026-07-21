@@ -130,8 +130,14 @@ bilingual (Arabic RTL first).
       Engine (accrue/clawback/leaderboard) already existed + sync-safe; built
       the missing UI. CAVEAT: scientific_name 16% populated + some mis-tagged
       in source → needs sanity check / Titan enrichment later.
-- [ ] Sales-rep commission calculator (حاسبة عمولة مندوب البيع): per-rep sales
-      value × %, post (data: sales.cashier_id is mirrored).
+- [x] Sales-rep commission calculator (حاسبة عمولة مندوب البيع): per-rep NET
+      sales × % (per-rep overrides), preview + post + void. `commission_runs`/
+      `commission_run_lines` (idempotent `ensure_commission_tables`);
+      `services/commissions.py` (net = sales − returns in one dialect-portable
+      `case` scan, NULL-cashier excluded, post recomputes live + atomic, void
+      keeps audit row); `/api/commissions/*` (CEO/manager); `/commissions`
+      screen (date range + rate + presets, editable per-rep rate, runs list +
+      detail/void). 9 tests. Full suite 317 passed. (2026-07-21)
 - [ ] News ticker / notification center: surface expiry/low-stock/shortage
       events (News_bar/Flag parity).
 - [~] Cheque-due alert (Checks.ch_valid_date): DEFERRED — both branch servers

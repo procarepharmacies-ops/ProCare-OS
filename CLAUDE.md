@@ -402,6 +402,45 @@ Daily briefing items: actionable insights requiring manager approval or review:
 
 Invariants: cards created daily (nightly job) from forecast/inventory state; action buttons in UI trigger the actual operation; manager can dismiss without action (audit trail); cards auto-archive after 7 days of no interaction.
 
+### Sales-rep commissions (Phase 6) — `commission_runs` / `commission_run_lines`
+
+حاسبة عمولة مندوب البيع: total each rep's **net** sales in a period, apply a
+percentage, then post the payout as an auditable run.
+
+```json
+{
+  "run_id": 1,
+  "branch_id": 0,                     // 0/NULL = consolidated (all branches)
+  "period_start": "2026-06-01", "period_end": "2026-06-30",
+  "default_rate_pct": 5.0,
+  "total_sales": 0.0, "total_commission": 0.0,
+  "status": "posted | void",
+  "note": "string?", "created_at": "ISO", "posted_by": "employee_id?",
+  "voided_at": "ISO?",
+  "lines": [{
+    "line_id": 1, "employee_id": 2, "name_ar": "…", "name_en": "…",
+    "sales_value": 0.0,               // NET: non-return invoices − return invoices
+    "bills_count": 0,                 // non-return invoices only
+    "rate_pct": 5.0,
+    "commission": 0.0                 // sales_value × rate_pct / 100
+  }]
+}
+```
+
+Endpoints (CEO/manager): `GET /api/commissions/preview?period_start&period_end&
+branch_id&default_rate_pct` (read-only), `POST /api/commissions/runs` (persist),
+`GET /api/commissions/runs`, `GET /api/commissions/runs/{id}`,
+`POST /api/commissions/runs/{id}/void`.
+
+Invariants: sales attributed to a rep via `sales.cashier_id` (ETL-mirrored);
+`sales_value` nets returns in a single grouped scan (dialect-portable `case`,
+no SQL Server `TRIM`/`LENGTH`); NULL-cashier sales are excluded (no rep to pay);
+preview is read-only, posting **recomputes** from live sales inside the txn
+(never trusts a client preview) and is atomic; re-posting the same window is
+allowed (new run — history preserved, no silent dedupe); voiding keeps the row +
+lines (`status='void'`, audit trail) and is idempotent; commission math never
+blocks sales. Tables added idempotently via `ensure_commission_tables`.
+
 ---
 
 ## Operations Monitoring (SRE) — watchdog · digest · db_health
