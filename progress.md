@@ -396,7 +396,39 @@
   * Idempotent design: running generation twice same day produces identical cards (upserts on (branch, product, card_type))
   * Fail-soft: no forecast/card generation errors block pharmacy; all errors logged + alerted
 - **Merged to main**: Commit 80d57f3 (Phase 5: Decision card generation)
-- **IN PROGRESS (next)**: reorder proposals 2.0 (forecast-driven PO quantities + vendor split), daily briefing UI dashboard widget, AI assistant tools for forecast queries
+
+## 2026-07-21 (later) · Phase 5 — Reorder proposals 2.0 (forecast-driven purchase recommendations)
+
+- COMPLETED: Intelligent reorder proposal engine that calculates optimal order quantities from forecasts + applies transfer-first logic.
+  * Algorithm: queries forecasts with stockout_date ≤30 days ahead
+  * Calculates optimal qty = (days-to-stockout + lead_time + 3-day buffer) × daily_avg - current_stock
+  * Priority ranking: critical (≤3 days), urgent (≤7), normal (≤14), low (>14)
+  * Transfer-first optimization: checks qty available at other branches, suggests transfer before PO
+  * Vendor selection: best price from historical purchase data
+- **Services** (services/reorder.py — new):
+  * `generate_reorder_suggestions()`: main algorithm returning ranked suggestions
+  * `summarize_suggestions()`: groups proposals by vendor + priority for dashboard
+  * `_current_stock()`, `_available_in_other_branches()`, `_get_vendors_for_product()`: helpers
+- **API Endpoints** (api/reorder.py — new):
+  * GET /api/reorder/suggestions?branch_id= → list suggestions (critical→urgent→normal→low)
+  * GET /api/reorder/summary?branch_id= → summary grouped by vendor + priority
+  * Manager-gated (CEO/manager role)
+- **Tests** (test_reorder.py — 6 tests):
+  * `test_generate_reorder_suggestions_critical`: 2-day stockout = critical priority
+  * `test_generate_reorder_suggestions_urgent`: 5-day stockout = urgent priority
+  * `test_reorder_suggestions_sorted_by_priority`: multi-product sorting verification
+  * `test_summarize_suggestions`: vendor grouping + priority counts
+  * `test_reorder_with_transfer_first`: transfer-first logic (prefer other branches)
+  * `test_reorder_no_suggestions_when_stock_adequate`: no suggestions if ≥30 days cover
+  * All tests pass; proper Decimal/float type handling
+- **Architecture**:
+  * Forecast-driven: qty = forecast.daily_avg × (days_to_stockout + buffers) - current_stock
+  * Transfer-first: reduces PO volume + shipping costs; moves stock efficiently
+  * Vendor optimization: uses historical buy_price to rank suppliers
+  * Summary view: grouped by vendor for efficient PO creation by manager
+  * Ready for dashboard: priority cards (critical count), vendor totals, line items
+- **Merged to main**: Commit 5108bf8 (Phase 5: Reorder proposals 2.0)
+- **IN PROGRESS (next)**: daily briefing UI widget (القرارات اليومية dashboard), AI assistant tools for forecast queries
 
 - COMPLETED: Frontend UI with 5 tabs in marketing page:
   * Content Calendar: month-grid view with date + channel filtering
