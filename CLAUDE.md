@@ -404,6 +404,59 @@ Invariants: cards created daily (nightly job) from forecast/inventory state; act
 
 ---
 
+## Operations Monitoring (SRE) — watchdog · digest · db_health
+
+**Watchdog (external, no DB):** `deploy/procare-watchdog.{sh,bat}` polls
+`GET /api/health` every `INTERVAL` (60s); after `FAIL_THRESHOLD` (3) consecutive
+failures — a non-200, or (when `REQUIRE_SQLSERVER=1`) a 200 whose `procare_db`
+is not `sqlserver` (silent SQLite fallback) — it restarts the stack via
+`deploy/procare.sh restart` and sleeps `COOLDOWN`. Also restarts on
+`docker inspect .State.OOMKilled`. `--once` exits 0 (healthy) / 1 (unhealthy)
+for cron/systemd/Task Scheduler. Belt-and-suspenders in-process check:
+`scheduler._run_health_selfping` (`db_health.ping()`, every 5 min).
+
+**8am CEO digest** — `dashboard.ceo_digest(session, branch_id=None)`:
+
+```json
+{
+  "as_of": "2026-06-25", "branch_id": 0,
+  "revenue_yesterday": 0.0, "bills_yesterday": 0,
+  "top_sellers": [{"product_id": 5, "name_ar": "…", "name_en": "…", "units": 0.0, "revenue": 0.0}],
+  "low_stock": 0, "expiring_7d": 0,
+  "debtors_count": 0, "debtors_over_limit_total": 0.0
+}
+```
+
+Reports on **yesterday** (a closed trading day), reuses `dashboard._revenue_between`
++ `dashboard.top_products(start=yday, end=yday, limit=3)`. Sent by
+`scheduler._run_ceo_digest` on a **branch-local** 08:00 cron
+(`CronTrigger(timezone=ZoneInfo(BRANCH_TIMEZONE))`, empty → server-local) via
+`whatsapp.ceo_digest_message`. Gated on `AUTOMATION_ENABLED` + APScheduler;
+`notify_manager` self-gates on `manager_phone` + WhatsApp creds.
+
+**Disk + DB-size monitor** — `services/db_health.py`, `db_health.check()`:
+
+```json
+{
+  "severity": "ok | info | warning | critical",
+  "alerts": ["…"],
+  "db": {"engine": "sqlite|sqlserver", "data_mb": 0.0, "log_mb": 0.0,
+         "total_mb": 0.0, "cap_mb": 10240.0, "pct_of_cap": 0.0},
+  "disk": {"path": "…", "total_gb": 0.0, "used_gb": 0.0, "free_gb": 0.0, "free_pct": 0.0},
+  "checked_at": "ISO"
+}
+```
+
+Invariants: DB size vs the SQL Server Express **10 GB cap** (`DB_SIZE_CAP_MB`,
+default 10240) at 80/90/95 %; disk free at <20/10/5 %; grading lives in the
+**pure** `evaluate()` (unit-testable, no I/O); `sys.database_files` path is
+`IS_SQLITE`-guarded; hourly `scheduler._run_db_health` alerts only when severity
+**rises** (`alert_if_worse`, no hourly spam); all I/O fail-soft (never raises
+into a request/scheduler). Exposed at `GET /api/automation/db-health` (CEO/manager).
+Env: `BRANCH_TIMEZONE` (IANA name), `DB_SIZE_CAP_MB`.
+
+---
+
 ## Success Criteria
 
 ✅ Pharmacy operates all day without manual intervention or restarts  

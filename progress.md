@@ -364,3 +364,35 @@
 - API integration: 13 new api.* methods with auth + error handling
 - Frontend build clean: marketing page 1.76 → 4.41 kB (4 new tabs)
 - Created PR #26 (draft) with API + services + tests + frontend UI.
+
+## 2026-07-20 · Operations (watchdog + digest + monitoring) — branch claude/operations-watchdog-digest-monitoring-mn5kxa
+- Three P0 "keep the lights on" ops gaps closed, all reusing the existing
+  APScheduler + fail-soft WhatsApp patterns (no startup rearchitecture):
+  1. **Watchdog** `deploy/procare-watchdog.{sh,bat}` — polls /api/health every
+     60s; after 3 consecutive failures (non-200, or 200-but-not-`sqlserver`
+     when REQUIRE_SQLSERVER=1) restarts via `deploy/procare.sh restart`; OOM
+     guard via `docker inspect`. `--once` mode exits 0/1 for cron/systemd/Task
+     Scheduler. In-process `SELECT 1` self-ping job (every 5 min) as belt.
+  2. **8am CEO digest** — `dashboard.ceo_digest()` (yesterday revenue + bills,
+     top-3 sellers, low-stock, expiring-7d, overdue debtors + amount owed);
+     `whatsapp.ceo_digest_message()`; `scheduler._run_ceo_digest` repoints the
+     daily-08:00 job, now **timezone-aware** via `BRANCH_TIMEZONE` (ZoneInfo,
+     falls back to server-local). Still gated on AUTOMATION_ENABLED (owner-chosen).
+  3. **Disk + DB-size monitor** — `services/db_health.py`: pure `evaluate()`
+     grader (80/90/95% of the 10 GB Express cap; disk <20/10/5% free), SQL
+     Server `sys.database_files` size (IS_SQLITE-guarded), `shutil.disk_usage`,
+     `ping()`. Hourly `_run_db_health` alerts only when severity RISES (no
+     spam). `GET /api/automation/db-health` (CEO/manager).
+- Refactor (reuse, no behaviour change): extracted `dashboard._revenue_between`
+  from the `summary()` closure; added optional `start`/`end` to
+  `dashboard.top_products` for the yesterday window.
+- Config: `settings.branch_timezone` (BRANCH_TIMEZONE env). Deps: `tzdata`
+  (zoneinfo on python:3.11-slim). Docs: watchdog section in deploy/DEPLOYMENT.md.
+- TESTS: test_db_health.py (11) + test_ceo_digest.py (5) = 16 new, all green.
+  Manually verified watchdog --once exit codes (bad URL→1, sqlite+require→1,
+  require off→0) and the 3-strike restart loop with a stub RESTART_CMD.
+  /api/health contract unchanged; /api/automation/db-health returns 200.
+- PRE-EXISTING FAILURE (NOT mine, confirmed by stashing): test_forecast.py (5)
+  fails on a date-dependent UNIQUE clash on `forecasts` — the forecast code uses
+  real date.today() (2026-07-20) while the suite anchors today() to DEMO_TODAY
+  (2026-06-26). Out of scope for this branch; flagged for a follow-up.

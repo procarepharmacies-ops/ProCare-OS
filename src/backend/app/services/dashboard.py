@@ -20,28 +20,34 @@ def _sales_base(branch_id):
     return select(m.Sale).where(m.Sale.is_return == False, branch_filter(m.Sale, branch_id))  # noqa: E712
 
 
+def _revenue_between(session: Session, branch_id, start, end) -> tuple[float, int]:
+    """Net revenue and bill count for the (inclusive) day range [start, end].
+
+    Shared by :func:`summary` (today / month / prev-month) and :func:`ceo_digest`
+    (yesterday) so the "revenue = sum(total_net) on non-return sales" rule lives
+    in exactly one place."""
+    stmt = (
+        select(func.coalesce(func.sum(m.Sale.total_net), 0), func.count())
+        .where(
+            m.Sale.is_return == False,  # noqa: E712
+            branch_filter(m.Sale, branch_id),
+            sql_day(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) <= end,
+        )
+    )
+    rev, cnt = session.execute(stmt).one()
+    return money(rev), cnt
+
+
 def summary(session: Session, branch_id: int | None = None) -> dict:
     """Headline KPIs for the dashboard cards."""
     month_start = today().replace(day=1)
     prev_month_end = month_start - timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
 
-    def revenue_between(start, end):
-        stmt = (
-            select(func.coalesce(func.sum(m.Sale.total_net), 0), func.count())
-            .where(
-                m.Sale.is_return == False,  # noqa: E712
-                branch_filter(m.Sale, branch_id),
-                sql_day(m.Sale.sale_date) >= start,
-                sql_day(m.Sale.sale_date) <= end,
-            )
-        )
-        rev, cnt = session.execute(stmt).one()
-        return money(rev), cnt
-
-    sales_today, bills_today = revenue_between(today(), today())
-    sales_month, bills_month = revenue_between(month_start, today())
-    sales_prev_month, _ = revenue_between(prev_month_start, prev_month_end)
+    sales_today, bills_today = _revenue_between(session, branch_id, today(), today())
+    sales_month, bills_month = _revenue_between(session, branch_id, month_start, today())
+    sales_prev_month, _ = _revenue_between(session, branch_id, prev_month_start, prev_month_end)
 
     # Low-stock: products whose total available qty is below their min_stock.
     low_stock = _low_stock_count(session, branch_id)
@@ -180,8 +186,28 @@ def daily_sales(session: Session, branch_id: int | None = None, days: int = 30) 
     return out
 
 
-def top_products(session: Session, branch_id: int | None = None, days: int = 30, limit: int = 10) -> list[dict]:
-    start = today() - timedelta(days=days - 1)
+def top_products(
+    session: Session,
+    branch_id: int | None = None,
+    days: int = 30,
+    limit: int = 10,
+    start=None,
+    end=None,
+) -> list[dict]:
+    """Best sellers by revenue over a day window.
+
+    Default window is the trailing ``days`` days. Pass explicit ``start``/``end``
+    (inclusive dates) to bound it precisely — e.g. the CEO digest asks for
+    *yesterday only* via ``start=end=yesterday``."""
+    if start is None:
+        start = today() - timedelta(days=days - 1)
+    conditions = [
+        m.Sale.is_return == False,  # noqa: E712
+        branch_filter(m.Sale, branch_id),
+        sql_day(m.Sale.sale_date) >= start,
+    ]
+    if end is not None:
+        conditions.append(sql_day(m.Sale.sale_date) <= end)
     stmt = (
         select(
             m.Product.product_id,
@@ -192,11 +218,7 @@ def top_products(session: Session, branch_id: int | None = None, days: int = 30,
         )
         .join(m.SaleLine, m.SaleLine.product_id == m.Product.product_id)
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
-        .where(
-            m.Sale.is_return == False,  # noqa: E712
-            branch_filter(m.Sale, branch_id),
-            sql_day(m.Sale.sale_date) >= start,
-        )
+        .where(*conditions)
         .group_by(m.Product.product_id, m.Product.name_ar, m.Product.name_en)
         .order_by(func.sum(m.SaleLine.total_sell).desc())
         .limit(limit)
@@ -205,6 +227,45 @@ def top_products(session: Session, branch_id: int | None = None, days: int = 30,
         {"product_id": r.product_id, "name_ar": r.name_ar, "name_en": r.name_en, "units": money(r.units), "revenue": money(r.revenue)}
         for r in session.execute(stmt)
     ]
+
+
+def ceo_digest(session: Session, branch_id: int | None = None) -> dict:
+    """The 08:00 CEO briefing pack: everything a manager decides the morning on.
+
+    Distinct from :func:`summary` in two ways — it reports on *yesterday* (a
+    closed trading day, not today-so-far) and it carries the top-3 sellers.
+    Reuses the shared metric helpers so numbers match the dashboard exactly."""
+    from app.services import alerts  # local import avoids any import-order coupling
+
+    yesterday = today() - timedelta(days=1)
+    revenue_yesterday, bills_yesterday = _revenue_between(session, branch_id, yesterday, yesterday)
+    top_sellers = top_products(session, branch_id, limit=3, start=yesterday, end=yesterday)
+    low_stock = _low_stock_count(session, branch_id)
+    expiring_7d = alerts.expiry_risk(session, branch_id, horizon_days=90)["counts"].get("d7", 0)
+
+    # Overdue debtors: customers over their credit limit, plus the total amount
+    # owed beyond limit (the collection opportunity the manager acts on).
+    debtors_count, over_limit_total = session.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(m.Customer.current_balance - m.Customer.credit_limit), 0),
+        ).where(
+            m.Customer.credit_limit > 0,
+            m.Customer.current_balance > m.Customer.credit_limit,
+        )
+    ).one()
+
+    return {
+        "as_of": yesterday.isoformat(),
+        "branch_id": branch_id or 0,
+        "revenue_yesterday": revenue_yesterday,
+        "bills_yesterday": bills_yesterday,
+        "top_sellers": top_sellers,
+        "low_stock": low_stock,
+        "expiring_7d": expiring_7d,
+        "debtors_count": debtors_count,
+        "debtors_over_limit_total": money(over_limit_total),
+    }
 
 
 def hourly_sales(session: Session, branch_id: int | None = None) -> list[dict]:

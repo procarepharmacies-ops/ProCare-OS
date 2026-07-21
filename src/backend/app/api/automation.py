@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth import auth_guard
-from app.services import scheduler
+from app.services import db_health, scheduler
 
 router = APIRouter(prefix="/automation", tags=["automation"])
 
@@ -19,6 +19,13 @@ router = APIRouter(prefix="/automation", tags=["automation"])
 @router.get("/status")
 def status(_auth=Depends(auth_guard(("ceo", "manager")))):
     return scheduler.jobs_overview()
+
+
+@router.get("/db-health")
+def db_health_status(_auth=Depends(auth_guard(("ceo", "manager")))):
+    """DB size vs the SQL Server Express cap + disk free space, graded to a
+    severity. Powers the ops dashboard tile and the hourly WhatsApp alert."""
+    return db_health.check()
 
 
 @router.post("/run/{job}")
