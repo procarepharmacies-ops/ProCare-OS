@@ -155,3 +155,21 @@ bilingual (Arabic RTL first).
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
 - [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys
+
+---
+
+## Operations (P0) — watchdog · digest · monitoring ✅ (branch claude/operations-watchdog-digest-monitoring-mn5kxa)
+- [x] Watchdog `deploy/procare-watchdog.{sh,bat}` — /api/health poll, 3-strike
+      restart (via `procare.sh restart`), 200-but-not-sqlserver guard, OOM check,
+      `--once` mode, in-process 5-min `SELECT 1` self-ping job.
+- [x] 8am CEO digest — `dashboard.ceo_digest()` + `whatsapp.ceo_digest_message()`
+      + `scheduler._run_ceo_digest` on a timezone-aware (`BRANCH_TIMEZONE`) 08:00
+      cron; reuses extracted `_revenue_between` + `top_products(start,end)`.
+- [x] Disk + DB-size monitor — `services/db_health.py` (pure `evaluate` grader,
+      `sys.database_files` size, `shutil.disk_usage`, `ping`), hourly
+      `_run_db_health` (alerts only on severity rise), `GET /api/automation/db-health`.
+- [x] Config `BRANCH_TIMEZONE`; dep `tzdata`; tests test_db_health.py (11) +
+      test_ceo_digest.py (5) green; DEPLOYMENT.md watchdog section.
+- [ ] FOLLOW-UP (pre-existing, out of scope): test_forecast.py fails on a
+      date-dependent UNIQUE clash — forecast uses real date.today() vs the suite's
+      DEMO_TODAY anchor. Fix forecast to honour services.common.today().

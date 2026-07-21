@@ -166,6 +166,57 @@ def daily_report_message(kpis: dict) -> str:
     )
 
 
+def ceo_digest_message(data: dict) -> str:
+    """The 08:00 CEO morning briefing (from dashboard.ceo_digest) — yesterday's
+    trading day + the day's watch-list, in the manager's pocket before opening."""
+    lines = [
+        "☀️ ملخص بروكير الصباحي",
+        f"📅 عن يوم {data.get('as_of', '')}",
+        f"مبيعات أمس: {money(data.get('revenue_yesterday', 0))} ج ({data.get('bills_yesterday', 0)} فاتورة)",
+    ]
+    top = data.get("top_sellers") or []
+    if top:
+        lines.append("🏆 الأكثر مبيعاً:")
+        for i, p in enumerate(top, 1):
+            name = p.get("name_ar") or p.get("name_en") or f"#{p.get('product_id')}"
+            lines.append(f"  {i}. {name} — {money(p.get('units', 0))} وحدة / {money(p.get('revenue', 0))} ج")
+    lines.append(f"⚠️ أصناف تحت الحد الأدنى: {data.get('low_stock', 0)}")
+    lines.append(f"⏰ تنتهي خلال ٧ أيام: {data.get('expiring_7d', 0)}")
+    debtors = data.get("debtors_count", 0)
+    if debtors:
+        lines.append(
+            f"💰 مدينون فوق الحد: {debtors} عميل "
+            f"({money(data.get('debtors_over_limit_total', 0))} ج للتحصيل)"
+        )
+    else:
+        lines.append("💰 لا يوجد مدينون فوق الحد الائتماني")
+    return "\n".join(lines)
+
+
+def db_health_alert_message(check: dict) -> str:
+    """Operations alert: SQL Server DB size vs the Express cap and/or disk space
+    running low. Fired only when severity rises (services.db_health)."""
+    db = check.get("db") or {}
+    disk = check.get("disk") or {}
+    sev = check.get("severity", "info")
+    icon = {"critical": "🚨", "warning": "⚠️", "info": "ℹ️"}.get(sev, "ℹ️")
+    lines = [f"{icon} تنبيه صحة قاعدة البيانات — بروكير"]
+    if db.get("total_mb") is not None and db.get("cap_mb"):
+        pct = db.get("pct_of_cap", 0)
+        lines.append(
+            f"حجم قاعدة البيانات: {money(db.get('total_mb', 0))} م.ب "
+            f"من {money(db.get('cap_mb', 0))} م.ب ({money(pct)}٪)"
+        )
+    if disk.get("free_pct") is not None:
+        lines.append(
+            f"مساحة القرص الحرة: {money(disk.get('free_pct', 0))}٪ "
+            f"({money(disk.get('free_gb', 0))} ج.ب متبقية)"
+        )
+    for a in check.get("alerts") or []:
+        lines.append(f"• {a}")
+    return "\n".join(lines)
+
+
 def reorder_drafts_message(count: int, units: float) -> str:
     return (
         "🧾 مسودة طلب شراء بروكير\n"

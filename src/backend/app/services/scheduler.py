@@ -24,7 +24,7 @@ import os
 
 from app.db import models as m
 from app.db.base import SessionLocal
-from app.services import alerts, dashboard, whatsapp
+from app.services import alerts, dashboard, db_health, whatsapp
 
 log = logging.getLogger("procare.automation")
 
@@ -76,6 +76,53 @@ def _run_auto_reports():
     }
     log.info("auto_reports KPI pack: %s", _last_results["auto_reports"])
     whatsapp.notify_manager(whatsapp.daily_report_message(kpis))
+
+
+def _run_ceo_digest():
+    """Daily 08:00 (branch-local): the CEO morning briefing to WhatsApp —
+    yesterday's revenue + bills, top 3 sellers, low-stock, expiring-7d, overdue
+    debtors. Delivery self-gates on manager phone + WhatsApp creds."""
+    with SessionLocal() as session:
+        data = dashboard.ceo_digest(session, branch_id=None)
+    _last_results["ceo_digest"] = {
+        "as_of": data["as_of"],
+        "revenue_yesterday": data["revenue_yesterday"],
+        "bills_yesterday": data["bills_yesterday"],
+        "low_stock": data["low_stock"],
+        "expiring_7d": data["expiring_7d"],
+        "debtors_count": data["debtors_count"],
+    }
+    log.info("ceo_digest: %s", _last_results["ceo_digest"])
+    whatsapp.notify_manager(whatsapp.ceo_digest_message(data))
+
+
+# --- Operations monitoring (P0): DB size / disk + health self-ping -----------
+def _run_db_health():
+    """Hourly: DB size vs the SQL Server Express cap + disk free space. Alerts
+    the manager only when severity RISES (80 → 90 → 95), never every hour."""
+    result = db_health.check()
+    _last_results["db_health"] = {
+        "severity": result["severity"],
+        "db_mb": result["db"].get("total_mb"),
+        "pct_of_cap": result["db"].get("pct_of_cap"),
+        "disk_free_pct": result["disk"].get("free_pct"),
+        "checked_at": result["checked_at"],
+    }
+    log.info("db_health: %s", _last_results["db_health"])
+    if db_health.alert_if_worse(result):
+        whatsapp.notify_manager(whatsapp.db_health_alert_message(result))
+
+
+def _run_health_selfping():
+    """Every 5 min: cheap in-process DB round-trip (belt to the external
+    watchdog's suspenders). Notifies the manager if the DB is unreachable."""
+    result = db_health.ping()
+    _last_results["health_selfping"] = result
+    if not result["ok"]:
+        log.warning("health_selfping FAILED: %s", result.get("error"))
+        whatsapp.notify_manager(
+            f"🚑 تنبيه بروكير: قاعدة البيانات لا تستجيب.\n{result.get('error', '')}"
+        )
 
 
 # --- Phase 3: Loyalty tiers & CRM engagement --------------------------------
@@ -140,6 +187,26 @@ def _run_decision_card_generation():
 
 
 # --- lifecycle --------------------------------------------------------------
+def _branch_tz():
+    """Resolve ``BRANCH_TIMEZONE`` to a tzinfo for time-of-day cron jobs, or
+    None to use the server's local time (the prior behaviour). An invalid name
+    falls back to local with a warning rather than crashing the scheduler — the
+    08:00 CEO digest must fire before the pharmacy opens regardless of the
+    server's clock."""
+    from app.config import settings
+
+    name = settings.branch_timezone
+    if not name:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(name)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Invalid BRANCH_TIMEZONE %r (%s) — using server local time.", name, exc)
+        return None
+
+
 def build_scheduler():
     """Return a started BackgroundScheduler, or None if APScheduler is missing."""
     global _scheduler
@@ -153,26 +220,34 @@ def build_scheduler():
         log.warning("APScheduler not installed — automation disabled.")
         return None
 
+    tz = _branch_tz()  # None => server local time (unchanged behaviour)
     sched = BackgroundScheduler(daemon=True)
-    sched.add_job(_run_expiry_alerts, CronTrigger(hour=9, minute=0),
+    sched.add_job(_run_expiry_alerts, CronTrigger(hour=9, minute=0, timezone=tz),
                   id="expiry_alerts", replace_existing=True)
     sched.add_job(_run_auto_purchase_order, IntervalTrigger(hours=1),
                   id="auto_purchase_order", replace_existing=True)
-    sched.add_job(_run_auto_reports, CronTrigger(hour=8, minute=0),
+    # Daily 08:00 = the enriched CEO morning digest (yesterday + top sellers +
+    # watch-list); weekly/monthly keep the headline KPI report.
+    sched.add_job(_run_ceo_digest, CronTrigger(hour=8, minute=0, timezone=tz),
                   id="auto_reports_daily", replace_existing=True)
-    sched.add_job(_run_auto_reports, CronTrigger(day_of_week="sun", hour=8, minute=0),
+    sched.add_job(_run_auto_reports, CronTrigger(day_of_week="sun", hour=8, minute=0, timezone=tz),
                   id="auto_reports_weekly", replace_existing=True)
-    sched.add_job(_run_auto_reports, CronTrigger(day=1, hour=8, minute=0),
+    sched.add_job(_run_auto_reports, CronTrigger(day=1, hour=8, minute=0, timezone=tz),
                   id="auto_reports_monthly", replace_existing=True)
+    # Operations monitoring (P0): DB size / disk hourly + health self-ping.
+    sched.add_job(_run_db_health, IntervalTrigger(hours=1),
+                  id="db_health_hourly", replace_existing=True)
+    sched.add_job(_run_health_selfping, IntervalTrigger(minutes=5),
+                  id="health_selfping", replace_existing=True)
     # Phase 3: Loyalty tiers & RFM segmentation
-    sched.add_job(_run_loyalty_tiers, CronTrigger(hour=2, minute=0),
+    sched.add_job(_run_loyalty_tiers, CronTrigger(hour=2, minute=0, timezone=tz),
                   id="loyalty_tiers_nightly", replace_existing=True)
-    sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0),
+    sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0, timezone=tz),
                   id="rfm_segmentation_daily", replace_existing=True)
     # Phase 5: Demand forecasting + decision card generation
-    sched.add_job(_run_forecast_computation, CronTrigger(hour=1, minute=0),
+    sched.add_job(_run_forecast_computation, CronTrigger(hour=1, minute=0, timezone=tz),
                   id="forecast_computation_nightly", replace_existing=True)
-    sched.add_job(_run_decision_card_generation, CronTrigger(hour=1, minute=30),
+    sched.add_job(_run_decision_card_generation, CronTrigger(hour=1, minute=30, timezone=tz),
                   id="decision_cards_nightly", replace_existing=True)
     try:
         sched.start()
@@ -240,6 +315,9 @@ def run_now(job: str) -> dict:
         "expiry_alerts": _run_expiry_alerts,
         "auto_purchase_order": _run_auto_purchase_order,
         "auto_reports": _run_auto_reports,
+        "ceo_digest": _run_ceo_digest,
+        "db_health": _run_db_health,
+        "health_selfping": _run_health_selfping,
         "loyalty_tiers": _run_loyalty_tiers,
         "rfm_segmentation": _run_rfm_segmentation,
     }

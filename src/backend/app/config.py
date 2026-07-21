@@ -222,6 +222,12 @@ class Settings:
         else ""
     )
 
+    # Branch-local timezone (IANA name, e.g. "Africa/Cairo") for time-of-day
+    # scheduled jobs — most importantly the 08:00 CEO digest, which must land
+    # before the pharmacy opens regardless of the server's clock. Empty = use
+    # the server's local time (existing behaviour). Read by services.scheduler.
+    branch_timezone: str = (os.environ.get("BRANCH_TIMEZONE") or _notify.get("branch_timezone") or "").strip()
+
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:
         """SQL Server URL for ProCare's own DB, or None to use SQLite dev DB."""
