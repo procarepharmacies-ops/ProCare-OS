@@ -1057,7 +1057,7 @@ class DecisionCard(Base):
     __table_args__ = (
         CheckConstraint("card_type IN ('stockout_risk', 'below_min', 'expiry_warning', 'overstocked', 'out_of_bounds')", name="CK_card_type"),
         CheckConstraint("severity IN ('critical', 'warning', 'info')", name="CK_card_severity"),
-        CheckConstraint("status IN ('open', 'dismissed', 'actioned')", name="CK_card_status"),
+        CheckConstraint("status IN ('open', 'dismissed', 'actioned', 'archived')", name="CK_card_status"),
         Index("IX_card_branch_created", "branch_id", "created_at"),
         Index("IX_card_status", "status"),
         Index("IX_card_severity", "severity"),
