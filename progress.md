@@ -354,6 +354,50 @@
   * test_promo.py (26): code creation validation, runtime validation, calculations, reports.
   * All with unique code generation (timestamp-based) to avoid test database collisions.
 - All 272 tests pass. next build clean. Backend health: OK.
+## 2026-07-21 (later) · Phase 5 — Decision card generation (القرارات اليومية — Daily Briefing)
+
+- COMPLETED: Decision card generation engine that runs nightly after forecasts.
+  * Detects & creates actionable briefing cards for manager review:
+    - **Stockout Risk** (stockout_risk): forecasted stockout within 7 days (critical if <3 days, warning otherwise)
+    - **Below Minimum** (below_min): products below configured min_stock level (warning)
+    - **Expiry Warning** (expiry_warning): batches expiring within 30 days (critical if <7 days, warning otherwise)
+    - **Overstocked** (overstocked): items with >60 days of cover / slow-moving inventory (info)
+- **Services** (services/decisions.py — new):
+  * `generate_stockout_risk_cards()`: queries forecasts, creates cards with days-to-stockout
+  * `generate_below_min_cards()`: joins stock batches + products, creates cards for shortages
+  * `generate_expiry_warning_cards()`: detects expiring batches, calculates tied-up value
+  * `generate_overstocked_cards()`: flags slow-moving inventory, suggests min adjustment
+  * `generate_nightly_decision_cards()`: batch runner (all types), idempotent (delete+recompute today)
+  * `get_open_decision_cards()`: fetches open cards, sorted by severity (critical→warning→info) + time
+  * `dismiss_card() / action_card() / archive_old_cards()`: card lifecycle management
+- **API Endpoints** (api/decisions.py — new):
+  * GET /api/decisions?branch_id= → open cards (manager briefing, القرارات اليومية)
+  * POST /api/decisions/{card_id}/dismiss → dismiss without action (audit trail preserved)
+  * POST /api/decisions/{card_id}/action → mark actioned (with optional employee_id)
+  * Manager-gated (CEO/manager role required)
+- **Database**:
+  * Updated DecisionCard model: added 'archived' status to CheckConstraint (now: open/dismissed/actioned/archived)
+  * Ensures valid card_type (stockout_risk, below_min, expiry_warning, overstocked, out_of_bounds)
+- **Scheduler Integration**:
+  * `_run_decision_card_generation()` job runs nightly at 1:30 AM (30 min after forecasts)
+  * Fail-soft: job failures create alert tasks via `_alert_job_failure()`, don't block pharmacy
+  * Wrapped in try/except with detailed logging (status, counts by type)
+- **Tests** (test_decisions.py — 5 tests):
+  * `test_dismiss_card`: card status transition to dismissed
+  * `test_action_card`: mark as actioned with employee_id + timestamp
+  * `test_get_open_decision_cards_sorted`: verify severity-based sort (critical → warning → info)
+  * `test_archive_old_cards`: auto-archive cards >7 days old without action (preserve recent open)
+  * `test_nightly_decision_cards_generate`: batch generation runs without error
+  * All tests pass; proper database constraint validation
+- **Architecture**:
+  * Decision cards = forecast state → actionable insights for manager
+  * Severity levels guide urgency (critical: red/action now; warning: yellow/monitor; info: blue/consider)
+  * Action types suggest primary action: create_po, create_transfer, promote, adjust_min, review
+  * Idempotent design: running generation twice same day produces identical cards (upserts on (branch, product, card_type))
+  * Fail-soft: no forecast/card generation errors block pharmacy; all errors logged + alerted
+- **Merged to main**: Commit 80d57f3 (Phase 5: Decision card generation)
+- **IN PROGRESS (next)**: reorder proposals 2.0 (forecast-driven PO quantities + vendor split), daily briefing UI dashboard widget, AI assistant tools for forecast queries
+
 - COMPLETED: Frontend UI with 5 tabs in marketing page:
   * Content Calendar: month-grid view with date + channel filtering
   * AI Copywriter: bilingual copy generation with LLM + fallback templates
