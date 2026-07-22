@@ -524,3 +524,12 @@
 - VERIFIED: `pytest app/tests/` 317 passed / 0 failed (was 308 + 9 new).
   `next build` clean, /commissions route emitted (2.33 kB). Migration idempotent
   (ran twice on fresh DB), all 4 endpoints present in OpenAPI.
+
+## 2026-07-21 · PR #32 MERGED — commission calculator now on main
+- Marked ready-for-review, merged to main (merge commit a5c133d). Local main synced.
+  Unsubscribed from PR activity (final outcome: merged).
+- Phase 6 status: the sales-rep commission calculator item is DONE + shipped. Many
+  other Phase 6 items remain open (see task_plan.md Phase 6) — the phase as a whole
+  is NOT complete. Recommended next: notification center / news ticker (surface
+  expiry/low-stock/shortage events — News_bar/Flag parity), then POS shortage
+  auto-insert + F2 branch-stock popup cluster.
