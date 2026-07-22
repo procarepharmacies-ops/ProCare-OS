@@ -320,7 +320,45 @@
   * GET /api/forecast/{product_id}?branch_id= → cached forecast (or 404 if not computed yet)
   * GET /api/forecast/risks/stockout?branch_id=&days_ahead=30 → list of at-risk products
 - **Tests**: test_forecast.py (6 tests: no history, with history, idempotency, API retrieval, stockout risks)
-- **IN PROGRESS (next)**: decision card generation from forecast state, reorder 2.0 with vendor optimization, daily briefing UI
+- **COMPLETED**: decision card generation from forecast state, reorder 2.0 with vendor optimization, daily briefing UI
+
+## 2026-07-22 (continuation) · Phase 5 — Decision Cards & Reorder Proposals 2.0 + Daily Briefing UI
+
+- **Decision Card Generation** (services/decisions.py):
+  * Four card types: stockout_risk (days_to_stockout ≤ 30), below_min (stock < min), expiry_warning (items expiring < 30d), overstocked (excess inventory)
+  * Severity levels: critical (stockout ≤3d), warning (≤14d or below-min), info (else)
+  * Nightly scheduler job (1:30 AM, 30 min after forecast) generates cards from forecast state
+  * Fail-soft: job failures create alert tasks; never blocks pharmacy operations
+  * Card lifecycle: open → dismissed (reviewed, not acted) / actioned (manager confirmed action)
+  * Archive old cards (status='archived') after 7 days
+- **Reorder Proposals 2.0** (services/reorder.py):
+  * Algorithm: queries forecasts with stockout_date ≤30d; calculates optimal qty = (days_to_stockout + lead_time + buffer) × daily_avg - current_stock
+  * Transfer-first logic: checks stock availability at other branches; if insufficient, suggests PO from best-price vendor
+  * Vendor ranking: by recent average buy_price from purchase history
+  * Grouped by vendor + priority for efficient PO creation
+  * Helper functions: _current_stock(), _available_in_other_branches(), _get_vendors_for_product()
+  * Priority sorting: critical → urgent → normal → low
+  * summarize_suggestions() returns by_vendor, by_priority, transfer_available_total for manager dashboard
+- **API Endpoints** (api/decisions.py, api/reorder.py):
+  * GET /api/decisions → list open decision cards (manager briefing)
+  * POST /api/decisions/{card_id}/dismiss → dismiss card without action
+  * POST /api/decisions/{card_id}/action → mark as actioned
+  * GET /api/reorder/suggestions?branch_id= → ranked reorder suggestions
+  * GET /api/reorder/summary?branch_id= → grouped by vendor + priority
+  * All manager-gated (CEO/manager roles)
+- **Frontend Daily Briefing Widget** (DecisionCardsWidget.js):
+  * New component displaying open decision cards on main dashboard
+  * Placed between alerts KPI row and view switcher
+  * Features: severity color-coding (critical red, warning amber, info blue), approve (✓) / dismiss (✕) buttons
+  * Bilingual AR/EN support with RTL layout
+  * Fail-soft: silently hides if no open decisions or API errors
+  * Card counts badge showing total open cards
+- **Database Model Updates** (db/models.py):
+  * DecisionCard CheckConstraint updated: status IN ('open', 'dismissed', 'actioned', 'archived')
+- **Tests**: test_decisions.py (5 tests: dismiss, action, sorting, archive, generation)
+           test_reorder.py (6 tests: critical/urgent priority, sorting, transfer-first, no suggestions when adequate)
+- **Build Status**: Frontend `npm run build` passes cleanly; backend `pytest` green on all Phase 5 tests
+- **Created PR #33** (draft) with daily briefing dashboard widget frontend integration
 
 ## 2026-07-20 (earlier) · Phase 4 — Marketing & social studio (شبكات + عروض)
 
