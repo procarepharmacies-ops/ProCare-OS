@@ -182,6 +182,15 @@ export const dict = {
     nav_item_movement: "حركة صنف",
     nav_incentives: "حوافز الموظفين",
     nav_commissions: "عمولات المندوبين",
+    nav_notifications: "مركز الإشعارات",
+    // notification center + ticker
+    ntf_title: "مركز الإشعارات",
+    ntf_subtitle: "أحداث الصلاحية والنواقص وكشكول النواقص في مكان واحد",
+    ntf_all_clear: "لا توجد إشعارات — كل شيء على ما يرام",
+    ntf_dismiss: "إخفاء",
+    ntf_dismiss_all: "إخفاء الكل",
+    ntf_critical: "حرجة",
+    ntf_ticker_more: "عرض الكل",
     // sales-rep commissions
     comm_title: "حاسبة عمولة مندوب البيع",
     comm_subtitle: "صافي مبيعات كل مندوب في الفترة × النسبة، ثم اعتماد الدفعة",
@@ -1121,6 +1130,15 @@ export const dict = {
     nav_item_movement: "Item Movement",
     nav_incentives: "Staff Incentives",
     nav_commissions: "Rep Commissions",
+    nav_notifications: "Notifications",
+    // notification center + ticker
+    ntf_title: "Notification center",
+    ntf_subtitle: "Expiry, low-stock and shortage events in one place",
+    ntf_all_clear: "No notifications — all clear",
+    ntf_dismiss: "Dismiss",
+    ntf_dismiss_all: "Dismiss all",
+    ntf_critical: "critical",
+    ntf_ticker_more: "View all",
     // sales-rep commissions
     comm_title: "Sales-Rep Commission Calculator",
     comm_subtitle: "Each rep's net sales in the period × rate, then post the payout",

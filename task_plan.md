@@ -144,8 +144,13 @@ bilingual (Arabic RTL first).
       keeps audit row); `/api/commissions/*` (CEO/manager); `/commissions`
       screen (date range + rate + presets, editable per-rep rate, runs list +
       detail/void). 9 tests. Full suite 317 passed. (2026-07-21)
-- [ ] News ticker / notification center: surface expiry/low-stock/shortage
-      events (News_bar/Flag parity).
+- [x] News ticker / notification center: surface expiry/low-stock/shortage
+      events (News_bar/Flag parity). Live-computed feed grouped by category
+      (الصلاحية/نواقص المخزون/كشكول النواقص) with stable per-event keys +
+      persistent dismissal (`notification_dismissals`, respects "deleted" like
+      News_bar). `/api/notifications` (center), `/ticker` (ribbon), `/dismiss`.
+      `/notifications` screen + a topbar ticker (bell + unread badge + top
+      headline, 60s refresh, fail-soft) on every page. 5 tests. (2026-07-21)
 - [~] Cheque-due alert (Checks.ch_valid_date): DEFERRED — both branch servers
       have ZERO rows in `Checks` (pharmacy doesn't use the cheque module), so
       the alert would run against empty data. Build only if they start issuing
@@ -155,9 +160,11 @@ bilingual (Arabic RTL first).
 - [ ] Mirror `Shortcoming`/`Branches_shortcoming` history into كشكول النواقص
       (ProCare ShortageItem screen already exists); POS auto-insert on unmet
       qty after FEFO allocation (sell what's available, log the rest)
-- [ ] Notification center + ribbon: News_bar feed (respect deleted) +
-      Flag categories (نقطة البيع/الخزينة/البنك/مصروفات/مورد); post
-      expiry/low-stock/shortage events there
+- [x] Notification center + ribbon: News_bar feed (respect deleted) +
+      Flag categories; posts expiry/low-stock/shortage events there. (Built
+      with the news-ticker item above — categories are inventory-focused
+      expiry/low_stock/shortage; the POS/treasury/bank/expense/supplier Flag
+      buckets can be added as those event sources land.)
 - [ ] F2 branch-stock popup at POS (cross-branch data already in
       list_products.other_branches — bind the hotkey + modal)
 - [ ] Visible hotkey map strip at POS (search/F2/discount/customer/hold/cash)
