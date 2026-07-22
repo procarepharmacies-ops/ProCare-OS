@@ -467,6 +467,9 @@ class LedgerEntry(Base):
     ref_id: Mapped[int | None] = mapped_column(nullable=True)
     debit: Mapped[float] = mapped_column(Money, default=0)
     credit: Mapped[float] = mapped_column(Money, default=0)
+    # Named adjustment reason (eStock Tuning_accounts parity) — only set on
+    # manual adjustment entries (ref_type='adjust'); NULL for machine postings.
+    reason_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 

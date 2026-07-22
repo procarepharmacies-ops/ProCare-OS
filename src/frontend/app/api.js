@@ -303,6 +303,12 @@ export const api = {
   customerProfile: (customerId) => http(`/customers/${customerId}/profile`),
   updateCustomer: (customerId, payload) => http(`/customers/${customerId}`, { method: "POST", body: JSON.stringify(payload) }),
   chartOfAccounts: (branch) => http(`/accounting/chart${bq(branch)}`),
+  // Accounting mirror: كشف حساب statement, Tuning تسويات reasons + adjustments.
+  accountStatement: (accountType, accountRef, branch, days) =>
+    http(`/accounting/statement${bq(branch, `account_type=${accountType}${accountRef ? `&account_ref=${accountRef}` : ""}&days=${days}`)}`),
+  adjustmentReasons: () => http("/accounting/adjustment-reasons"),
+  adjustments: (branch, days) => http(`/accounting/adjustments${bq(branch, `days=${days}`)}`),
+  createJournal: (payload) => http("/accounting/journal", { method: "POST", body: JSON.stringify(payload) }),
   adjustLoyalty: (customerId, payload) =>
     http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
   saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),

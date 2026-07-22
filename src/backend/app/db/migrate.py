@@ -438,6 +438,21 @@ def ensure_forecast_tables(engine) -> None:
         Base.metadata.create_all(engine, tables=[Forecast.__table__, DecisionCard.__table__] if "forecasts" not in table_names else [])
 
 
+def ensure_ledger_reason_column(engine) -> None:
+    """Add ``ledger_entries.reason_code`` (Phase 6: named adjustment reasons,
+    eStock Tuning_accounts parity) if the table predates it. Existing rows keep
+    a NULL reason (they are machine postings, not manual adjustments)."""
+    inspector = inspect(engine)
+    if "ledger_entries" not in inspector.get_table_names():
+        return  # create_all will make the table with the column already.
+    columns = {c["name"] for c in inspector.get_columns("ledger_entries")}
+    if "reason_code" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
+
+
 def ensure_commission_tables(engine) -> None:
     """Ensure commission_runs and commission_run_lines tables exist (Phase 6).
 
