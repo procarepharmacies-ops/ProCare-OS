@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, parties, performance, prescriptions, purchasing, reports, reorder, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
+from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, commissions, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, parties, performance, prescriptions, purchasing, reports, reorder, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -155,6 +155,8 @@ router.include_router(vendors.router, dependencies=[Depends(auth_guard())])
 router.include_router(tasks.router, dependencies=[Depends(auth_guard())])
 # Employee incentives: points for selling OTC items, leaderboard.
 router.include_router(incentives.router)
+# Sales-rep commission calculator: net sales × % per rep, post + audit — mgmt only.
+router.include_router(commissions.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # Marketing & social studio: content calendar, AI copywriting, promo codes.
 router.include_router(marketing.router, dependencies=[Depends(auth_guard())])
 # Catalogue quality: duplicate detection + Titan enrichment review (read-only).

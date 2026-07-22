@@ -57,6 +57,7 @@ const NAV_GROUPS = [
       { href: "/marketing", key: "nav_marketing", ico: "megaphone", roles: ["ceo", "manager"] },
       { href: "/employees", key: "nav_employees", ico: "badge", roles: ["ceo"] },
       { href: "/incentives", key: "nav_incentives", ico: "megaphone", roles: ["ceo", "manager"] },
+      { href: "/commissions", key: "nav_commissions", ico: "coins", roles: ["ceo", "manager"] },
     ],
   },
   {

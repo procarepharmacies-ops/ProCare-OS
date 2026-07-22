@@ -438,5 +438,21 @@ def ensure_forecast_tables(engine) -> None:
         Base.metadata.create_all(engine, tables=[Forecast.__table__, DecisionCard.__table__] if "forecasts" not in table_names else [])
 
 
+def ensure_commission_tables(engine) -> None:
+    """Ensure commission_runs and commission_run_lines tables exist (Phase 6).
+
+    Sales-rep commission calculator. Creates the tables via create_all if
+    missing; idempotent (safe to re-run).
+    """
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    missing = [t for t in ("commission_runs", "commission_run_lines") if t not in table_names]
+    if missing:
+        from app.db.models import Base, CommissionRun, CommissionRunLine
+
+        tables = [CommissionRun.__table__, CommissionRunLine.__table__]
+        Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
+
+
 
 
