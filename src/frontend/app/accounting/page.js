@@ -6,6 +6,8 @@ import Shell from "../components/Shell";
 import { t } from "../i18n";
 import { api } from "../api";
 
+const ACCOUNT_TYPES = ["customer", "vendor", "cash", "bank", "branch", "general"];
+
 export default function AccountingPage() {
   const { lang, branch } = useUI();
   const L = (k) => t(lang, k);
@@ -18,6 +20,55 @@ export default function AccountingPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("chart");
   const [daysFilter, setDaysFilter] = useState(30);
+
+  // Account statement (كشف حساب) state
+  const [stmtType, setStmtType] = useState("customer");
+  const [stmtRef, setStmtRef] = useState("");
+  const [statement, setStatement] = useState(null);
+
+  // Adjustments (تسويات / Tuning_accounts) state
+  const [reasons, setReasons] = useState([]);
+  const [adjustments, setAdjustments] = useState(null);
+  const [adjForm, setAdjForm] = useState({ account_type: "cash", reason_code: "cash_short", side: "debit", amount: "" });
+  const [adjMsg, setAdjMsg] = useState("");
+
+  const reasonLabel = (r) => (lang === "ar" ? r.ar : r.en);
+
+  const loadStatement = async () => {
+    try {
+      setStatement(await api.accountStatement(stmtType, stmtRef ? Number(stmtRef) : undefined, branch, daysFilter));
+    } catch {
+      setStatement({ lines: [], opening_balance: 0, closing_balance: 0, total_debit: 0, total_credit: 0 });
+    }
+  };
+
+  const loadAdjustments = async () => {
+    try {
+      setAdjustments(await api.adjustments(branch, daysFilter));
+    } catch {
+      setAdjustments({ groups: [], total_debit: 0, total_credit: 0, total_net: 0 });
+    }
+  };
+
+  const postAdjustment = async () => {
+    setAdjMsg("");
+    const amt = Number(adjForm.amount);
+    if (!amt || amt <= 0) return;
+    try {
+      await api.createJournal({
+        branch_id: branch || 1,
+        account_type: adjForm.account_type,
+        reason_code: adjForm.reason_code,
+        debit: adjForm.side === "debit" ? amt : 0,
+        credit: adjForm.side === "credit" ? amt : 0,
+      });
+      setAdjMsg(L("acc_posted_ok"));
+      setAdjForm((f) => ({ ...f, amount: "" }));
+      await loadAdjustments();
+    } catch (e) {
+      setAdjMsg(e?.message || "error");
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -52,6 +103,18 @@ export default function AccountingPage() {
     };
     loadData();
   }, [branch, daysFilter]);
+
+  // Tuning reason catalogue (once).
+  useEffect(() => {
+    api.adjustmentReasons().then((r) => setReasons(r.reasons || [])).catch(() => setReasons([]));
+  }, []);
+
+  // Lazy-load the statement / adjustments tab data.
+  useEffect(() => {
+    if (activeTab === "statement") loadStatement();
+    if (activeTab === "adjustments") loadAdjustments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, branch, daysFilter]);
 
   const fmt = (v) => Number(v || 0).toLocaleString("en-US");
 
@@ -138,6 +201,12 @@ export default function AccountingPage() {
           </button>
           <button className={`tab ${activeTab === "ledger" ? "active" : ""}`} onClick={() => setActiveTab("ledger")}>
             {L("ledger")}
+          </button>
+          <button className={`tab ${activeTab === "statement" ? "active" : ""}`} onClick={() => setActiveTab("statement")}>
+            {L("acc_statement")}
+          </button>
+          <button className={`tab ${activeTab === "adjustments" ? "active" : ""}`} onClick={() => setActiveTab("adjustments")}>
+            {L("acc_adjustments")}
           </button>
         </div>
 
@@ -246,6 +315,131 @@ export default function AccountingPage() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {activeTab === "statement" && (
+          <>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{L("acc_account_type")}</label>
+                <select className="select" value={stmtType} onChange={(e) => setStmtType(e.target.value)}>
+                  {ACCOUNT_TYPES.map((tp) => <option key={tp} value={tp}>{tp}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{L("acc_account_ref")}</label>
+                <input className="input" type="number" style={{ width: 140 }} value={stmtRef} onChange={(e) => setStmtRef(e.target.value)} />
+              </div>
+              <button className="btn primary" onClick={loadStatement}>{L("acc_show")}</button>
+            </div>
+            {statement && (
+              <>
+                <p style={{ marginBottom: 8 }}>
+                  <span className="badge">{L("acc_opening")}: {fmt(statement.opening_balance)}</span>{" "}
+                  <span className={`badge ${statement.closing_balance >= 0 ? "ok" : "danger"}`}>{L("acc_closing")}: {fmt(statement.closing_balance)}</span>
+                </p>
+                <div className="table-wrapper">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>{L("date")}</th>
+                        <th>{L("note")}</th>
+                        <th className="num">{L("coa_debit")}</th>
+                        <th className="num">{L("coa_credit")}</th>
+                        <th className="num">{L("acc_running")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {statement.lines.length === 0 ? (
+                        <tr><td colSpan="5" className="empty">{L("acc_no_movements")}</td></tr>
+                      ) : (
+                        statement.lines.map((l) => (
+                          <tr key={l.entry_id}>
+                            <td>{l.entry_date ? new Date(l.entry_date).toLocaleDateString("en-US") : "-"}</td>
+                            <td>{(lang === "ar" ? l.reason_ar : l.reason_en) || l.note || l.ref_type || "-"}</td>
+                            <td className="num">{fmt(l.debit)}</td>
+                            <td className="num">{fmt(l.credit)}</td>
+                            <td className="num" style={{ fontWeight: 600 }}>{fmt(l.balance)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {activeTab === "adjustments" && (
+          <>
+            {/* Post a manual adjustment (تسوية / Tuning_accounts) */}
+            <div className="card" style={{ marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{L("acc_account_type")}</label>
+                <select className="select" value={adjForm.account_type} onChange={(e) => setAdjForm((f) => ({ ...f, account_type: e.target.value }))}>
+                  {ACCOUNT_TYPES.map((tp) => <option key={tp} value={tp}>{tp}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{L("acc_reason")}</label>
+                <select className="select" value={adjForm.reason_code} onChange={(e) => setAdjForm((f) => ({ ...f, reason_code: e.target.value }))}>
+                  {reasons.map((r) => <option key={r.code} value={r.code}>{reasonLabel(r)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{L("acc_side")}</label>
+                <select className="select" value={adjForm.side} onChange={(e) => setAdjForm((f) => ({ ...f, side: e.target.value }))}>
+                  <option value="debit">{L("coa_debit")}</option>
+                  <option value="credit">{L("coa_credit")}</option>
+                </select>
+              </div>
+              <div>
+                <label className="muted" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>{L("acc_amount")}</label>
+                <input className="input" type="number" min="0" style={{ width: 120 }} value={adjForm.amount} onChange={(e) => setAdjForm((f) => ({ ...f, amount: e.target.value }))} />
+              </div>
+              <button className="btn primary" onClick={postAdjustment}>{L("acc_post_adjustment")}</button>
+              {adjMsg && <span className="badge ok">{adjMsg}</span>}
+            </div>
+
+            {adjustments && (
+              <div className="table-wrapper">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{L("acc_reason")}</th>
+                      <th className="num">{L("acc_count")}</th>
+                      <th className="num">{L("coa_debit")}</th>
+                      <th className="num">{L("coa_credit")}</th>
+                      <th className="num">{L("acc_net")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adjustments.groups.length === 0 ? (
+                      <tr><td colSpan="5" className="empty">{L("none")}</td></tr>
+                    ) : (
+                      adjustments.groups.map((g) => (
+                        <tr key={g.reason_code || "none"}>
+                          <td>{lang === "ar" ? g.reason_ar : g.reason_en}</td>
+                          <td className="num">{g.count}</td>
+                          <td className="num">{fmt(g.debit)}</td>
+                          <td className="num">{fmt(g.credit)}</td>
+                          <td className="num" style={{ fontWeight: 600 }}>{fmt(g.net)}</td>
+                        </tr>
+                      ))
+                    )}
+                    <tr style={{ fontWeight: 700, borderTop: "1px solid var(--border)" }}>
+                      <td>{L("total")}</td>
+                      <td></td>
+                      <td className="num">{fmt(adjustments.total_debit)}</td>
+                      <td className="num">{fmt(adjustments.total_credit)}</td>
+                      <td className="num">{fmt(adjustments.total_net)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
     </Shell>

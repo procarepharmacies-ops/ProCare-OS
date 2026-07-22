@@ -106,9 +106,15 @@ bilingual (Arabic RTL first).
       → WAN cycles now incremental. (2026-07-20)
 
 ## Phase 6 — eStock domain completion (blueprint from CLAUDE_CODE_ESTOCK_STRUCTURE.md)
-- [ ] Accounting mirror: Account_Tree → chart accounts; Gedo_Financial journal
-      → ledger_entries (needs model/columns decision: keep LedgerEntry or add
-      Journal); Tuning_accounts (تسويات) with reason names
+- [~] Accounting mirror: Account_Tree → chart accounts (chart_of_accounts
+      exists); Gedo_Financial journal → ledger_entries (LedgerEntry kept — sale/
+      return/depot postings already mirror in). DONE this round: **كشف حساب
+      account statement** (opening balance + running balance + closing per
+      account) and **Tuning_accounts تسويات named reasons** (bilingual reason
+      catalog, `ledger_entries.reason_code`, adjustments tagged `ref_type=
+      'adjust'`, per-reason adjustments report). REMAINING: mirror the raw
+      Gedo_Financial journal rows verbatim (needs live eStock column audit —
+      "column audit pending" in etl.py). (2026-07-21)
 - [ ] Shareholders: company_Owner + Gedo_Dividends_paied (new model + screen)
 - [ ] Audit/change history: Product_Changes (price log), Product_amount_Change
       (stock log), user_login (session audit) — surface as change-history screen

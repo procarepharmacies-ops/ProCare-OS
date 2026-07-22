@@ -533,3 +533,33 @@
   is NOT complete. Recommended next: notification center / news ticker (surface
   expiry/low-stock/shortage events — News_bar/Flag parity), then POS shortage
   auto-insert + F2 branch-stock popup cluster.
+
+## 2026-07-21 · Phase 6 — Accounting mirror: statement + Tuning adjustments — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Extended the existing accounting module (ledger/trial-balance/chart/P&L already
+  present) with the two most-used missing eStock accounting capabilities:
+  1. **كشف حساب account statement** — `accounting.account_statement(type, ref,
+     days, branch)`: opening balance = net of all movements BEFORE the window;
+     chronological in-window rows each carrying the running balance; closing +
+     debit/credit totals. `GET /api/accounting/statement`.
+  2. **Tuning_accounts تسويات named reasons** — bilingual `ADJUSTMENT_REASONS`
+     catalog (opening_balance, discount_allowed, bad_debt, inventory_writeoff,
+     cash_short/over, expense, correction, other). New nullable column
+     `ledger_entries.reason_code` (idempotent `ensure_ledger_reason_column`,
+     dialect-aware ADD/ADD COLUMN, wired into main.py lifespan). `create_journal_
+     entry` now takes `reason_code`: validates against the catalog, tags the row
+     `ref_type='adjust'`, stores the code (no reason → stays `ref_type='manual'`,
+     backwards-compatible). `adjustments_report` groups adjust rows by reason with
+     debit/credit/net + grand totals. `GET /api/accounting/adjustment-reasons`,
+     `GET /api/accounting/adjustments`, `reason_code` added to `POST /journal`.
+- FRONTEND `/accounting`: two new tabs — **Statement** (type + optional ref +
+  period → opening/movements/running/closing) and **Adjustments** (post-adjustment
+  form with reason dropdown + per-reason report table). 4 api.js methods; 20
+  bilingual acc_* i18n keys.
+- TESTS: test_accounting.py +7 (running-balance math incl. opening from before the
+  window, bad-type guard, reason tagging + validation, manual-stays-manual,
+  adjustments grouping excludes plain manual rows, reason catalogue). Isolated via
+  a synthetic account_ref + a fixture that also sweeps test-created adjust rows
+  (the report aggregates across accounts; seed/ETL never emit ref_type='adjust').
+- VERIFIED: `pytest app/tests/` 324 passed / 0 (317 + 7). `next build` clean
+  (/accounting 3.02 kB). Migration verified on a legacy ledger table missing the
+  column (adds it, idempotent on 2nd run); 3 new endpoints present in OpenAPI.

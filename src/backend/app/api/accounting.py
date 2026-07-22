@@ -62,11 +62,13 @@ class JournalIn(BaseModel):
     credit: float = Field(0.0, ge=0)
     account_ref: int | None = None
     note: str | None = None
+    reason_code: str | None = None
 
 
 @router.post("/journal")
 def create_journal(payload: JournalIn, session: Session = Depends(get_session)):
-    """Manual journal entry (eStock's Manual Journal Entries menu)."""
+    """Manual journal entry (eStock's Manual Journal Entries menu). Passing a
+    ``reason_code`` records it as a Tuning adjustment (تسوية)."""
     try:
         return accounting.create_journal_entry(
             session,
@@ -76,9 +78,41 @@ def create_journal(payload: JournalIn, session: Session = Depends(get_session)):
             credit=payload.credit,
             account_ref=payload.account_ref,
             note=payload.note,
+            reason_code=payload.reason_code,
         )
     except POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+@router.get("/adjustment-reasons")
+def adjustment_reasons():
+    """The Tuning_accounts (تسويات) reason catalogue for the adjustment form."""
+    return {"reasons": accounting.adjustment_reasons()}
+
+
+@router.get("/statement")
+def account_statement(
+    account_type: str = Query(...),
+    account_ref: int | None = Query(None),
+    days: int = Query(90, ge=1, le=365),
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """كشف حساب: opening balance + movements with a running balance + closing."""
+    try:
+        return accounting.account_statement(session, account_type, account_ref, days, branch_id)
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+@router.get("/adjustments")
+def adjustments(
+    branch_id: int | None = Query(None),
+    days: int = Query(90, ge=1, le=365),
+    session: Session = Depends(get_session),
+):
+    """تقرير التسويات: manual adjustments grouped by Tuning reason."""
+    return accounting.adjustments_report(session, branch_id, days)
 
 
 @router.get("/sales-by-customer")
