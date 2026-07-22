@@ -297,6 +297,14 @@ export const api = {
   voidCommissionRun: (runId) =>
     http(`/commissions/runs/${runId}/void`, { method: "POST" }),
 
+  // Notification center + ticker (News_bar/Flag parity): expiry/low-stock/shortage.
+  notifications: (branch, expiryDays = 30) =>
+    http(`/notifications${bq(branch, `expiry_days=${expiryDays}`)}`),
+  notificationTicker: (branch, limit = 12) =>
+    http(`/notifications/ticker${bq(branch, `limit=${limit}`)}`),
+  dismissNotifications: (eventKeys, branch) =>
+    http("/notifications/dismiss", { method: "POST", body: JSON.stringify({ event_keys: eventKeys, branch_id: branch || null }) }),
+
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),

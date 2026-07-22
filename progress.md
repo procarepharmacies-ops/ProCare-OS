@@ -563,3 +563,32 @@
 - VERIFIED: `pytest app/tests/` 324 passed / 0 (317 + 7). `next build` clean
   (/accounting 3.02 kB). Migration verified on a legacy ledger table missing the
   column (adds it, idempotent on 2nd run); 3 new endpoints present in OpenAPI.
+
+## 2026-07-21 · Phase 6 — Notification center + ticker — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Built the eStock News_bar/Flag notification center: one operational feed for
+  the events staff must not miss, as both a topbar ribbon and a full screen.
+- DESIGN: the feed is COMPUTED LIVE from operational state (no event store) —
+  expiring/expired batches, below-min products, open shortage-sheet rows. Each
+  event has a STABLE key (`expiry:{batch_id}`, `low_stock:{product}:{branch}`,
+  `shortage:{id}`); dismissing writes a `notification_dismissals` row and the
+  feed hides that key, mirroring how News_bar respects its `deleted` flag.
+- SERVICE `services/notifications.py`: `CATEGORIES` (bilingual expiry/low_stock/
+  shortage + default severity); per-source builders; `_all_events` merges them,
+  each source try/except-guarded (fail-soft — one bad source can't blank the
+  feed) then removes dismissed keys; `notification_center` (grouped, severity-
+  sorted, per-category counts + critical total), `ticker` (flat severity-ranked
+  headlines + counts for the badge), `dismiss` (idempotent multi-key insert).
+- MODEL `NotificationDismissal` (event_key UNIQUE, branch, by, at); idempotent
+  `ensure_notification_table` wired into main.py lifespan.
+- API `api/notifications.py` (any logged-in employee): GET `/notifications`
+  (center), GET `/ticker`, POST `/dismiss {event_keys[]}`.
+- FRONTEND: `/notifications` page (categories with per-item + dismiss-all,
+  severity-coloured badges); a `NotificationTicker` in the Shell topbar on every
+  page (bell + unread count + top headline, 60s poll, renders just the bell if
+  the feed errors). Nav entry (bell). 3 api.js methods; nav_notifications + 8
+  ntf_* i18n keys (AR/EN).
+- TESTS: test_notifications.py (5) — category grouping + total==sum, ticker
+  severity ordering + counts, dismiss hides key & is idempotent (no dup row),
+  key prefixes/categories valid, API center/ticker/dismiss round-trip.
+- VERIFIED: `pytest app/tests/` 329 passed / 0 (324 + 5). `next build` clean
+  (/notifications 1.05 kB). Migration idempotent; 3 endpoints in OpenAPI.

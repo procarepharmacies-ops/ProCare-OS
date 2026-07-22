@@ -1133,3 +1133,28 @@ class CommissionRunLine(Base):
     )
 
 
+
+
+class NotificationDismissal(Base):
+    """Dismissed-notification log for the notification center (News_bar parity).
+
+    The notification feed is *computed live* from operational state (expiring
+    batches, low stock, open shortages), so there is no event row to delete —
+    instead each live event has a stable ``event_key`` and dismissing one writes
+    a row here. The feed then hides any event whose key has been dismissed, the
+    same way eStock's News_bar respects its ``deleted`` flag. Idempotent by key.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "notification_dismissals"
+
+    dismissal_id: Mapped[int] = mapped_column(primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(120), unique=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    dismissed_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_notif_dismissal_key", "event_key"),
+    )

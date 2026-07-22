@@ -453,6 +453,16 @@ def ensure_ledger_reason_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
 
 
+def ensure_notification_table(engine) -> None:
+    """Ensure the notification_dismissals table exists (Phase 6: notification
+    center). Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "notification_dismissals" not in inspector.get_table_names():
+        from app.db.models import Base, NotificationDismissal
+
+        Base.metadata.create_all(engine, tables=[NotificationDismissal.__table__])
+
+
 def ensure_commission_tables(engine) -> None:
     """Ensure commission_runs and commission_run_lines tables exist (Phase 6).
 
