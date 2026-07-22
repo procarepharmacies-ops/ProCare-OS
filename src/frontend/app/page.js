@@ -6,6 +6,7 @@ import Shell from "./components/Shell";
 import { BarChart, HBar, CountUp } from "./components/charts";
 import Icon from "./components/icons";
 import DetailModal from "./components/DetailModal";
+import DecisionCardsWidget from "./components/DecisionCardsWidget";
 import { useUI } from "./providers";
 import { t } from "./i18n";
 import { api } from "./api";
@@ -289,6 +290,9 @@ export default function DashboardPage() {
             <KpiCard label={L("expiring_30")} value={data.summary.kpis?.expiring_30} sub="" ico="bell" href="/alerts" go={router.push.bind(router)} fmt={fmt} />
             <KpiCard label={L("debtors")} value={data.summary.kpis?.debtors} sub="" ico="customers" href="/customers" go={router.push.bind(router)} fmt={fmt} />
           </div>
+
+          {/* ===== Daily Decisions (القرارات اليومية) ===== */}
+          <DecisionCardsWidget lang={lang} />
 
           {/* ===== View switcher ===== */}
           <div style={{ display: "flex", gap: 8, marginTop: 16, alignItems: "center", flexWrap: "wrap" }}>

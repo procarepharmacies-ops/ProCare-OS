@@ -329,4 +329,12 @@ export const api = {
   expenses: (branch) => http(`/dashboard/expenses${bq(branch)}`),
   staffNow: (branch) => http(`/dashboard/staff-now${bq(branch)}`),
   stocktakingAlerts: (minutes = 5) => http(`/stocktaking/recent-alerts?minutes=${minutes}`),
+
+  // Phase 5 Decision cards (القرارات اليومية).
+  decisions: () => http("/decisions"),
+  dismissDecision: (cardId) => http(`/decisions/${cardId}/dismiss`, { method: "POST" }),
+  actionDecision: (cardId, employeeId = null) => http(`/decisions/${cardId}/action`, {
+    method: "POST",
+    body: JSON.stringify({ employee_id: employeeId }),
+  }),
 };
