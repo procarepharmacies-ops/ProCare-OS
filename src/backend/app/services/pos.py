@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
@@ -84,6 +84,21 @@ def check_credit(session: Session, customer_id: int, new_charge: float, override
         f"تجاوز حد الائتمان: الرصيد المتوقع {money(projected)} > الحد {money(limit)} "
         f"/ credit limit exceeded (needs override)",
     )
+
+
+def sellable_qty(session: Session, product_id: int, branch_id: int) -> float:
+    """Total non-expired, on-hand quantity of a product at a branch — the amount
+    FEFO could actually sell right now. Used by the POS partial-fill path to
+    decide how much of a requested line can be met."""
+    total = session.scalar(
+        select(func.coalesce(func.sum(m.StockBatch.amount), 0)).where(
+            m.StockBatch.product_id == product_id,
+            m.StockBatch.branch_id == branch_id,
+            m.StockBatch.amount > 0,
+            (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
+        )
+    )
+    return float(total or 0)
 
 
 # --- sp_deduct_stock (FEFO) -------------------------------------------------
@@ -156,17 +171,27 @@ def create_sale(
     card_paid: float = 0.0,
     override_by: int | None = None,
     redeem_points: float = 0.0,
+    allow_partial: bool = False,
 ) -> m.Sale:
     """Create one atomic invoice. Commits on success; rolls back on any failure.
 
     ``redeem_points`` spends that many loyalty points as an extra invoice
-    discount (requires a customer; capped at the invoice value)."""
+    discount (requires a customer; capped at the invoice value).
+
+    ``allow_partial`` (eStock Shortcoming behaviour): when a line requests more
+    than the branch can sell, sell what's on hand (FEFO) and auto-insert the
+    unmet remainder into the shortage sheet, instead of failing the whole
+    invoice. A fully out-of-stock line is dropped from the sale but still
+    logged; if nothing at all can be filled the sale is refused (nothing to
+    invoice). Off by default — normal sales stay strictly all-or-nothing."""
     if not lines:
         raise POSError("empty_sale", "لا توجد أصناف في الفاتورة / no lines in sale")
 
     try:
         # Resolve prices and compute totals up front (also validates products).
+        # unmet: (product_id, product_name, shortfall_qty) to log after the sale.
         resolved = []
+        unmet: list[tuple[int, str, float]] = []
         gross = 0.0
         total_disc = 0.0
         for ln in lines:
@@ -175,13 +200,32 @@ def create_sale(
                 raise POSError("product_not_found", f"صنف غير موجود #{ln.product_id}")
             if ln.amount <= 0:
                 raise POSError("bad_quantity", "الكمية يجب أن تكون أكبر من صفر")
+
+            requested = float(ln.amount)
+            eff_amount = requested
+            disc = float(ln.disc_money)
+            if allow_partial:
+                available = sellable_qty(session, product.product_id, branch_id)
+                if available < requested:
+                    unmet.append((product.product_id, product.name_ar, round(requested - available, 3)))
+                    eff_amount = max(available, 0.0)
+                    # Scale the line discount to what we actually sell so the
+                    # invoice can't end up with a discount bigger than its value.
+                    disc = round(disc * (eff_amount / requested), 2) if requested else 0.0
+                if eff_amount <= 0:
+                    continue  # fully out of stock — logged above, nothing to sell
+
             price = float(ln.sell_price) if ln.sell_price is not None else float(product.sell_price)
-            line_total = round(price * float(ln.amount) - float(ln.disc_money), 2)
+            line_total = round(price * eff_amount - disc, 2)
             if line_total < 0:
                 raise POSError("bad_discount", "الخصم أكبر من قيمة الصنف")
-            gross += round(price * float(ln.amount), 2)
-            total_disc += float(ln.disc_money)
-            resolved.append((product, ln, price, line_total))
+            gross += round(price * eff_amount, 2)
+            total_disc += disc
+            resolved.append((product, ln, price, line_total, eff_amount, disc))
+
+        if not resolved:
+            # allow_partial with every line out of stock: nothing to invoice.
+            raise POSError("no_sellable_stock", "لا يوجد مخزون قابل للبيع / no sellable stock")
 
         net = round(gross - total_disc, 2)
 
@@ -223,13 +267,13 @@ def create_sale(
         if redeem_tx is not None:
             redeem_tx.sale_id = sale.sale_id
 
-        for product, ln, price, line_total in resolved:
+        for product, ln, price, line_total, eff_amount, disc in resolved:
             # FEFO deduction (skips expired => expired-only product is blocked).
             taken = deduct_stock_fefo(
                 session,
                 product.product_id,
                 branch_id,
-                float(ln.amount),
+                eff_amount,
                 ref_id=sale.sale_id,
                 employee_id=cashier_id,
             )
@@ -238,10 +282,10 @@ def create_sale(
                 sale_id=sale.sale_id,
                 product_id=product.product_id,
                 batch_id=primary_batch,
-                amount=float(ln.amount),
+                amount=eff_amount,
                 sell_price=price,
                 buy_price=float(product.buy_price),
-                disc_money=float(ln.disc_money),
+                disc_money=disc,
                 total_sell=line_total,
             )
             session.add(sale_line)
@@ -249,7 +293,7 @@ def create_sale(
 
             # Incentives: track employee points for incentivized products sold.
             if cashier_id is not None and float(product.incentive_points) > 0:
-                points = float(ln.amount) * float(product.incentive_points)
+                points = eff_amount * float(product.incentive_points)
                 session.add(
                     m.IncentiveLedger(
                         employee_id=cashier_id,
@@ -290,6 +334,22 @@ def create_sale(
 
         # Loyalty: earn points on the final net (same transaction).
         loyalty_svc.award_for_sale(session, sale)
+
+        # Shortcoming auto-insert: log the unmet remainder of each partial line
+        # onto the shortage sheet, atomically with the sale (allow_partial only).
+        for pid, pname, shortfall in unmet:
+            if shortfall <= 0:
+                continue
+            session.add(
+                m.ShortageItem(
+                    branch_id=branch_id,
+                    product_id=pid,
+                    qty_requested=shortfall,
+                    status="open",
+                    reported_by=cashier_id,
+                    note="تلقائي من نقطة البيع / auto from POS",
+                )
+            )
 
         session.commit()
         session.refresh(sale)

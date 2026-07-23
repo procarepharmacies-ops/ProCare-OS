@@ -45,11 +45,10 @@ def test_forecast_demand_with_history(client):
             session.add(b)
             session.flush()
 
-        # Add a stock batch
+        # Add a stock batch (batch_id is an auto-increment PK — let SQLite assign it)
         stock = m.StockBatch(
             product_id=p.product_id,
             branch_id=b.branch_id,
-            batch_id="TEST_BATCH_1",
             amount=500.0,
             buy_price=10.0,
             sell_price=15.0,
@@ -64,7 +63,7 @@ def test_forecast_demand_with_history(client):
             sale = m.Sale(
                 branch_id=b.branch_id,
                 sale_date=sale_date,
-                total=3.0 * 15.0,
+                total_net=3.0 * 15.0,
                 is_return=False,
             )
             session.add(sale)
@@ -74,6 +73,8 @@ def test_forecast_demand_with_history(client):
                 product_id=p.product_id,
                 amount=3.0,
                 sell_price=15.0,
+                buy_price=10.0,
+                total_sell=3.0 * 15.0,
             )
             session.add(line)
         session.commit()

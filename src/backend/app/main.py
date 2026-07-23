@@ -24,11 +24,14 @@ from app.db.migrate import (
     bootstrap_ceo_if_configured,
     ensure_assigned_agent_column,
     ensure_branch_names_corrected,
+    ensure_commission_tables,
     ensure_customer_address_column,
     ensure_customer_crm_columns,
     ensure_employee_reset_columns,
     ensure_fk_indexes,
     ensure_forecast_tables,
+    ensure_ledger_reason_column,
+    ensure_notification_table,
     ensure_incentive_points_column,
     ensure_loyalty_points_column,
     ensure_loyalty_tier_columns,
@@ -75,6 +78,12 @@ async def lifespan(_app: FastAPI):
     ensure_customer_crm_columns(engine)
     # Phase 5: Forecasting and decision cards
     ensure_forecast_tables(engine)
+    # Phase 6: Sales-rep commission calculator
+    ensure_commission_tables(engine)
+    # Phase 6: named adjustment reasons on the ledger (Tuning_accounts parity)
+    ensure_ledger_reason_column(engine)
+    # Phase 6: notification center dismissals (News_bar parity)
+    ensure_notification_table(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 

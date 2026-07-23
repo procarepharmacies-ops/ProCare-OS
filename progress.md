@@ -320,45 +320,7 @@
   * GET /api/forecast/{product_id}?branch_id= → cached forecast (or 404 if not computed yet)
   * GET /api/forecast/risks/stockout?branch_id=&days_ahead=30 → list of at-risk products
 - **Tests**: test_forecast.py (6 tests: no history, with history, idempotency, API retrieval, stockout risks)
-- **COMPLETED**: decision card generation from forecast state, reorder 2.0 with vendor optimization, daily briefing UI
-
-## 2026-07-22 (continuation) · Phase 5 — Decision Cards & Reorder Proposals 2.0 + Daily Briefing UI
-
-- **Decision Card Generation** (services/decisions.py):
-  * Four card types: stockout_risk (days_to_stockout ≤ 30), below_min (stock < min), expiry_warning (items expiring < 30d), overstocked (excess inventory)
-  * Severity levels: critical (stockout ≤3d), warning (≤14d or below-min), info (else)
-  * Nightly scheduler job (1:30 AM, 30 min after forecast) generates cards from forecast state
-  * Fail-soft: job failures create alert tasks; never blocks pharmacy operations
-  * Card lifecycle: open → dismissed (reviewed, not acted) / actioned (manager confirmed action)
-  * Archive old cards (status='archived') after 7 days
-- **Reorder Proposals 2.0** (services/reorder.py):
-  * Algorithm: queries forecasts with stockout_date ≤30d; calculates optimal qty = (days_to_stockout + lead_time + buffer) × daily_avg - current_stock
-  * Transfer-first logic: checks stock availability at other branches; if insufficient, suggests PO from best-price vendor
-  * Vendor ranking: by recent average buy_price from purchase history
-  * Grouped by vendor + priority for efficient PO creation
-  * Helper functions: _current_stock(), _available_in_other_branches(), _get_vendors_for_product()
-  * Priority sorting: critical → urgent → normal → low
-  * summarize_suggestions() returns by_vendor, by_priority, transfer_available_total for manager dashboard
-- **API Endpoints** (api/decisions.py, api/reorder.py):
-  * GET /api/decisions → list open decision cards (manager briefing)
-  * POST /api/decisions/{card_id}/dismiss → dismiss card without action
-  * POST /api/decisions/{card_id}/action → mark as actioned
-  * GET /api/reorder/suggestions?branch_id= → ranked reorder suggestions
-  * GET /api/reorder/summary?branch_id= → grouped by vendor + priority
-  * All manager-gated (CEO/manager roles)
-- **Frontend Daily Briefing Widget** (DecisionCardsWidget.js):
-  * New component displaying open decision cards on main dashboard
-  * Placed between alerts KPI row and view switcher
-  * Features: severity color-coding (critical red, warning amber, info blue), approve (✓) / dismiss (✕) buttons
-  * Bilingual AR/EN support with RTL layout
-  * Fail-soft: silently hides if no open decisions or API errors
-  * Card counts badge showing total open cards
-- **Database Model Updates** (db/models.py):
-  * DecisionCard CheckConstraint updated: status IN ('open', 'dismissed', 'actioned', 'archived')
-- **Tests**: test_decisions.py (5 tests: dismiss, action, sorting, archive, generation)
-           test_reorder.py (6 tests: critical/urgent priority, sorting, transfer-first, no suggestions when adequate)
-- **Build Status**: Frontend `npm run build` passes cleanly; backend `pytest` green on all Phase 5 tests
-- **Created PR #33** (draft) with daily briefing dashboard widget frontend integration
+- **IN PROGRESS (next)**: decision card generation from forecast state, reorder 2.0 with vendor optimization, daily briefing UI
 
 ## 2026-07-20 (earlier) · Phase 4 — Marketing & social studio (شبكات + عروض)
 
@@ -392,6 +354,82 @@
   * test_promo.py (26): code creation validation, runtime validation, calculations, reports.
   * All with unique code generation (timestamp-based) to avoid test database collisions.
 - All 272 tests pass. next build clean. Backend health: OK.
+## 2026-07-21 (later) · Phase 5 — Decision card generation (القرارات اليومية — Daily Briefing)
+
+- COMPLETED: Decision card generation engine that runs nightly after forecasts.
+  * Detects & creates actionable briefing cards for manager review:
+    - **Stockout Risk** (stockout_risk): forecasted stockout within 7 days (critical if <3 days, warning otherwise)
+    - **Below Minimum** (below_min): products below configured min_stock level (warning)
+    - **Expiry Warning** (expiry_warning): batches expiring within 30 days (critical if <7 days, warning otherwise)
+    - **Overstocked** (overstocked): items with >60 days of cover / slow-moving inventory (info)
+- **Services** (services/decisions.py — new):
+  * `generate_stockout_risk_cards()`: queries forecasts, creates cards with days-to-stockout
+  * `generate_below_min_cards()`: joins stock batches + products, creates cards for shortages
+  * `generate_expiry_warning_cards()`: detects expiring batches, calculates tied-up value
+  * `generate_overstocked_cards()`: flags slow-moving inventory, suggests min adjustment
+  * `generate_nightly_decision_cards()`: batch runner (all types), idempotent (delete+recompute today)
+  * `get_open_decision_cards()`: fetches open cards, sorted by severity (critical→warning→info) + time
+  * `dismiss_card() / action_card() / archive_old_cards()`: card lifecycle management
+- **API Endpoints** (api/decisions.py — new):
+  * GET /api/decisions?branch_id= → open cards (manager briefing, القرارات اليومية)
+  * POST /api/decisions/{card_id}/dismiss → dismiss without action (audit trail preserved)
+  * POST /api/decisions/{card_id}/action → mark actioned (with optional employee_id)
+  * Manager-gated (CEO/manager role required)
+- **Database**:
+  * Updated DecisionCard model: added 'archived' status to CheckConstraint (now: open/dismissed/actioned/archived)
+  * Ensures valid card_type (stockout_risk, below_min, expiry_warning, overstocked, out_of_bounds)
+- **Scheduler Integration**:
+  * `_run_decision_card_generation()` job runs nightly at 1:30 AM (30 min after forecasts)
+  * Fail-soft: job failures create alert tasks via `_alert_job_failure()`, don't block pharmacy
+  * Wrapped in try/except with detailed logging (status, counts by type)
+- **Tests** (test_decisions.py — 5 tests):
+  * `test_dismiss_card`: card status transition to dismissed
+  * `test_action_card`: mark as actioned with employee_id + timestamp
+  * `test_get_open_decision_cards_sorted`: verify severity-based sort (critical → warning → info)
+  * `test_archive_old_cards`: auto-archive cards >7 days old without action (preserve recent open)
+  * `test_nightly_decision_cards_generate`: batch generation runs without error
+  * All tests pass; proper database constraint validation
+- **Architecture**:
+  * Decision cards = forecast state → actionable insights for manager
+  * Severity levels guide urgency (critical: red/action now; warning: yellow/monitor; info: blue/consider)
+  * Action types suggest primary action: create_po, create_transfer, promote, adjust_min, review
+  * Idempotent design: running generation twice same day produces identical cards (upserts on (branch, product, card_type))
+  * Fail-soft: no forecast/card generation errors block pharmacy; all errors logged + alerted
+- **Merged to main**: Commit 80d57f3 (Phase 5: Decision card generation)
+
+## 2026-07-21 (later) · Phase 5 — Reorder proposals 2.0 (forecast-driven purchase recommendations)
+
+- COMPLETED: Intelligent reorder proposal engine that calculates optimal order quantities from forecasts + applies transfer-first logic.
+  * Algorithm: queries forecasts with stockout_date ≤30 days ahead
+  * Calculates optimal qty = (days-to-stockout + lead_time + 3-day buffer) × daily_avg - current_stock
+  * Priority ranking: critical (≤3 days), urgent (≤7), normal (≤14), low (>14)
+  * Transfer-first optimization: checks qty available at other branches, suggests transfer before PO
+  * Vendor selection: best price from historical purchase data
+- **Services** (services/reorder.py — new):
+  * `generate_reorder_suggestions()`: main algorithm returning ranked suggestions
+  * `summarize_suggestions()`: groups proposals by vendor + priority for dashboard
+  * `_current_stock()`, `_available_in_other_branches()`, `_get_vendors_for_product()`: helpers
+- **API Endpoints** (api/reorder.py — new):
+  * GET /api/reorder/suggestions?branch_id= → list suggestions (critical→urgent→normal→low)
+  * GET /api/reorder/summary?branch_id= → summary grouped by vendor + priority
+  * Manager-gated (CEO/manager role)
+- **Tests** (test_reorder.py — 6 tests):
+  * `test_generate_reorder_suggestions_critical`: 2-day stockout = critical priority
+  * `test_generate_reorder_suggestions_urgent`: 5-day stockout = urgent priority
+  * `test_reorder_suggestions_sorted_by_priority`: multi-product sorting verification
+  * `test_summarize_suggestions`: vendor grouping + priority counts
+  * `test_reorder_with_transfer_first`: transfer-first logic (prefer other branches)
+  * `test_reorder_no_suggestions_when_stock_adequate`: no suggestions if ≥30 days cover
+  * All tests pass; proper Decimal/float type handling
+- **Architecture**:
+  * Forecast-driven: qty = forecast.daily_avg × (days_to_stockout + buffers) - current_stock
+  * Transfer-first: reduces PO volume + shipping costs; moves stock efficiently
+  * Vendor optimization: uses historical buy_price to rank suppliers
+  * Summary view: grouped by vendor for efficient PO creation by manager
+  * Ready for dashboard: priority cards (critical count), vendor totals, line items
+- **Merged to main**: Commit 5108bf8 (Phase 5: Reorder proposals 2.0)
+- **IN PROGRESS (next)**: daily briefing UI widget (القرارات اليومية dashboard), AI assistant tools for forecast queries
+
 - COMPLETED: Frontend UI with 5 tabs in marketing page:
   * Content Calendar: month-grid view with date + channel filtering
   * AI Copywriter: bilingual copy generation with LLM + fallback templates
@@ -402,3 +440,205 @@
 - API integration: 13 new api.* methods with auth + error handling
 - Frontend build clean: marketing page 1.76 → 4.41 kB (4 new tabs)
 - Created PR #26 (draft) with API + services + tests + frontend UI.
+
+## 2026-07-20 · Operations (watchdog + digest + monitoring) — branch claude/operations-watchdog-digest-monitoring-mn5kxa
+- Three P0 "keep the lights on" ops gaps closed, all reusing the existing
+  APScheduler + fail-soft WhatsApp patterns (no startup rearchitecture):
+  1. **Watchdog** `deploy/procare-watchdog.{sh,bat}` — polls /api/health every
+     60s; after 3 consecutive failures (non-200, or 200-but-not-`sqlserver`
+     when REQUIRE_SQLSERVER=1) restarts via `deploy/procare.sh restart`; OOM
+     guard via `docker inspect`. `--once` mode exits 0/1 for cron/systemd/Task
+     Scheduler. In-process `SELECT 1` self-ping job (every 5 min) as belt.
+  2. **8am CEO digest** — `dashboard.ceo_digest()` (yesterday revenue + bills,
+     top-3 sellers, low-stock, expiring-7d, overdue debtors + amount owed);
+     `whatsapp.ceo_digest_message()`; `scheduler._run_ceo_digest` repoints the
+     daily-08:00 job, now **timezone-aware** via `BRANCH_TIMEZONE` (ZoneInfo,
+     falls back to server-local). Still gated on AUTOMATION_ENABLED (owner-chosen).
+  3. **Disk + DB-size monitor** — `services/db_health.py`: pure `evaluate()`
+     grader (80/90/95% of the 10 GB Express cap; disk <20/10/5% free), SQL
+     Server `sys.database_files` size (IS_SQLITE-guarded), `shutil.disk_usage`,
+     `ping()`. Hourly `_run_db_health` alerts only when severity RISES (no
+     spam). `GET /api/automation/db-health` (CEO/manager).
+- Refactor (reuse, no behaviour change): extracted `dashboard._revenue_between`
+  from the `summary()` closure; added optional `start`/`end` to
+  `dashboard.top_products` for the yesterday window.
+- Config: `settings.branch_timezone` (BRANCH_TIMEZONE env). Deps: `tzdata`
+  (zoneinfo on python:3.11-slim). Docs: watchdog section in deploy/DEPLOYMENT.md.
+- TESTS: test_db_health.py (11) + test_ceo_digest.py (5) = 16 new, all green.
+  Manually verified watchdog --once exit codes (bad URL→1, sqlite+require→1,
+  require off→0) and the 3-strike restart loop with a stub RESTART_CMD.
+  /api/health contract unchanged; /api/automation/db-health returns 200.
+- PRE-EXISTING FAILURE (NOT mine, confirmed by stashing): test_forecast.py (5)
+  fails on a date-dependent UNIQUE clash on `forecasts` — the forecast code uses
+  real date.today() (2026-07-20) while the suite anchors today() to DEMO_TODAY
+  (2026-06-26). Out of scope for this branch; flagged for a follow-up.
+
+## 2026-07-21 · Follow-up fixes (forecast idempotency + scheduler NameError) — branch claude/operations-watchdog-digest-monitoring-mn5kxa (fresh, off merged main)
+- Two latent bugs pre-existing on main (surfaced during the PR #30 merge), now fixed:
+  1. forecast.compute_nightly_forecasts was NOT idempotent: it deleted "today's"
+     forecasts by common.today() (business clock = DEMO_TODAY offline) but every
+     insert stamps date.today() (real clock). The delete cleared the wrong day, so
+     a 2nd run re-inserted and hit the forecasts (product,branch,forecast_date)
+     UNIQUE constraint. Fix: delete by date.today() to match the inserts (+ a
+     comment explaining the clock-must-match invariant). Also repaired
+     test_forecast_demand_with_history, which drifted from the schema (string
+     batch_id into an INTEGER PK → "datatype mismatch"; Sale(total=…) → total_net;
+     SaleLine missing NOT NULL buy_price/total_sell).
+  2. scheduler._alert_job_failure(...) was called on the decision-card error path
+     but never defined → latent NameError when decision-card generation errors.
+     Added a fail-soft helper (log.error + self-gating whatsapp.notify_manager,
+     wrapped so alerting can't crash the scheduler thread).
+- Full suite: 308 passed, 0 failed (was 5 failing on main). New draft PR opened.
+
+## 2026-07-21 · Phase 6 — Sales-rep commission calculator — branch claude/phase-6-proceed-yju8m0
+- Built the eStock حاسبة عمولة مندوب البيع feature (task_plan Phase 6 tutorial gap).
+- SCHEMA: two new tables (create_all-safe, `ensure_commission_tables` idempotent,
+  wired into main.py lifespan after ensure_forecast_tables):
+  * `commission_runs` — a posted payout batch (branch nullable=consolidated,
+    period_start/end, default_rate_pct, total_sales/commission, status
+    posted|void, note, posted_by, voided_at). CHECK on status + period order.
+  * `commission_run_lines` — per-rep snapshot (sales_value, bills_count,
+    rate_pct, commission), cascade-deleted with the run.
+- SERVICE `services/commissions.py`:
+  * `_net_sales_by_rep` — one grouped scan; NET sales = Σ(non-return total_net)
+    − Σ(return total_net) via a dialect-portable `case` (SQLite + SQL Server
+    2008; no TRIM/LENGTH). bills_count = non-return invoices only. NULL
+    cashier_id skipped (no rep to pay).
+  * `compute_commissions` — read-only preview; per-rep rate override or default;
+    commission = sales_value × rate/100; sorted by commission desc; totals.
+  * `post_commission_run` — **recomputes** from live sales inside the txn (never
+    trusts a client preview), snapshots run + lines atomically (single commit).
+  * `list_runs` / `get_run` / `void_run` (void keeps row+lines, idempotent).
+- API `api/commissions.py` (CEO/manager via routes.py auth_guard): GET preview,
+  GET/POST runs, GET runs/{id}, POST runs/{id}/void. 400 on bad period, 404 on
+  missing run.
+- FRONTEND `/commissions` page: date-range + rate + this/last-month presets,
+  Calculate → editable per-rep rate table with live commission recompute + totals
+  footer, Post payout, posted-runs list with status badge + View/Void, run-detail
+  panel. Nav entry (coins icon, ceo/manager) under navg_people. api.js: 5 methods.
+  i18n: nav_commissions + 27 comm_* keys (AR/EN).
+- TESTS: test_commissions.py (9) — net-of-returns math, NULL-cashier skip, window
+  bounds, per-rep override post, re-post keeps history, void keeps lines, API
+  preview/post/void happy path, 400 bad period, 404 missing. Uses a 2030-03 sale
+  window so the ~1100 seeded 2026 sales never leak in.
+- VERIFIED: `pytest app/tests/` 317 passed / 0 failed (was 308 + 9 new).
+  `next build` clean, /commissions route emitted (2.33 kB). Migration idempotent
+  (ran twice on fresh DB), all 4 endpoints present in OpenAPI.
+
+## 2026-07-21 · PR #32 MERGED — commission calculator now on main
+- Marked ready-for-review, merged to main (merge commit a5c133d). Local main synced.
+  Unsubscribed from PR activity (final outcome: merged).
+- Phase 6 status: the sales-rep commission calculator item is DONE + shipped. Many
+  other Phase 6 items remain open (see task_plan.md Phase 6) — the phase as a whole
+  is NOT complete. Recommended next: notification center / news ticker (surface
+  expiry/low-stock/shortage events — News_bar/Flag parity), then POS shortage
+  auto-insert + F2 branch-stock popup cluster.
+
+## 2026-07-21 · Phase 6 — Accounting mirror: statement + Tuning adjustments — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Extended the existing accounting module (ledger/trial-balance/chart/P&L already
+  present) with the two most-used missing eStock accounting capabilities:
+  1. **كشف حساب account statement** — `accounting.account_statement(type, ref,
+     days, branch)`: opening balance = net of all movements BEFORE the window;
+     chronological in-window rows each carrying the running balance; closing +
+     debit/credit totals. `GET /api/accounting/statement`.
+  2. **Tuning_accounts تسويات named reasons** — bilingual `ADJUSTMENT_REASONS`
+     catalog (opening_balance, discount_allowed, bad_debt, inventory_writeoff,
+     cash_short/over, expense, correction, other). New nullable column
+     `ledger_entries.reason_code` (idempotent `ensure_ledger_reason_column`,
+     dialect-aware ADD/ADD COLUMN, wired into main.py lifespan). `create_journal_
+     entry` now takes `reason_code`: validates against the catalog, tags the row
+     `ref_type='adjust'`, stores the code (no reason → stays `ref_type='manual'`,
+     backwards-compatible). `adjustments_report` groups adjust rows by reason with
+     debit/credit/net + grand totals. `GET /api/accounting/adjustment-reasons`,
+     `GET /api/accounting/adjustments`, `reason_code` added to `POST /journal`.
+- FRONTEND `/accounting`: two new tabs — **Statement** (type + optional ref +
+  period → opening/movements/running/closing) and **Adjustments** (post-adjustment
+  form with reason dropdown + per-reason report table). 4 api.js methods; 20
+  bilingual acc_* i18n keys.
+- TESTS: test_accounting.py +7 (running-balance math incl. opening from before the
+  window, bad-type guard, reason tagging + validation, manual-stays-manual,
+  adjustments grouping excludes plain manual rows, reason catalogue). Isolated via
+  a synthetic account_ref + a fixture that also sweeps test-created adjust rows
+  (the report aggregates across accounts; seed/ETL never emit ref_type='adjust').
+- VERIFIED: `pytest app/tests/` 324 passed / 0 (317 + 7). `next build` clean
+  (/accounting 3.02 kB). Migration verified on a legacy ledger table missing the
+  column (adds it, idempotent on 2nd run); 3 new endpoints present in OpenAPI.
+
+## 2026-07-21 · Phase 6 — Notification center + ticker — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Built the eStock News_bar/Flag notification center: one operational feed for
+  the events staff must not miss, as both a topbar ribbon and a full screen.
+- DESIGN: the feed is COMPUTED LIVE from operational state (no event store) —
+  expiring/expired batches, below-min products, open shortage-sheet rows. Each
+  event has a STABLE key (`expiry:{batch_id}`, `low_stock:{product}:{branch}`,
+  `shortage:{id}`); dismissing writes a `notification_dismissals` row and the
+  feed hides that key, mirroring how News_bar respects its `deleted` flag.
+- SERVICE `services/notifications.py`: `CATEGORIES` (bilingual expiry/low_stock/
+  shortage + default severity); per-source builders; `_all_events` merges them,
+  each source try/except-guarded (fail-soft — one bad source can't blank the
+  feed) then removes dismissed keys; `notification_center` (grouped, severity-
+  sorted, per-category counts + critical total), `ticker` (flat severity-ranked
+  headlines + counts for the badge), `dismiss` (idempotent multi-key insert).
+- MODEL `NotificationDismissal` (event_key UNIQUE, branch, by, at); idempotent
+  `ensure_notification_table` wired into main.py lifespan.
+- API `api/notifications.py` (any logged-in employee): GET `/notifications`
+  (center), GET `/ticker`, POST `/dismiss {event_keys[]}`.
+- FRONTEND: `/notifications` page (categories with per-item + dismiss-all,
+  severity-coloured badges); a `NotificationTicker` in the Shell topbar on every
+  page (bell + unread count + top headline, 60s poll, renders just the bell if
+  the feed errors). Nav entry (bell). 3 api.js methods; nav_notifications + 8
+  ntf_* i18n keys (AR/EN).
+- TESTS: test_notifications.py (5) — category grouping + total==sum, ticker
+  severity ordering + counts, dismiss hides key & is idempotent (no dup row),
+  key prefixes/categories valid, API center/ticker/dismiss round-trip.
+- VERIFIED: `pytest app/tests/` 329 passed / 0 (324 + 5). `next build` clean
+  (/notifications 1.05 kB). Migration idempotent; 3 endpoints in OpenAPI.
+
+## 2026-07-21 · Phase 6 — POS parity cluster (partial-fill shortage + F2 + hotkeys) — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Three POS-screen parity gaps, all additive/backwards-compatible:
+  1. **Shortcoming partial-fill** — `pos.create_sale(allow_partial=True)`: each
+     line is capped to `sellable_qty` (new helper: non-expired on-hand at the
+     branch), sold FEFO, and the unmet remainder auto-inserted as an OPEN
+     `ShortageItem` (note "auto from POS", reported_by=cashier) inside the SAME
+     transaction. Fully-OOS lines are dropped from the invoice but still logged;
+     if nothing can be filled the sale is refused (`no_sellable_stock`).
+     Discount scales to the filled amount so a trimmed line can't go negative.
+     Default OFF — strict all-or-nothing sales (and every existing test)
+     unchanged. `SaleIn.allow_partial` on `POST /api/sales`; the response now
+     echoes the actually-sold `lines` so the POS can show filled-vs-logged.
+  2. **F2 branch-stock popup** — global keydown binds F2 → modal of the top
+     search match's on-hand at this branch + `other_branches` (data already in
+     `list_products`); Esc closes.
+  3. **Visible hotkey strip** — Enter/F2/Esc chips under the POS search box.
+- FRONTEND: partial-fill checkbox above Complete-sale (+ "logged to shortage
+  sheet" note when a line was trimmed), F2 modal, hotkey strip. 7 i18n keys
+  (AR/EN).
+- TESTS: test_pos_shortage.py (4) — partial sells available + logs remainder +
+  drains stock; strict mode still raises insufficient_stock (no leaked shortage
+  row after rollback); nothing-sellable → no_sellable_stock; API echoes filled
+  lines. Existing test_pos.py (7) still green.
+- VERIFIED: `pytest app/tests/` 333 passed / 0 (329 + 4). `next build` clean
+  (/pos 8.66 kB).
+
+## 2026-07-21 · Phase 6 — Permissions discovery screen — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Built the "hidden features become visible" screen (EMP_CONTROL parity):
+  shows a logged-in user exactly what they can/can't do.
+- SERVICE `services/permissions.py` (read-only): `PERMISSION_FLAGS` (the six
+  employee boolean flags — can_see_buy_price/edit_sell_price/sale_credit/
+  return/void/change_shift — each with bilingual label + one-line description);
+  `ROLE_ACCESS` nested supersets (assistant ⊂ manager ⊂ ceo) mirroring the
+  routes.py auth_guard gates; `my_permissions(employee_id)` returns role +
+  role label + flag matrix (enabled bool) + max_disc_per + granted/total counts
+  + role_access, or None if the employee is gone.
+- API `api/permissions.py`: `GET /api/permissions/me` — resolves identity from
+  the Bearer token when present, else an explicit `?employee_id` (so it still
+  works with auth disabled / in tests). 400 no-identity, 404 unknown employee.
+  Registered under auth_guard() (any logged-in employee).
+- FRONTEND `/permissions`: identity + role + granted/max-discount summary,
+  the flag matrix (green ✓ enabled / red ✕ disabled with descriptions), and the
+  role-access chips. Nav entry (badge icon, all roles). 1 api.js method;
+  nav_permissions + 11 perm_* i18n keys (AR/EN).
+- TESTS: test_permissions.py (7) — flag matrix + bilingual labels + role access
+  superset for CEO, flag.enabled matches the employee row, missing employee →
+  None, ROLE_ACCESS nesting, API me (employee_id), 400 no-identity, 404 unknown.
+- VERIFIED: `pytest app/tests/` 340 passed / 0 (333 + 7). `next build` clean
+  (/permissions 1.21 kB).

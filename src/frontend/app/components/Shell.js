@@ -1,10 +1,53 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useUI } from "../providers";
 import { t } from "../i18n";
+import { api } from "../api";
 import Icon from "./icons";
 import Wordmark from "./Wordmark";
+
+// Compact notification ribbon for the topbar: bell + unread badge + the
+// highest-severity headline, scrolling to the full center on click. Fail-soft
+// (renders just the bell when the feed can't load) so it never breaks a page.
+function NotificationTicker({ branch, lang, onOpen }) {
+  const [tick, setTick] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.notificationTicker(branch, 12).then((r) => alive && setTick(r)).catch(() => {});
+    load();
+    const id = setInterval(load, 60000); // refresh once a minute
+    return () => { alive = false; clearInterval(id); };
+  }, [branch]);
+
+  const total = tick?.total || 0;
+  const top = tick?.items?.[0];
+  const headline = top ? (lang === "ar" ? top.body_ar : top.body_en) : "";
+  return (
+    <button
+      className="btn icon"
+      onClick={onOpen}
+      title={t(lang, "nav_notifications")}
+      style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6, width: "auto", padding: "0 10px", maxWidth: 320 }}
+    >
+      <Icon name="bell" size={16} />
+      {total > 0 && (
+        <span
+          className="badge danger"
+          style={{ fontSize: 11, padding: "0 6px", borderRadius: 10 }}
+        >
+          {total}
+        </span>
+      )}
+      {headline && (
+        <span className="muted" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {headline}
+        </span>
+      )}
+    </button>
+  );
+}
 
 // `roles: null` = visible to everyone logged in. Otherwise the user's role
 // must be in the list. Mirrors the backend's CEO-only gate on accounting /
@@ -29,6 +72,7 @@ const NAV_GROUPS = [
       { href: "/shortages", key: "nav_shortages", ico: "sheet", roles: null },
       { href: "/transfers", key: "nav_transfers", ico: "transfer", roles: ["ceo", "manager"] },
       { href: "/alerts", key: "nav_alerts", ico: "bell", roles: null },
+      { href: "/notifications", key: "nav_notifications", ico: "bell", roles: null },
     ],
   },
   {
@@ -57,6 +101,7 @@ const NAV_GROUPS = [
       { href: "/marketing", key: "nav_marketing", ico: "megaphone", roles: ["ceo", "manager"] },
       { href: "/employees", key: "nav_employees", ico: "badge", roles: ["ceo"] },
       { href: "/incentives", key: "nav_incentives", ico: "megaphone", roles: ["ceo", "manager"] },
+      { href: "/commissions", key: "nav_commissions", ico: "coins", roles: ["ceo", "manager"] },
     ],
   },
   {
@@ -64,6 +109,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/clinical", key: "nav_clinical", ico: "mortar", roles: null },
       { href: "/assistant", key: "nav_assistant", ico: "sparkle", roles: null },
+      { href: "/permissions", key: "nav_permissions", ico: "badge", roles: null },
       { href: "/settings", key: "nav_settings", ico: "gear", roles: ["ceo", "manager"] },
     ],
   },
@@ -146,6 +192,7 @@ export default function Shell({ titleKey, children }) {
         <div className="topbar">
           <h1 className="page-title">{L(titleKey)}</h1>
           <div className="controls">
+            <NotificationTicker branch={branch} lang={lang} onOpen={() => router.push("/notifications")} />
             <select
               className="select"
               value={branch}

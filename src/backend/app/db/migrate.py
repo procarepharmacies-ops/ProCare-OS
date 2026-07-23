@@ -438,5 +438,46 @@ def ensure_forecast_tables(engine) -> None:
         Base.metadata.create_all(engine, tables=[Forecast.__table__, DecisionCard.__table__] if "forecasts" not in table_names else [])
 
 
+def ensure_ledger_reason_column(engine) -> None:
+    """Add ``ledger_entries.reason_code`` (Phase 6: named adjustment reasons,
+    eStock Tuning_accounts parity) if the table predates it. Existing rows keep
+    a NULL reason (they are machine postings, not manual adjustments)."""
+    inspector = inspect(engine)
+    if "ledger_entries" not in inspector.get_table_names():
+        return  # create_all will make the table with the column already.
+    columns = {c["name"] for c in inspector.get_columns("ledger_entries")}
+    if "reason_code" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
+
+
+def ensure_notification_table(engine) -> None:
+    """Ensure the notification_dismissals table exists (Phase 6: notification
+    center). Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "notification_dismissals" not in inspector.get_table_names():
+        from app.db.models import Base, NotificationDismissal
+
+        Base.metadata.create_all(engine, tables=[NotificationDismissal.__table__])
+
+
+def ensure_commission_tables(engine) -> None:
+    """Ensure commission_runs and commission_run_lines tables exist (Phase 6).
+
+    Sales-rep commission calculator. Creates the tables via create_all if
+    missing; idempotent (safe to re-run).
+    """
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    missing = [t for t in ("commission_runs", "commission_run_lines") if t not in table_names]
+    if missing:
+        from app.db.models import Base, CommissionRun, CommissionRunLine
+
+        tables = [CommissionRun.__table__, CommissionRunLine.__table__]
+        Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
+
+
 
 

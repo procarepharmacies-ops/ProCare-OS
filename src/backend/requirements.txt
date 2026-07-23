@@ -6,6 +6,7 @@ SQLAlchemy>=2.0,<3.0      # ProCare's own DB (SQLite in dev, SQL Server in prod)
 httpx>=0.27              # Claude API call (assistant) + WhatsApp Cloud API client
 python-dateutil>=2.9
 python-dotenv>=1.0       # load .env on the pharmacy PC (keys / DB settings)
+tzdata>=2024.1          # IANA tz DB for BRANCH_TIMEZONE (zoneinfo on slim images)
 
 # --- Test / dev ---
 pytest>=8.0

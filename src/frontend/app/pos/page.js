@@ -50,6 +50,10 @@ function POSInner() {
   const [floatIn, setFloatIn] = useState("");
   const [countedIn, setCountedIn] = useState("");
   const [shiftMsg, setShiftMsg] = useState(null);
+  // Shortcoming: sell what's on hand and log the unmet remainder to the sheet.
+  const [allowPartial, setAllowPartial] = useState(false);
+  // F2 cross-branch stock popup: the product whose branch stock we're showing.
+  const [branchStock, setBranchStock] = useState(null);
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
@@ -76,6 +80,22 @@ function POSInner() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, posBranch]);
+
+  // F2 = branch-stock popup for the top search match (eStock's branch-stock
+  // hotkey); Esc closes any open popup.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "F2") {
+        e.preventDefault();
+        const top = products[0];
+        if (top) setBranchStock(top);
+      } else if (e.key === "Escape") {
+        setBranchStock(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [products]);
 
   useEffect(() => {
     if (!posBranch) return;
@@ -318,6 +338,7 @@ function POSInner() {
         customer_id: customerId ? Number(customerId) : null,
         lines: cart.map((x) => ({ product_id: x.product_id, amount: x.amount })),
         redeem_points: Number(redeemIn) || 0,
+        allow_partial: allowPartial,
       };
       const r = await api.createSale(payload);
       // If this sale came from a prescription, mark it dispensed.
@@ -328,6 +349,12 @@ function POSInner() {
       let msg = `${L("sale_done")} ${r.sale_id} · ${fmt(r.total_net)} ${L("egp")}`;
       if (r.loyalty_points !== undefined) msg += ` · ${L("points_balance")}: ${fmt(r.loyalty_points)} ⭐`;
       if (r.whatsapp_sent) msg += ` · ${L("wa_sent")} ✓`;
+      // Flag any line the shortcoming path trimmed (sold < requested).
+      if (allowPartial && Array.isArray(r.lines)) {
+        const sold = Object.fromEntries(r.lines.map((l) => [l.product_id, l.amount]));
+        const trimmed = cart.filter((x) => (sold[x.product_id] ?? 0) < x.amount);
+        if (trimmed.length) msg += ` · ${L("pos_partial_logged")}`;
+      }
       setResult({ ok: true, msg });
       setWaLink(r.whatsapp_link || null);
       setLastSaleId(r.sale_id);
@@ -504,6 +531,18 @@ function POSInner() {
                 {products.length} {L("search_matches")} — Enter {L("search_enter_hint")}
               </p>
             )}
+            {/* Visible hotkey map (eStock keeps its shortcuts on-screen). */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {[
+                ["Enter", L("hotkey_add")],
+                ["F2", L("hotkey_branch_stock")],
+                ["Esc", L("hotkey_close")],
+              ].map(([k, label]) => (
+                <span key={k} className="badge" style={{ fontSize: 11 }}>
+                  <kbd style={{ fontWeight: 700 }}>{k}</kbd> {label}
+                </span>
+              ))}
+            </div>
           </div>
           <div style={{ maxHeight: 460, overflowY: "auto" }}>
             <table className="tbl">
@@ -722,6 +761,11 @@ function POSInner() {
               </div>
             )}
 
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={allowPartial} onChange={(e) => setAllowPartial(e.target.checked)} />
+              <span>{L("pos_partial_toggle")}</span>
+            </label>
+
             <button
               className="btn primary"
               style={{ width: "100%" }}
@@ -751,6 +795,42 @@ function POSInner() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* F2 cross-branch stock popup: where else this item is on the shelf. */}
+      {branchStock && (
+        <div
+          onClick={() => setBranchStock(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "grid", placeItems: "center", zIndex: 50 }}
+        >
+          <div className="card" onClick={(e) => e.stopPropagation()} style={{ minWidth: 320, maxWidth: 480 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <h3 className="section-title" style={{ margin: 0 }}>
+                {lang === "ar" ? branchStock.name_ar : branchStock.name_en || branchStock.name_ar}
+              </h3>
+              <button className="btn icon" style={{ marginInlineStart: "auto" }} onClick={() => setBranchStock(null)}>✕</button>
+            </div>
+            <table className="tbl">
+              <tbody>
+                <tr>
+                  <td>{L("this_branch")}</td>
+                  <td className="num">
+                    <span className={`badge ${branchStock.on_hand > 0 ? "ok" : "danger"}`}>{fmt(branchStock.on_hand)}</span>
+                  </td>
+                </tr>
+                {(branchStock.other_branches || []).map((b) => (
+                  <tr key={b.branch_id}>
+                    <td>{b.branch}</td>
+                    <td className="num"><span className="badge">{fmt(b.on_hand)}</span></td>
+                  </tr>
+                ))}
+                {(!branchStock.other_branches || branchStock.other_branches.length === 0) && (
+                  <tr><td colSpan="2" className="muted">{L("no_other_branch_stock")}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </Shell>
   );

@@ -119,13 +119,13 @@ def generate_social_copy(
     return GenerateCopyOut(body_ar=body_ar, body_en=body_en)
 
 
-@router.post("/posts", dependencies=[Depends(auth_guard())])
+@router.post("/posts")
 def create_social_post(
     data: CreatePostIn,
     session: Session = Depends(get_session),
-    user_id: int = Depends(auth_guard()),
+    auth: dict | None = Depends(auth_guard()),
 ) -> PostOut:
-    """Create a draft social media post (no commit; caller must commit session).
+    """Create a draft social media post.
 
     Args:
         channel: 'fb' / 'ig' / 'wa-status' / 'tiktok' / 'linkedin'
@@ -139,6 +139,7 @@ def create_social_post(
     Returns:
         New SocialPost object
     """
+    user_id = (auth or {}).get("employee_id")
     if data.channel not in ("fb", "ig", "wa-status", "tiktok", "linkedin"):
         raise HTTPException(status_code=400, detail=f"Invalid channel: {data.channel}")
 
@@ -252,17 +253,18 @@ def get_month_posts(
     }
 
 
-@router.patch("/posts/{post_id}/approve", dependencies=[Depends(auth_guard())])
+@router.patch("/posts/{post_id}/approve")
 def approve_post(
     post_id: int,
     session: Session = Depends(get_session),
-    user_id: int = Depends(auth_guard()),
+    auth: dict | None = Depends(auth_guard()),
 ) -> PostOut:
     """Approve a draft post for publishing.
 
     Returns:
         Updated SocialPost object
     """
+    user_id = (auth or {}).get("employee_id")
     try:
         post = social_svc.approve_post(session, post_id, approved_by=user_id)
     except ValueError as e:
@@ -334,11 +336,11 @@ def publish_post(
 # --- Promo Code Endpoints ---
 
 
-@router.post("/promo-codes", dependencies=[Depends(auth_guard())])
+@router.post("/promo-codes")
 def create_promo_code(
     data: CreatePromoCodeIn,
     session: Session = Depends(get_session),
-    user_id: int = Depends(auth_guard()),
+    auth: dict | None = Depends(auth_guard()),
 ) -> PromoCodeOut:
     """Create a new promo code.
 
@@ -355,6 +357,7 @@ def create_promo_code(
     Returns:
         New PromoCode object
     """
+    user_id = (auth or {}).get("employee_id")
     try:
         promo = promo_svc.create_promo_code(
             session,

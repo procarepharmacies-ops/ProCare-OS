@@ -287,12 +287,40 @@ export const api = {
   employeeIncentives: (employeeId, month) =>
     http(`/incentives/employee/${employeeId}${month ? `?month=${month}` : ""}`),
 
+  // Sales-rep commission calculator (net sales × % per rep, post + audit).
+  commissionPreview: (start, end, branch, rate) =>
+    http(`/commissions/preview${bq(branch, `period_start=${start}&period_end=${end}&default_rate_pct=${rate}`)}`),
+  commissionRuns: (branch) => http(`/commissions/runs${bq(branch)}`),
+  commissionRun: (runId) => http(`/commissions/runs/${runId}`),
+  postCommissionRun: (payload) =>
+    http("/commissions/runs", { method: "POST", body: JSON.stringify(payload) }),
+  voidCommissionRun: (runId) =>
+    http(`/commissions/runs/${runId}/void`, { method: "POST" }),
+
+  // Permissions discovery: the current user's own flags/limits/role access.
+  myPermissions: (employeeId) =>
+    http(`/permissions/me${employeeId ? `?employee_id=${employeeId}` : ""}`),
+
+  // Notification center + ticker (News_bar/Flag parity): expiry/low-stock/shortage.
+  notifications: (branch, expiryDays = 30) =>
+    http(`/notifications${bq(branch, `expiry_days=${expiryDays}`)}`),
+  notificationTicker: (branch, limit = 12) =>
+    http(`/notifications/ticker${bq(branch, `limit=${limit}`)}`),
+  dismissNotifications: (eventKeys, branch) =>
+    http("/notifications/dismiss", { method: "POST", body: JSON.stringify({ event_keys: eventKeys, branch_id: branch || null }) }),
+
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
   loyalty: (customerId) => http(`/crm/loyalty/${customerId}`),
   customerProfile: (customerId) => http(`/customers/${customerId}/profile`),
   updateCustomer: (customerId, payload) => http(`/customers/${customerId}`, { method: "POST", body: JSON.stringify(payload) }),
   chartOfAccounts: (branch) => http(`/accounting/chart${bq(branch)}`),
+  // Accounting mirror: كشف حساب statement, Tuning تسويات reasons + adjustments.
+  accountStatement: (accountType, accountRef, branch, days) =>
+    http(`/accounting/statement${bq(branch, `account_type=${accountType}${accountRef ? `&account_ref=${accountRef}` : ""}&days=${days}`)}`),
+  adjustmentReasons: () => http("/accounting/adjustment-reasons"),
+  adjustments: (branch, days) => http(`/accounting/adjustments${bq(branch, `days=${days}`)}`),
+  createJournal: (payload) => http("/accounting/journal", { method: "POST", body: JSON.stringify(payload) }),
   adjustLoyalty: (customerId, payload) =>
     http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
   saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),
@@ -307,8 +335,13 @@ export const api = {
   createSocialPost: (payload) =>
     http("/marketing/posts", { method: "POST", body: JSON.stringify(payload) }),
   getSocialPost: (postId) => http(`/marketing/posts/${postId}`),
-  socialCalendar: (channel, month) =>
-    http(`/marketing/calendar${channel ? `?channel=${channel}&month=${month}` : ""}`),
+  socialCalendar: (channel, month) => {
+    const p = new URLSearchParams();
+    if (channel) p.set("channel", channel);
+    if (month) p.set("month", String(month));
+    const s = p.toString();
+    return http(`/marketing/calendar${s ? "?" + s : ""}`);
+  },
   approveSocialPost: (postId) =>
     http(`/marketing/posts/${postId}/approve`, { method: "PATCH" }),
   publishSocialPost: (postId) =>

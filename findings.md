@@ -238,3 +238,24 @@
   ~100-200 drugs, so the 53k catalogue needs a few thousand requests, not
   100k. Tool caches every response to disk (re-runs cost nothing), throttles
   to one request per DRUGEYE_DELAY seconds (default 2.5) and is resumable.
+
+## Operations monitoring (2026-07-20)
+- Health payload (`GET /api/health`, unauthenticated, routes.py) reports
+  `"procare_db": "sqlite (dev)" | "sqlserver"` from `IS_SQLITE` — the watchdog's
+  signal for a silent SQLite fallback (a misconfigured prod box that "works" but
+  is on the wrong DB). REQUIRE_SQLSERVER=1 treats that 200 as a failure.
+- Container topology matters for disk monitoring: the backend (`procare-backend`,
+  host network) has its OWN filesystem; SQL Server data lives in a separate
+  container's volume (`procare_mssql` at `/var/opt/mssql`). So the in-process
+  `db_health` job can only see backend/backups disk + DB size over the connection
+  (`sys.database_files`); host-level `df` on the DB volume + OOM detection belong
+  to the shell watchdog. Split accordingly.
+- APScheduler is an OPTIONAL/commented dep — the scheduler degrades to
+  unavailable without it, but `scheduler.run_now(job)` still fires jobs on demand
+  (used by the tests, which don't install APScheduler).
+- `services.common.today()` returns DEMO_TODAY (2026-06-26) unless
+  `estock_configured`; anything date-keyed in tests must use it, not
+  `date.today()`. The forecast service violates this → the 5 pre-existing
+  test_forecast.py failures (UNIQUE on forecasts for real today's date).
+- `zoneinfo` needs the `tzdata` wheel on `python:3.11-slim` (no system tz DB);
+  added to requirements so `BRANCH_TIMEZONE` resolves in Docker.

@@ -106,9 +106,15 @@ bilingual (Arabic RTL first).
       → WAN cycles now incremental. (2026-07-20)
 
 ## Phase 6 — eStock domain completion (blueprint from CLAUDE_CODE_ESTOCK_STRUCTURE.md)
-- [ ] Accounting mirror: Account_Tree → chart accounts; Gedo_Financial journal
-      → ledger_entries (needs model/columns decision: keep LedgerEntry or add
-      Journal); Tuning_accounts (تسويات) with reason names
+- [~] Accounting mirror: Account_Tree → chart accounts (chart_of_accounts
+      exists); Gedo_Financial journal → ledger_entries (LedgerEntry kept — sale/
+      return/depot postings already mirror in). DONE this round: **كشف حساب
+      account statement** (opening balance + running balance + closing per
+      account) and **Tuning_accounts تسويات named reasons** (bilingual reason
+      catalog, `ledger_entries.reason_code`, adjustments tagged `ref_type=
+      'adjust'`, per-reason adjustments report). REMAINING: mirror the raw
+      Gedo_Financial journal rows verbatim (needs live eStock column audit —
+      "column audit pending" in etl.py). (2026-07-21)
 - [ ] Shareholders: company_Owner + Gedo_Dividends_paied (new model + screen)
 - [ ] Audit/change history: Product_Changes (price log), Product_amount_Change
       (stock log), user_login (session audit) — surface as change-history screen
@@ -130,28 +136,75 @@ bilingual (Arabic RTL first).
       Engine (accrue/clawback/leaderboard) already existed + sync-safe; built
       the missing UI. CAVEAT: scientific_name 16% populated + some mis-tagged
       in source → needs sanity check / Titan enrichment later.
-- [ ] Sales-rep commission calculator (حاسبة عمولة مندوب البيع): per-rep sales
-      value × %, post (data: sales.cashier_id is mirrored).
-- [ ] News ticker / notification center: surface expiry/low-stock/shortage
-      events (News_bar/Flag parity).
+- [x] Sales-rep commission calculator (حاسبة عمولة مندوب البيع): per-rep NET
+      sales × % (per-rep overrides), preview + post + void. `commission_runs`/
+      `commission_run_lines` (idempotent `ensure_commission_tables`);
+      `services/commissions.py` (net = sales − returns in one dialect-portable
+      `case` scan, NULL-cashier excluded, post recomputes live + atomic, void
+      keeps audit row); `/api/commissions/*` (CEO/manager); `/commissions`
+      screen (date range + rate + presets, editable per-rep rate, runs list +
+      detail/void). 9 tests. Full suite 317 passed. (2026-07-21)
+- [x] News ticker / notification center: surface expiry/low-stock/shortage
+      events (News_bar/Flag parity). Live-computed feed grouped by category
+      (الصلاحية/نواقص المخزون/كشكول النواقص) with stable per-event keys +
+      persistent dismissal (`notification_dismissals`, respects "deleted" like
+      News_bar). `/api/notifications` (center), `/ticker` (ribbon), `/dismiss`.
+      `/notifications` screen + a topbar ticker (bell + unread badge + top
+      headline, 60s refresh, fail-soft) on every page. 5 tests. (2026-07-21)
 - [~] Cheque-due alert (Checks.ch_valid_date): DEFERRED — both branch servers
       have ZERO rows in `Checks` (pharmacy doesn't use the cheque module), so
       the alert would run against empty data. Build only if they start issuing
       cheques; the mirror + alert can be added then.
 
 ### From CLAUDE_CODE_ESTOCK_FEATURES.md (behavioral parity)
-- [ ] Mirror `Shortcoming`/`Branches_shortcoming` history into كشكول النواقص
-      (ProCare ShortageItem screen already exists); POS auto-insert on unmet
-      qty after FEFO allocation (sell what's available, log the rest)
-- [ ] Notification center + ribbon: News_bar feed (respect deleted) +
-      Flag categories (نقطة البيع/الخزينة/البنك/مصروفات/مورد); post
-      expiry/low-stock/shortage events there
-- [ ] F2 branch-stock popup at POS (cross-branch data already in
-      list_products.other_branches — bind the hotkey + modal)
-- [ ] Visible hotkey map strip at POS (search/F2/discount/customer/hold/cash)
-- [ ] Permissions discovery screen: all role flags for current user, ON/OFF —
-      "hidden features" become visible
+- [x] POS auto-insert on unmet qty after FEFO allocation (sell what's
+      available, log the rest): `create_sale(allow_partial=True)` caps each
+      line to sellable qty, sells it FEFO, and auto-inserts the unmet remainder
+      as an open `ShortageItem` (atomic). Default off — normal sales stay
+      all-or-nothing. POS toggle + response echoes filled lines. 4 tests.
+      (2026-07-21) [Mirroring the raw Shortcoming/Branches_shortcoming HISTORY
+      is separate and still needs the eStock table audit.]
+- [x] Notification center + ribbon: News_bar feed (respect deleted) +
+      Flag categories; posts expiry/low-stock/shortage events there. (Built
+      with the news-ticker item above — categories are inventory-focused
+      expiry/low_stock/shortage; the POS/treasury/bank/expense/supplier Flag
+      buckets can be added as those event sources land.)
+- [x] F2 branch-stock popup at POS (binds F2 → modal of the top match's
+      on-hand at this branch + other_branches; Esc closes). (2026-07-21)
+- [x] Visible hotkey map strip at POS (Enter/F2/Esc chips under the search;
+      grows as more keys are wired). (2026-07-21)
+- [x] Permissions discovery screen: `services/permissions.py` + `GET
+      /api/permissions/me` (resolves employee from Bearer token, else
+      ?employee_id) + `/permissions` screen — EMP_CONTROL flag matrix ON/OFF
+      with bilingual descriptions, max-discount limit, and the role-access
+      superset (assistant ⊂ manager ⊂ ceo). 7 tests. (2026-07-21)
 
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
 - [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys
+
+---
+
+## Operations (P0) — watchdog · digest · monitoring ✅ (branch claude/operations-watchdog-digest-monitoring-mn5kxa)
+- [x] Watchdog `deploy/procare-watchdog.{sh,bat}` — /api/health poll, 3-strike
+      restart (via `procare.sh restart`), 200-but-not-sqlserver guard, OOM check,
+      `--once` mode, in-process 5-min `SELECT 1` self-ping job.
+- [x] 8am CEO digest — `dashboard.ceo_digest()` + `whatsapp.ceo_digest_message()`
+      + `scheduler._run_ceo_digest` on a timezone-aware (`BRANCH_TIMEZONE`) 08:00
+      cron; reuses extracted `_revenue_between` + `top_products(start,end)`.
+- [x] Disk + DB-size monitor — `services/db_health.py` (pure `evaluate` grader,
+      `sys.database_files` size, `shutil.disk_usage`, `ping`), hourly
+      `_run_db_health` (alerts only on severity rise), `GET /api/automation/db-health`.
+- [x] Config `BRANCH_TIMEZONE`; dep `tzdata`; tests test_db_health.py (11) +
+      test_ceo_digest.py (5) green; DEPLOYMENT.md watchdog section.
+- [x] FOLLOW-UP (fixed): forecast + decision-card latent bugs.
+      * forecast.compute_nightly_forecasts deleted today's rows by the BUSINESS
+        clock (common.today()) while inserts stamp date.today() — mismatch left
+        the prior run's rows, so the re-insert tripped the (product,branch,date)
+        UNIQUE constraint. Fixed the delete to use date.today() (matches inserts
+        + the tests). Also fixed test_forecast_demand_with_history's schema drift
+        (string batch_id into an int PK; Sale(total=…) → total_net; SaleLine
+        missing buy_price/total_sell). Full suite now 308 passed / 0 failed.
+      * scheduler._alert_job_failure was referenced in _run_decision_card_
+        generation's error path but never defined (latent NameError) — added a
+        fail-soft helper (log + self-gating whatsapp.notify_manager).

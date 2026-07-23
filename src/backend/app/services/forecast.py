@@ -193,11 +193,12 @@ def compute_nightly_forecasts(session: Session, branch_id: int | None = None) ->
     Idempotent: truncates today's forecasts and re-populates.
     Returns count of forecasts computed.
     """
-    from app.services.common import today
-
-    # Clear today's forecasts (for re-run safety)
+    # Clear today's forecasts (for re-run safety). This MUST use the same clock
+    # the inserts below use (``forecast_demand`` stamps ``date.today()``) — a
+    # mismatch here silently fails to clear the prior run's rows and the re-insert
+    # then trips the (product, branch, forecast_date) UNIQUE constraint.
     session.execute(
-        delete(m.Forecast).where(m.Forecast.forecast_date == today())
+        delete(m.Forecast).where(m.Forecast.forecast_date == date.today())
     )
     session.flush()  # Ensure deletes are processed before inserts
 

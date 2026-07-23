@@ -467,6 +467,9 @@ class LedgerEntry(Base):
     ref_id: Mapped[int | None] = mapped_column(nullable=True)
     debit: Mapped[float] = mapped_column(Money, default=0)
     credit: Mapped[float] = mapped_column(Money, default=0)
+    # Named adjustment reason (eStock Tuning_accounts parity) — only set on
+    # manual adjustment entries (ref_type='adjust'); NULL for machine postings.
+    reason_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -1057,10 +1060,101 @@ class DecisionCard(Base):
     __table_args__ = (
         CheckConstraint("card_type IN ('stockout_risk', 'below_min', 'expiry_warning', 'overstocked', 'out_of_bounds')", name="CK_card_type"),
         CheckConstraint("severity IN ('critical', 'warning', 'info')", name="CK_card_severity"),
-        CheckConstraint("status IN ('open', 'dismissed', 'actioned')", name="CK_card_status"),
+        CheckConstraint("status IN ('open', 'dismissed', 'actioned', 'archived')", name="CK_card_status"),
         Index("IX_card_branch_created", "branch_id", "created_at"),
         Index("IX_card_status", "status"),
         Index("IX_card_severity", "severity"),
     )
 
 
+class CommissionRun(Base):
+    """A posted sales-rep commission payout batch (حاسبة عمولة مندوب البيع).
+
+    Mirrors eStock's rep-commission workflow: pick a period + a percentage,
+    the system totals each rep's net sales (``sales.cashier_id``) and pays
+    ``sales_value × rate``. A run is only written when the manager *posts* the
+    preview, so it doubles as the auditable payout record. Voiding keeps the
+    row (status='void') for the audit trail rather than deleting it.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "commission_runs"
+
+    run_id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL = consolidated across all branches (matches branch_filter's None).
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    # Fallback rate applied to reps without a per-rep override, in percent.
+    default_rate_pct: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    total_sales: Mapped[float] = mapped_column(Money, default=0)
+    total_commission: Mapped[float] = mapped_column(Money, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="posted")
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    lines: Mapped[list["CommissionRunLine"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('posted', 'void')", name="CK_commission_status"),
+        CheckConstraint("period_end >= period_start", name="CK_commission_period"),
+        Index("IX_commission_branch_period", "branch_id", "period_start", "period_end"),
+        Index("IX_commission_status", "status"),
+    )
+
+
+class CommissionRunLine(Base):
+    """One sales-rep's line within a posted commission run — a snapshot of the
+    net sales value, effective rate, and the resulting commission at post time.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "commission_run_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("commission_runs.run_id"))
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    sales_value: Mapped[float] = mapped_column(Money, default=0)
+    bills_count: Mapped[int] = mapped_column(default=0)
+    rate_pct: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    commission: Mapped[float] = mapped_column(Money, default=0)
+
+    run: Mapped[CommissionRun] = relationship(back_populates="lines")
+
+    __table_args__ = (
+        Index("IX_commission_line_run", "run_id"),
+        Index("IX_commission_line_employee", "employee_id"),
+    )
+
+
+
+
+class NotificationDismissal(Base):
+    """Dismissed-notification log for the notification center (News_bar parity).
+
+    The notification feed is *computed live* from operational state (expiring
+    batches, low stock, open shortages), so there is no event row to delete —
+    instead each live event has a stable ``event_key`` and dismissing one writes
+    a row here. The feed then hides any event whose key has been dismissed, the
+    same way eStock's News_bar respects its ``deleted`` flag. Idempotent by key.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "notification_dismissals"
+
+    dismissal_id: Mapped[int] = mapped_column(primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(120), unique=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    dismissed_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_notif_dismissal_key", "event_key"),
+    )
