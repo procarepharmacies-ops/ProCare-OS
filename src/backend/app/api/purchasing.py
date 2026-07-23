@@ -72,6 +72,7 @@ class PurchaseLineIn(BaseModel):
     buy_price: float = Field(ge=0)
     sell_price: float | None = None
     bonus: float = 0.0
+    disc_money: float = Field(0.0, ge=0)  # per-line cash discount (خصم نقدي)
     exp_date: date | None = None
 
 

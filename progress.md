@@ -876,3 +876,23 @@
   list→resume→discard + 404. Full suite 372 passed / 0.
 - VERIFIED: `next build` clean (/pos 10 kB); migration idempotent; 4 endpoints
   in OpenAPI.
+
+## 2026-07-23 · Phase 7 PR 1c — Per-line purchase discount — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Final POS-cluster piece: خصم نقدي per purchase line (was header-level only).
+- MODEL `PurchaseLine.disc_money` (Money, default 0) + dialect-aware
+  `ensure_purchase_line_discount_column`, wired into startup.
+- SERVICE `purchasing.create_purchase`: per-line disc_money validated (0..line
+  gross → else POSError bad_discount); stored on the line; FOLDED into the
+  invoice `total_discount` (header discount + Σ line discounts) so
+  net = total_gross − total_discount + total_tax stays consistent and the
+  vendor balance/ledger already netted it. `purchase_detail` now returns per-line
+  `disc_money` + a computed `total_net`.
+- API `PurchaseLineIn.disc_money` (ge=0).
+- FRONTEND: receive-goods form gains a "Line disc." column (input between buy and
+  sell price) + payload field. 1 i18n key (AR/EN).
+- TESTS: test_ops.py +2 — line discount reduces net (10@5 − 7 = 43) + persists;
+  discount > line value → 422 bad_discount. Full suite 374 passed / 0.
+- VERIFIED: `next build` clean (/purchasing 3.26 kB); migration idempotent on a
+  legacy purchase_lines table.
+- Phase 7 PR1 (POS invoice depth) COMPLETE across PRs #43 (line details), #44
+  (hold invoice), and this one.

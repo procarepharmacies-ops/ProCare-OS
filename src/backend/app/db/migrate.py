@@ -459,6 +459,20 @@ def ensure_ledger_reason_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
 
 
+def ensure_purchase_line_discount_column(engine) -> None:
+    """Add ``purchase_lines.disc_money`` (per-line cash discount) if the table
+    predates it. Existing lines default to 0."""
+    inspector = inspect(engine)
+    if "purchase_lines" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("purchase_lines")}
+    if "disc_money" in columns:
+        return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE purchase_lines {add} disc_money NUMERIC(18,3) DEFAULT 0"))
+
+
 def ensure_held_invoice_table(engine) -> None:
     """Ensure the held_invoices table exists (Phase 7: hold/park invoice).
     Creates it via create_all if missing; idempotent."""
