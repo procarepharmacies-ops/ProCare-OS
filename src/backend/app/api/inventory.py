@@ -122,6 +122,30 @@ def adjust(payload: AdjustIn, session: Session = Depends(get_session)):
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
 
 
+class ProductPricingIn(BaseModel):
+    sell_price: float | None = Field(None, ge=0)
+    buy_price: float | None = Field(None, ge=0)
+    min_stock: float | None = Field(None, ge=0)
+    employee_id: int | None = None
+
+
+@router.post("/products/{product_id}/pricing")
+def update_pricing(product_id: int, payload: ProductPricingIn, session: Session = Depends(get_session)):
+    """Edit a product's sell/buy price or minimum stock; every change is logged
+    to the product change-history (Product_Changes parity)."""
+    try:
+        return inventory.update_product_pricing(
+            session,
+            product_id,
+            sell_price=payload.sell_price,
+            buy_price=payload.buy_price,
+            min_stock=payload.min_stock,
+            employee_id=payload.employee_id,
+        )
+    except POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
 class LocationIn(BaseModel):
     shelf_location: str | None = Field(None, max_length=80)
 

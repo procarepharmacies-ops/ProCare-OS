@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.base import get_session
 from app.services import audit
+from app.services import changelog
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -47,3 +48,26 @@ def auth_events(
             for e in rows
         ]
     }
+
+
+@router.get("/product-changes")
+def product_changes(
+    product_id: int | None = Query(None),
+    days: int = Query(90, ge=1, le=365),
+    limit: int = Query(200, ge=1, le=1000),
+    session: Session = Depends(get_session),
+):
+    """Price / min-stock change log (سجل تغيّر الأسعار): who changed what, when."""
+    return {"changes": changelog.product_changes(session, product_id, days, limit)}
+
+
+@router.get("/stock-changes")
+def stock_changes(
+    product_id: int | None = Query(None),
+    branch_id: int | None = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(200, ge=1, le=1000),
+    session: Session = Depends(get_session),
+):
+    """Stock movement history (سجل حركة المخزون): every sale/adjust/transfer/count."""
+    return {"changes": changelog.stock_changes(session, product_id, branch_id, days, limit)}

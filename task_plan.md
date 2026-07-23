@@ -116,8 +116,15 @@ bilingual (Arabic RTL first).
       Gedo_Financial journal rows verbatim (needs live eStock column audit —
       "column audit pending" in etl.py). (2026-07-21)
 - [ ] Shareholders: company_Owner + Gedo_Dividends_paied (new model + screen)
-- [ ] Audit/change history: Product_Changes (price log), Product_amount_Change
-      (stock log), user_login (session audit) — surface as change-history screen
+- [x] Audit/change history: `product_changes` price/min-stock log (new model +
+      `inventory.update_product_pricing` logs who/from/to/when),
+      `stock_changes` over StockMovement (Product_amount_Change), and login
+      history over AuthEvent (user_login). `GET /api/audit/product-changes`
+      + `/stock-changes` (+ existing `/auth-events`); `POST /inventory/
+      products/{id}/pricing`; `/history` screen (3 tabs). ProductChange added
+      to etl `_WIPE_ORDER` (FK-safe full sync). 7 tests. (2026-07-21)
+      [Mirroring the raw eStock change tables verbatim still needs their
+      column audit; ProCare-side logging is live now.]
 - [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
       (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
 - [ ] Payroll depth: Employee_salary/cash_advance/commission/deduction tables

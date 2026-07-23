@@ -71,6 +71,8 @@ _WIPE_ORDER = [
     m.OpeningStockLine if hasattr(m, "OpeningStockLine") else None,
     m.OpeningStock if hasattr(m, "OpeningStock") else None,
     m.StockAdjustment if hasattr(m, "StockAdjustment") else None,
+    # ProductChange references products — must be cleared before Product.
+    m.ProductChange if hasattr(m, "ProductChange") else None,
     m.LedgerEntry, m.PurchaseOrderDraft, m.StockBatch, m.Product, m.Customer, m.Vendor,
 ]
 
