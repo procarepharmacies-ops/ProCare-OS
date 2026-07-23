@@ -718,3 +718,32 @@
   round-trip, API stock-changes. Full suite 347 passed / 0 (340 + 7).
 - VERIFIED: `next build` clean (/history 1.25 kB); migration idempotent; 2 new
   audit endpoints + pricing endpoint in OpenAPI.
+
+## 2026-07-21 · Phase 6 — Shareholders / owners mirror — branch claude/phase-6-proceed-yju8m0 (fresh off merged main @ PR #33)
+- Unblocked via the repo's own docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md §3 (owner's
+  local ESTOCK_SCHEMA_AND_MIRROR_TASK.md isn't committed, but the structure doc
+  carries the same columns): company_Owner + Gedo_Dividends_paied.
+- MODELS: `Shareholder` (source_id unique, code, name_ar/en, tel/mobile/address,
+  current_capital, start_capital, is_active) + `DividendPayment` (source_id,
+  shareholder_id FK, year, gf_id, amount). Idempotent `ensure_shareholder_tables`
+  wired into startup.
+- ETL `_load_shareholders(insp, src, dst, counts)`: guarded by has_table
+  (absent = skip), maps company_Owner (skips deleted owners via `deleted`),
+  UPSERTS by source_id (re-sync from either branch keeps ONE owners register —
+  not added to the destructive _WIPE_ORDER by design), then Gedo_Dividends_paied
+  (skips already-mirrored by source_id + dividends whose owner is unknown/
+  deleted). Wired into mirror() after _load_treasury.
+- SERVICE `services/shareholders.py`: `list_shareholders` (active owners +
+  capital + total dividends + ownership share_pct of the capital pool +
+  consolidated totals), `shareholder_detail` (owner + dividends grouped by year,
+  newest first).
+- API `api/shareholders.py` (CEO-only): GET `/api/shareholders`, `/{id}` (404).
+- FRONTEND `/shareholders` (CEO nav): register table (start/current capital,
+  share %, dividends, totals footer) + per-owner dividend-history drill-down.
+  2 api.js methods; nav_shareholders + 15 sh_* i18n keys (AR/EN).
+- TESTS: test_shareholders.py (7) — register capital/dividends/share_pct, detail
+  history by year (newest first), missing→None, ETL load upserts + skips deleted
+  owner + orphan dividend + idempotent re-run, API list/detail/404. Extended the
+  ETL source fixture with company_Owner + Gedo_Dividends_paied.
+- VERIFIED: `pytest app/tests/` 352 passed / 0. `next build` clean
+  (/shareholders 1.27 kB). Migration idempotent; 2 endpoints in OpenAPI.

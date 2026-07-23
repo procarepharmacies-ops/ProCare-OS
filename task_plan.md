@@ -115,7 +115,13 @@ bilingual (Arabic RTL first).
       'adjust'`, per-reason adjustments report). REMAINING: mirror the raw
       Gedo_Financial journal rows verbatim (needs live eStock column audit —
       "column audit pending" in etl.py). (2026-07-21)
-- [ ] Shareholders: company_Owner + Gedo_Dividends_paied (new model + screen)
+- [x] Shareholders: company_Owner + Gedo_Dividends_paied — `Shareholder` +
+      `DividendPayment` models, ETL `_load_shareholders` (upsert by source id,
+      graceful-absent, skips deleted owners + orphan dividends), `services/
+      shareholders.py` (register w/ share_pct + dividend totals; per-owner
+      annual history), `GET /api/shareholders[/{id}]` (CEO), `/shareholders`
+      screen. Columns from docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md §3. 7 tests.
+      (2026-07-21)
 - [x] Audit/change history: `product_changes` price/min-stock log (new model +
       `inventory.update_product_pricing` logs who/from/to/when),
       `stock_changes` over StockMovement (Product_amount_Change), and login

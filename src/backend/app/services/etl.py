@@ -451,6 +451,8 @@ def mirror(
                             header_tbl=h, detail_tbl=d, window_cutoff=window_cutoff)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
+        # Shareholders + dividends (optional, upsert by source id).
+        _load_shareholders(insp, src, dst, counts)
 
         dst.commit()
     finally:
@@ -1309,6 +1311,87 @@ def _load_purchases(
             dst.execute(insert(m.PurchaseLine), line_rows)
         n_lines += len(line_rows)
     counts["purchase_lines"] = counts.get("purchase_lines", 0) + n_lines
+
+
+def _load_shareholders(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``company_Owner`` (shareholders) + ``Gedo_Dividends_paied``
+    (dividends per year). Upserts by source id so re-syncing from either branch
+    keeps a single owners register (company_Owner is company-wide). Both tables
+    are optional — absent source = skipped, never an error."""
+    if not insp.has_table("company_Owner"):
+        return
+    cols = {c["name"] for c in insp.get_columns("company_Owner")}
+    c_id = _pick(cols, "coow_id")
+    c_code = _pick(cols, "coow_code")
+    c_ar = _pick(cols, "coow_name_ar", "coow_name")
+    c_en = _pick(cols, "coow_name_en")
+    c_tel = _pick(cols, "tel")
+    c_mob = _pick(cols, "mobile")
+    c_addr = _pick(cols, "address")
+    c_cur = _pick(cols, "coow_current_money")
+    c_start = _pick(cols, "coow_start_money")
+    c_active = _pick(cols, "active")
+    c_deleted = _pick(cols, "deleted")
+
+    # Existing shareholders by source id, to upsert rather than duplicate.
+    by_src = {s.source_id: s for s in dst.scalars(select(m.Shareholder)).all() if s.source_id is not None}
+    src_to_pk: dict[int, int] = {}
+    n_owners = 0
+    for r in src.execute(text("SELECT * FROM company_Owner")).mappings().all():
+        if c_deleted and _b(r.get(c_deleted)):
+            continue
+        sid = int(r.get(c_id)) if c_id and r.get(c_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.Shareholder(source_id=sid, name_ar="")
+            dst.add(obj)
+        obj.code = _str(r.get(c_code)) if c_code else obj.code
+        obj.name_ar = _ar(r.get(c_ar) if c_ar else None, r.get(c_en) if c_en else None)
+        obj.name_en = _str(r.get(c_en)) if c_en else None
+        obj.tel = _str(r.get(c_tel)) if c_tel else None
+        obj.mobile = _str(r.get(c_mob)) if c_mob else None
+        obj.address = _str(r.get(c_addr)) if c_addr else None
+        obj.current_capital = _num(r.get(c_cur)) if c_cur else 0
+        obj.start_capital = _num(r.get(c_start)) if c_start else 0
+        obj.is_active = _b(r.get(c_active)) if c_active else True
+        dst.flush()
+        if sid is not None:
+            src_to_pk[sid] = obj.shareholder_id
+        n_owners += 1
+    counts["shareholders"] = n_owners
+
+    # Dividends (optional).
+    if not insp.has_table("Gedo_Dividends_paied"):
+        return
+    dcols = {c["name"] for c in insp.get_columns("Gedo_Dividends_paied")}
+    d_id = _pick(dcols, "dividends_id")
+    d_owner = _pick(dcols, "coow_id")
+    d_year = _pick(dcols, "yaer_id", "year_id", "year")
+    d_gf = _pick(dcols, "gf_id")
+    d_money = _pick(dcols, "paied_money", "paid_money")
+
+    existing_div = {d.source_id for d in dst.scalars(select(m.DividendPayment)).all() if d.source_id is not None}
+    n_div = 0
+    for r in src.execute(text("SELECT * FROM Gedo_Dividends_paied")).mappings().all():
+        dsid = int(r.get(d_id)) if d_id and r.get(d_id) is not None else None
+        if dsid is not None and dsid in existing_div:
+            continue  # already mirrored
+        owner_src = int(r.get(d_owner)) if d_owner and r.get(d_owner) is not None else None
+        shareholder_pk = src_to_pk.get(owner_src)
+        if shareholder_pk is None:
+            continue  # dividend for an unknown/deleted owner — skip
+        dst.add(
+            m.DividendPayment(
+                source_id=dsid,
+                shareholder_id=shareholder_pk,
+                year=int(r.get(d_year)) if d_year and r.get(d_year) is not None else None,
+                gf_id=int(r.get(d_gf)) if d_gf and r.get(d_gf) is not None else None,
+                amount=_num(r.get(d_money)) if d_money else 0,
+            )
+        )
+        n_div += 1
+    dst.flush()
+    counts["dividends"] = n_div
 
 
 def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:

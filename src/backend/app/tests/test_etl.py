@@ -98,6 +98,27 @@ def _build_estock_source(path):
             "back_amount REAL, back_price REAL, buy_price REAL, total_sell REAL, back TEXT)"
         ))
         c.execute(text("INSERT INTO Back_Sales_details VALUES (1,2001,101,1,12,7,12,'Y')"))
+
+        # Shareholders + dividends (company_Owner / Gedo_Dividends_paied).
+        c.execute(text(
+            "CREATE TABLE company_Owner (coow_id INT, coow_code TEXT, coow_name_ar TEXT, "
+            "coow_name_en TEXT, tel TEXT, mobile TEXT, address TEXT, coow_current_money REAL, "
+            "coow_start_money REAL, active INT, deleted INT)"
+        ))
+        c.execute(text(
+            "INSERT INTO company_Owner VALUES "
+            "(1,'O1','أحمد المالك','Ahmed','02','010','طنطا',600000,500000,1,0),"
+            "(2,'O2','سارة الشريك','Sara','02','011','المحلة',400000,400000,1,0),"
+            "(3,'O3','شريك محذوف','Gone',NULL,NULL,NULL,0,0,1,1)"
+        ))
+        c.execute(text(
+            "CREATE TABLE Gedo_Dividends_paied (dividends_id INT, coow_id INT, yaer_id INT, "
+            "gf_id INT, paied_money REAL)"
+        ))
+        c.execute(text(
+            "INSERT INTO Gedo_Dividends_paied VALUES "
+            "(1,1,2025,900,50000),(2,1,2026,950,60000),(3,2,2026,951,40000),(4,99,2026,0,999)"
+        ))
     return eng
 
 

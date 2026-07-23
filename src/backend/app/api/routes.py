@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, commissions, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, notifications, parties, performance, permissions, prescriptions, purchasing, reports, reorder, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
+from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, commissions, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, notifications, parties, performance, permissions, prescriptions, purchasing, reports, reorder, sales, shareholders, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -148,6 +148,8 @@ router.include_router(purchasing.router, dependencies=[Depends(auth_guard(("ceo"
 router.include_router(crm.router, dependencies=[Depends(auth_guard())])
 # Financial + salary data — CEO only once AUTH_ENABLED=true (no-op otherwise).
 router.include_router(accounting.router, dependencies=[Depends(auth_guard(("ceo",)))])
+# Shareholders / owners register + dividends (company_Owner mirror) — CEO only.
+router.include_router(shareholders.router, dependencies=[Depends(auth_guard(("ceo",)))])
 router.include_router(employees.router, dependencies=[Depends(auth_guard(("ceo",)))])
 router.include_router(transfers.router, dependencies=[Depends(auth_guard())])
 router.include_router(vendors.router, dependencies=[Depends(auth_guard())])
