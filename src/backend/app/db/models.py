@@ -1299,3 +1299,30 @@ class SalaryAdvance(Base):
         Index("IX_salary_advance_employee", "employee_id"),
         Index("IX_salary_advance_source", "source_id"),
     )
+
+
+class HeldInvoice(Base):
+    """A parked POS cart (فاتورة معلّقة) — the customer steps away, the cashier
+    holds the sale, serves others, and resumes it later to complete + print.
+
+    A held invoice is JUST a saved cart: it touches NO stock and runs NO credit
+    check — all of that happens at completion when it's resumed into the POS and
+    sold normally. Auto-expires after ``HOLD_EXPIRE_DAYS`` so stale holds don't
+    pile up. New table — ``create_all`` adds it automatically on existing DBs.
+    """
+
+    __tablename__ = "held_invoices"
+
+    held_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    cashier_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(80), nullable=True)  # e.g. customer name / ticket
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    cart_json: Mapped[str] = mapped_column(Text)  # the cart lines, verbatim
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("IX_held_branch_created", "branch_id", "created_at"),
+    )

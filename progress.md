@@ -854,3 +854,25 @@
   note+dosage+uses, nearest_expiry present. Full suite 366 passed / 0.
 - VERIFIED: `next build` clean (/pos 9.49 kB); ensure_sale_note_column idempotent
   on a legacy sales table.
+
+## 2026-07-23 · Phase 7 PR 1b — Hold/park invoice — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Cashier can park a cart (customer steps away), serve others, resume + complete.
+- MODEL `HeldInvoice` (branch, cashier?, customer?, label?, note?, cart_json Text,
+  created_at, expires_at). Idempotent `ensure_held_invoice_table` wired in startup.
+- SERVICE `services/held.py`: `hold_invoice` stores the cart VERBATIM — touches
+  NO stock and runs NO credit check (a hold is just a saved cart; all checks run
+  at completion when resumed + sold normally). `list_held` lazily purges expired
+  (HOLD_EXPIRE_DAYS, default 3). `resume_held` re-resolves each line against
+  CURRENT products → live name + current_sell_price + flags `missing` (product
+  deleted) / `price_changed`. `discard_held` idempotent.
+- API (api/sales.py): POST /sales/hold, GET /sales/held, GET /sales/held/{id}/
+  resume, POST /sales/held/{id}/discard.
+- FRONTEND: POS Hold button (parks + clears cart) + "Held invoices" drawer
+  (list → Resume/discard). Resume loads the cart back RE-PRICED to current
+  sell_price, drops missing items, and surfaces "removed unavailable / prices
+  updated" notices. 10 i18n keys.
+- TESTS: test_held.py (6) — hold touches no stock, empty hold raises, list purges
+  expired, resume flags price_changed + missing, discard idempotent, API hold→
+  list→resume→discard + 404. Full suite 372 passed / 0.
+- VERIFIED: `next build` clean (/pos 10 kB); migration idempotent; 4 endpoints
+  in OpenAPI.

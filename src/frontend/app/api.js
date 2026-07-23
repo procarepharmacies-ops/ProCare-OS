@@ -126,6 +126,11 @@ export const api = {
   recentSales: (branch) => http(`/sales/recent${bq(branch)}`),
   createSale: (payload) => http("/sales", { method: "POST", body: JSON.stringify(payload) }),
   productBatches: (productId, branch) => http(`/inventory/products/${productId}/batches${bq(branch)}`),
+  // Hold / park invoice (parked carts).
+  holdInvoice: (payload) => http("/sales/hold", { method: "POST", body: JSON.stringify(payload) }),
+  heldInvoices: (branch) => http(`/sales/held${bq(branch)}`),
+  resumeHeld: (heldId) => http(`/sales/held/${heldId}/resume`),
+  discardHeld: (heldId) => http(`/sales/held/${heldId}/discard`, { method: "POST" }),
   returnable: (saleId) => http(`/sales/${saleId}/returnable`),
   returnSale: (saleId, payload = {}) =>
     http(`/sales/${saleId}/return`, { method: "POST", body: JSON.stringify(payload) }),

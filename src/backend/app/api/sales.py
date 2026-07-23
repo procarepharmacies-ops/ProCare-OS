@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.db.base import get_session
+from app.services import held as held_svc
 from app.services import pos, recommend
 from app.services.common import money
 
@@ -94,6 +95,49 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
         out["whatsapp_link"] = wa.wa_link(customer.mobile, text)
         out["whatsapp_sent"] = wa.send_text(customer.mobile, text) if wa.is_configured() else False
     return out
+
+
+class HoldIn(BaseModel):
+    branch_id: int
+    cart: list[dict]                # the POS cart lines, verbatim
+    cashier_id: int | None = None
+    customer_id: int | None = None
+    label: str | None = None
+    note: str | None = None
+
+
+@router.post("/hold")
+def hold(payload: HoldIn, session: Session = Depends(get_session)):
+    """Park the current cart (touches no stock). Resume later to complete."""
+    try:
+        return held_svc.hold_invoice(
+            session, payload.branch_id, payload.cart,
+            cashier_id=payload.cashier_id, customer_id=payload.customer_id,
+            label=payload.label, note=payload.note,
+        )
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+@router.get("/held")
+def held_list(branch_id: int | None = None, session: Session = Depends(get_session)):
+    """Active parked carts for the branch (expired ones auto-purged)."""
+    return held_svc.list_held(session, branch_id or None)
+
+
+@router.get("/held/{held_id}/resume")
+def held_resume(held_id: int, session: Session = Depends(get_session)):
+    """Load a parked cart back, re-resolved against current products."""
+    out = held_svc.resume_held(session, held_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Held invoice not found"})
+    return out
+
+
+@router.post("/held/{held_id}/discard")
+def held_discard(held_id: int, session: Session = Depends(get_session)):
+    """Delete a parked cart (idempotent)."""
+    return {"discarded": held_svc.discard_held(session, held_id)}
 
 
 @router.post("/transfer")
