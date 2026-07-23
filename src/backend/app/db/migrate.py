@@ -459,6 +459,16 @@ def ensure_ledger_reason_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
 
 
+def ensure_held_invoice_table(engine) -> None:
+    """Ensure the held_invoices table exists (Phase 7: hold/park invoice).
+    Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "held_invoices" not in inspector.get_table_names():
+        from app.db.models import Base, HeldInvoice
+
+        Base.metadata.create_all(engine, tables=[HeldInvoice.__table__])
+
+
 def ensure_sale_note_column(engine) -> None:
     """Add ``sales.note`` (cashier's free-text invoice note) if the table
     predates it. Existing sales keep a NULL note."""

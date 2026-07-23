@@ -227,8 +227,12 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         picker with "older batch exists" reminder + expiry chips; receipt
         print-options (dosage/uses line, profit gated to mgr/ceo) + note printed;
         `sale_detail` gains note+dosage+uses. 8 tests. (2026-07-23)
-  - [ ] **PR 1b — hold/park invoice**: held_invoices table + resume/discard,
-        no stock touch, auto-expire; POS hold button + drawer.
+  - [x] **PR 1b — hold/park invoice**: `HeldInvoice` (cart JSON, expires_at) +
+        `ensure_held_invoice_table`; `services/held.py` (hold — no stock/credit
+        touch; list w/ lazy expired-purge; resume re-resolves prices + flags
+        missing/price_changed; discard idempotent); `/api/sales/hold|held|
+        held/{id}/resume|discard`; `HOLD_EXPIRE_DAYS` (default 3); POS Hold
+        button + held-drawer (resume re-prices to current). 6 tests. (2026-07-23)
   - [ ] **PR 1c — per-line purchase discount**: PurchaseLine.disc_money +
         migration + receive-goods UI column + totals math.
 - [ ] **PR 2 — coverage**: mirror Branches_Product_Amount + Cash_disk_close +

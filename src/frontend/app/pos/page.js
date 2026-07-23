@@ -58,6 +58,9 @@ function POSInner() {
   const [saleNote, setSaleNote] = useState("");
   // Receipt print options (dosage/usage line; profit line for managers).
   const [printOpts, setPrintOpts] = useState({ profit: false, dosage: false });
+  // Hold / park invoice: the held-list drawer + its contents.
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [heldList, setHeldList] = useState([]);
   // Manual batch picker: { item, batches } for the cart line being chosen.
   const [batchPicker, setBatchPicker] = useState(null);
 
@@ -362,6 +365,72 @@ function POSInner() {
       printReceipt(sale, { lang, showProfit: printOpts.profit && canSeeProfit, showDosage: printOpts.dosage });
     } catch {
       /* receipt is best-effort */
+    }
+  }
+
+  async function holdCurrent() {
+    if (!cart.length) return;
+    try {
+      await api.holdInvoice({
+        branch_id: posBranch,
+        cashier_id: 1,
+        customer_id: customerId ? Number(customerId) : null,
+        note: saleNote.trim() || null,
+        label: cart[0]?.name || null,
+        cart: cart.map((x) => ({ product_id: x.product_id, amount: x.amount, batch_id: x.batch_id || null, sell_price: x.sell_price })),
+      });
+      setCart([]);
+      setSaleNote("");
+      setCustomerId("");
+      setResult({ ok: true, msg: L("pos_held_ok") });
+    } catch (e) {
+      setResult({ ok: false, msg: e.message });
+    }
+  }
+  async function openHeld() {
+    try {
+      const r = await api.heldInvoices(posBranch);
+      setHeldList(r.held || []);
+      setHeldOpen(true);
+    } catch {
+      setHeldList([]);
+      setHeldOpen(true);
+    }
+  }
+  async function resumeHeld(heldId) {
+    try {
+      const r = await api.resumeHeld(heldId);
+      const lines = r.lines.filter((l) => !l.missing).map((l) => ({
+        product_id: l.product_id,
+        name: lang === "ar" ? l.name_ar : l.name_en || l.name_ar,
+        // Re-price to the CURRENT sell price (a hold can outlive a price change).
+        sell_price: Number(l.current_sell_price ?? l.sell_price),
+        buy_price: 0,
+        amount: l.amount,
+        unit: "big",
+        unit_factor: 1,
+        batch_id: l.batch_id || null,
+        batch_label: null,
+        nearest_expiry: null,
+      }));
+      setCart(lines);
+      setSaleNote(r.note || "");
+      setCustomerId(r.customer_id ? String(r.customer_id) : "");
+      await api.discardHeld(heldId);
+      setHeldOpen(false);
+      const dropped = r.lines.some((l) => l.missing);
+      const repriced = r.lines.some((l) => l.price_changed);
+      setResult({ ok: true, msg: `${L("pos_resumed_ok")}${dropped ? ` · ${L("pos_resume_dropped")}` : ""}${repriced ? ` · ${L("pos_resume_repriced")}` : ""}` });
+    } catch (e) {
+      setResult({ ok: false, msg: e.message });
+    }
+  }
+  async function discardHeld(heldId) {
+    try {
+      await api.discardHeld(heldId);
+      setHeldList((l) => l.filter((h) => h.held_id !== heldId));
+    } catch {
+      /* ignore */
     }
   }
 
@@ -829,6 +898,15 @@ function POSInner() {
               style={{ width: "100%", marginBottom: 10 }}
             />
 
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button className="btn" style={{ flex: 1 }} disabled={cart.length === 0} onClick={holdCurrent}>
+                ⏸ {L("pos_hold")}
+              </button>
+              <button className="btn" style={{ flex: 1 }} onClick={openHeld}>
+                {L("pos_held_list")}
+              </button>
+            </div>
+
             <button
               className="btn primary"
               style={{ width: "100%" }}
@@ -871,6 +949,40 @@ function POSInner() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Held-invoices drawer: parked carts to resume or discard. */}
+      {heldOpen && (
+        <div
+          onClick={() => setHeldOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "grid", placeItems: "center", zIndex: 50 }}
+        >
+          <div className="card" onClick={(e) => e.stopPropagation()} style={{ minWidth: 360, maxWidth: 560 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <h3 className="section-title" style={{ margin: 0 }}>{L("pos_held_list")}</h3>
+              <button className="btn icon" style={{ marginInlineStart: "auto" }} onClick={() => setHeldOpen(false)}>✕</button>
+            </div>
+            {heldList.length === 0 ? (
+              <p className="muted">{L("pos_no_held")}</p>
+            ) : (
+              <table className="tbl">
+                <tbody>
+                  {heldList.map((h) => (
+                    <tr key={h.held_id}>
+                      <td>#{h.held_id} {h.label ? `· ${h.label}` : ""}</td>
+                      <td className="num muted">{h.lines} {L("pos_lines")}</td>
+                      <td className="muted" style={{ fontSize: 11 }}>{h.created_at ? new Date(h.created_at).toLocaleString("en-GB") : ""}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <button className="btn primary" onClick={() => resumeHeld(h.held_id)}>{L("pos_resume")}</button>
+                        <button className="btn icon" style={{ marginInlineStart: 6 }} onClick={() => discardHeld(h.held_id)} title={L("remove")}>✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Manual batch picker: choose a specific batch (fresher box) for a line.
