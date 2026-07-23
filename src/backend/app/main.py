@@ -35,6 +35,7 @@ from app.db.migrate import (
     ensure_payroll_table,
     ensure_product_change_table,
     ensure_salary_advance_table,
+    ensure_sale_note_column,
     ensure_shareholder_tables,
     ensure_incentive_points_column,
     ensure_loyalty_points_column,
@@ -96,6 +97,8 @@ async def lifespan(_app: FastAPI):
     ensure_payroll_table(engine)
     # Phase 6: salary advances ledger (Employee_cash_advance parity)
     ensure_salary_advance_table(engine)
+    # Phase 7: cashier invoice note
+    ensure_sale_note_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 

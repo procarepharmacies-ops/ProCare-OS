@@ -323,6 +323,8 @@ class Sale(Base):
     # Return invoices point back at the sale they reverse (eStock's
     # Back_sales_header -> Sales_header link).
     original_sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
+    # Free-text note the cashier typed during the sale (prints on the receipt).
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     lines: Mapped[list["SaleLine"]] = relationship(back_populates="sale", cascade="all, delete-orphan")

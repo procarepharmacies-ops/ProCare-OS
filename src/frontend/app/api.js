@@ -125,6 +125,7 @@ export const api = {
 
   recentSales: (branch) => http(`/sales/recent${bq(branch)}`),
   createSale: (payload) => http("/sales", { method: "POST", body: JSON.stringify(payload) }),
+  productBatches: (productId, branch) => http(`/inventory/products/${productId}/batches${bq(branch)}`),
   returnable: (saleId) => http(`/sales/${saleId}/returnable`),
   returnSale: (saleId, payload = {}) =>
     http(`/sales/${saleId}/return`, { method: "POST", body: JSON.stringify(payload) }),

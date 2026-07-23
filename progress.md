@@ -830,3 +830,27 @@
   IS_MSSQL/IS_SQLITE resolve correctly. No frontend touched.
 - Confirmed the guide's CLI is real: `python -m app.services.etl --import <db>
   <BRANCH> [--fresh]` (etl.py:1693).
+
+## 2026-07-23 · Phase 7 PR 1a — POS invoice line details — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Owner's "sales invoice details" cluster, part 1: note, manual batch pick with
+  old-expiry reminder, expiry on lines, receipt print-options.
+- BATCH PICK: `deduct_stock_fefo` gained `pin_batch_id` — the pinned sellable
+  batch is consumed FIRST, remainder spills FEFO. FEFO never weakened (expired
+  still excluded; a pin that isn't a sellable batch of this product → POSError
+  bad_batch). Only one prod caller (create_sale) — contract stable for transfers.
+  `SaleLineInput.batch_id` + `LineIn.batch_id` thread it through.
+- NOTE: `Sale.note` String(300) + `ensure_sale_note_column` (dialect-aware);
+  `SaleIn.note` → create_sale(note=) → `sale_detail.note` → printed on receipt.
+- EXPIRY: `inventory.list_products` now returns `nearest_expiry` (min sellable
+  exp_date per product at the scoped branch); shown on POS product rows + cart.
+- RECEIPT: print.js takes showDosage/showNote — renders a "↳ dosage — uses" line
+  under each item + a note block; `sale_detail` lines carry dosage_form/uses.
+  POS print-options (dosage toggle; profit toggle gated to canSeeProfit).
+- FRONTEND: cart-line 🏷 batch picker (modal lists sellable batches sorted by
+  expiry, red "older batch exists" badge on non-FEFO-first, Auto=FEFO option),
+  expiry chip on cart lines, invoice-note input, print-options row. 9 i18n keys.
+- TESTS: test_pos_invoice.py (8) — pinned consumed first, pin spills FEFO when
+  short, bad/expired pin raises, note round-trip (service+API), sale_detail has
+  note+dosage+uses, nearest_expiry present. Full suite 366 passed / 0.
+- VERIFIED: `next build` clean (/pos 9.49 kB); ensure_sale_note_column idempotent
+  on a legacy sales table.
