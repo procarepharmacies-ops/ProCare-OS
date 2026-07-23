@@ -456,6 +456,24 @@ dividend whose owner is unknown/deleted is dropped. `GET /api/shareholders`
 dividend history) are **CEO-only**, read-only. Tables added idempotently via
 `ensure_shareholder_tables`.
 
+### Payroll depth (Phase 6) — `payroll_records`
+
+Mirror of eStock `Employee_salary` (monthly payroll). One row per source
+payroll record: `basic_salary`, `commission`, `over_commission`, `deduction`,
+`absence_money`, `cash_advance`, `source_total`, and a recomputed `net`.
+
+Invariants: `net = basic + commission + over_commission − deduction −
+absence_money − cash_advance` (recomputed in ETL + on any read, independent of
+the source's own `total`); ETL `_load_payroll` is `has_table`-guarded and
+resolves `Employee_salary.emp_id` → username (via the source `Employee` master)
+→ ProCare `employee_id` because ProCare employees carry no source id — rows for
+unknown employees are skipped; **upsert by `source_id`** (`salary_id`), NOT in
+the destructive `_WIPE_ORDER` (employees are never wiped). `GET /api/employees/
+{id}/payroll` (CEO-only, via the employees router) returns the latest record's
+panel (base / commission[+over] / deductions[deduction+absence] / advances /
+net) + full monthly history, with a `base_salary_on_file` fallback when no
+record is mirrored yet. Table added idempotently via `ensure_payroll_table`.
+
 ---
 
 ## Operations Monitoring (SRE) — watchdog · digest · db_health

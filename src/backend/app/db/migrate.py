@@ -453,6 +453,16 @@ def ensure_ledger_reason_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
 
 
+def ensure_payroll_table(engine) -> None:
+    """Ensure the payroll_records table exists (Phase 6: payroll depth mirror).
+    Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "payroll_records" not in inspector.get_table_names():
+        from app.db.models import Base, PayrollRecord
+
+        Base.metadata.create_all(engine, tables=[PayrollRecord.__table__])
+
+
 def ensure_shareholder_tables(engine) -> None:
     """Ensure shareholders + dividend_payments tables exist (Phase 6:
     shareholders mirror). Creates them via create_all if missing; idempotent."""

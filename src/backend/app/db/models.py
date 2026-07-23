@@ -1241,3 +1241,36 @@ class DividendPayment(Base):
         Index("IX_dividend_shareholder", "shareholder_id"),
         Index("IX_dividend_year", "year"),
     )
+
+
+class PayrollRecord(Base):
+    """Monthly payroll record per employee (eStock ``Employee_salary`` mirror).
+
+    Read-only mirror of the payroll sub-table: basic salary + commission
+    (regular + over) − deductions − absence − advance = net. ``source_total`` is
+    eStock's own computed ``total``; ``net`` is recomputed here so the panel is
+    self-consistent even if the source total is stale. New table — ``create_all``
+    adds it automatically on existing databases.
+    """
+
+    __tablename__ = "payroll_records"
+
+    payroll_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Employee_salary.salary_id
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    period: Mapped[str | None] = mapped_column(String(20), nullable=True)  # month_salary
+    state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    basic_salary: Mapped[float] = mapped_column(Money, default=0)
+    commission: Mapped[float] = mapped_column(Money, default=0)
+    over_commission: Mapped[float] = mapped_column(Money, default=0)
+    deduction: Mapped[float] = mapped_column(Money, default=0)
+    absence_money: Mapped[float] = mapped_column(Money, default=0)
+    cash_advance: Mapped[float] = mapped_column(Money, default=0)
+    source_total: Mapped[float] = mapped_column(Money, default=0)
+    net: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_payroll_employee", "employee_id"),
+        Index("IX_payroll_source", "source_id"),
+    )
