@@ -1274,3 +1274,26 @@ class PayrollRecord(Base):
         Index("IX_payroll_employee", "employee_id"),
         Index("IX_payroll_source", "source_id"),
     )
+
+
+class SalaryAdvance(Base):
+    """Salary advance / loan against salary (سلفة) — eStock
+    ``Employee_cash_advance`` mirror. A detail ledger of individual advances,
+    separate from the monthly ``payroll_records.cash_advance`` roll-up.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "salary_advances"
+
+    advance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # cash_advance_id
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    amount: Mapped[float] = mapped_column(Money, default=0)
+    advance_type: Mapped[str | None] = mapped_column(String(30), nullable=True)  # eStock 'type'
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_salary_advance_employee", "employee_id"),
+        Index("IX_salary_advance_source", "source_id"),
+    )

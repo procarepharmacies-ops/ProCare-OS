@@ -779,3 +779,23 @@
   skips unknown + upserts by salary_id, API panel + 404. Full suite 357 passed.
 - VERIFIED: `next build` clean (/employees 3.14 kB); migration idempotent;
   endpoint in OpenAPI.
+
+## 2026-07-21 · Phase 6 — Salary advances ledger (Employee_cash_advance) — branch claude/phase-6-proceed-yju8m0 (fresh off merged main @ PR #40)
+- Follow-up the owner asked for: mirror Employee_cash_advance (سلف) as its OWN
+  sub-table, distinct from the monthly payroll_records.cash_advance roll-up.
+- MODEL `SalaryAdvance` (source_id=cash_advance_id unique, employee_id FK,
+  amount, advance_type=eStock `type`). Idempotent `ensure_salary_advance_table`
+  wired into startup.
+- ETL: extracted `_estock_empid_to_pk(insp, src, dst)` (emp_id→username→ProCare
+  employee_id) — shared resolver; `_load_salary_advances` uses it, guarded by
+  has_table, upserts by cash_advance_id, skips advances for unknown employees.
+  Wired into mirror() after _load_payroll.
+- SERVICE: `payroll.employee_payroll` now also returns the advances ledger
+  (list, newest first) + `advances_total`.
+- FRONTEND: advances-ledger table (date / type / amount + total) added to the
+  employee payroll panel; renders whenever the employee has advances. 3 pay_*
+  i18n keys.
+- TESTS: test_payroll.py +2 (advances ledger total + newest-first ordering; ETL
+  maps by username + skips unknown + upserts by cash_advance_id). Full suite
+  359 passed / 0 (357 + 2).
+- VERIFIED: `next build` clean (/employees 3.28 kB); migration idempotent.

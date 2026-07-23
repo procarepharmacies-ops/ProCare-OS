@@ -463,6 +463,17 @@ def ensure_payroll_table(engine) -> None:
         Base.metadata.create_all(engine, tables=[PayrollRecord.__table__])
 
 
+def ensure_salary_advance_table(engine) -> None:
+    """Ensure the salary_advances table exists (Phase 6: advances ledger,
+    Employee_cash_advance parity). Creates it via create_all if missing;
+    idempotent."""
+    inspector = inspect(engine)
+    if "salary_advances" not in inspector.get_table_names():
+        from app.db.models import Base, SalaryAdvance
+
+        Base.metadata.create_all(engine, tables=[SalaryAdvance.__table__])
+
+
 def ensure_shareholder_tables(engine) -> None:
     """Ensure shareholders + dividend_payments tables exist (Phase 6:
     shareholders mirror). Creates them via create_all if missing; idempotent."""

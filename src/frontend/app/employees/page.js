@@ -204,6 +204,38 @@ export default function EmployeesPage() {
                 {payroll ? ` · ${L("pay_on_file")}: ${Number(payroll.base_salary_on_file || 0).toLocaleString("en-US")}` : ""}
               </p>
             )}
+
+            {/* Salary advances (سلف) detail ledger — Employee_cash_advance */}
+            {payroll && payroll.advances && payroll.advances.length > 0 && (
+              <>
+                <h4 style={{ marginTop: 16 }}>
+                  {L("pay_advances_ledger")}
+                  <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+                    {" "}· {L("pay_advances_total")}: {Number(payroll.advances_total || 0).toLocaleString("en-US")}
+                  </span>
+                </h4>
+                <div className="table-wrapper">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>{L("date")}</th>
+                        <th>{L("pay_advance_type")}</th>
+                        <th className="num">{L("pay_advances")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payroll.advances.map((a) => (
+                        <tr key={a.advance_id}>
+                          <td>{a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB") : "—"}</td>
+                          <td>{a.advance_type || "—"}</td>
+                          <td className="num" style={{ fontWeight: 600 }}>{Number(a.amount).toLocaleString("en-US")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         )}
 

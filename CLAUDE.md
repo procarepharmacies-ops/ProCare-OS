@@ -474,6 +474,15 @@ panel (base / commission[+over] / deductions[deduction+absence] / advances /
 net) + full monthly history, with a `base_salary_on_file` fallback when no
 record is mirrored yet. Table added idempotently via `ensure_payroll_table`.
 
+Salary advances (سلف) are a **separate** ledger — `salary_advances` (mirror of
+`Employee_cash_advance`: `source_id`=`cash_advance_id`, `employee_id`, `amount`,
+`advance_type`) — distinct from the monthly `payroll_records.cash_advance`
+roll-up. ETL `_load_salary_advances` shares the `_estock_empid_to_pk`
+(emp_id→username→employee) resolver, upserts by `cash_advance_id`, and is
+`has_table`-guarded. The `/payroll` panel returns the advances ledger (newest
+first) + `advances_total` alongside the monthly panel. Idempotent
+`ensure_salary_advance_table`.
+
 ---
 
 ## Operations Monitoring (SRE) — watchdog · digest · db_health

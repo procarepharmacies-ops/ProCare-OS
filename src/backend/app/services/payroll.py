@@ -43,6 +43,24 @@ def employee_payroll(session: Session, employee_id: int) -> dict | None:
         .order_by(m.PayrollRecord.payroll_id.desc())
     ).all()
 
+    # Individual salary advances (سلف) ledger — a detail list separate from the
+    # monthly payroll roll-up, newest first.
+    advance_rows = session.scalars(
+        select(m.SalaryAdvance)
+        .where(m.SalaryAdvance.employee_id == employee_id)
+        .order_by(m.SalaryAdvance.advance_id.desc())
+    ).all()
+    advances = [
+        {
+            "advance_id": a.advance_id,
+            "amount": money(a.amount),
+            "advance_type": a.advance_type,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in advance_rows
+    ]
+    advances_total = money(sum(float(a.amount or 0) for a in advance_rows))
+
     latest = records[0] if records else None
     summary = None
     if latest is not None:
@@ -67,4 +85,6 @@ def employee_payroll(session: Session, employee_id: int) -> dict | None:
         "has_records": bool(records),
         "summary": summary,
         "records": [_record_out(p) for p in records],
+        "advances": advances,
+        "advances_total": advances_total,
     }
