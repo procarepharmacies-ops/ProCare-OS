@@ -455,6 +455,8 @@ def mirror(
         _load_shareholders(insp, src, dst, counts)
         # Payroll depth (optional, upsert by source salary id).
         _load_payroll(insp, src, dst, counts)
+        # Salary advances ledger (optional, upsert by source id).
+        _load_salary_advances(insp, src, dst, counts)
 
         dst.commit()
     finally:
@@ -1473,6 +1475,62 @@ def _load_payroll(insp, src, dst, counts) -> None:
         n += 1
     dst.flush()
     counts["payroll"] = n
+
+
+def _estock_empid_to_pk(insp, src, dst) -> dict[int, int]:
+    """{eStock emp_id -> ProCare employee_id}, bridged via username (ProCare
+    employees carry no source id). Empty if the source ``Employee`` master or a
+    username column is absent."""
+    if not insp.has_table("Employee"):
+        return {}
+    ecols = {c["name"] for c in insp.get_columns("Employee")}
+    e_id = _pick(ecols, "emp_id")
+    e_user = _pick(ecols, "username")
+    if e_id is None or e_user is None:
+        return {}
+    empid_to_user: dict[int, str] = {}
+    for r in src.execute(text(f"SELECT {e_id}, {e_user} FROM Employee")).mappings().all():
+        if r.get(e_id) is not None and r.get(e_user):
+            empid_to_user[int(r.get(e_id))] = str(r.get(e_user)).strip().lower()
+    user_to_pk = {
+        (u or "").strip().lower(): eid
+        for eid, u in dst.execute(select(m.Employee.employee_id, m.Employee.username)).all()
+        if u
+    }
+    return {eid: user_to_pk[u] for eid, u in empid_to_user.items() if u in user_to_pk}
+
+
+def _load_salary_advances(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Employee_cash_advance`` (سلف) — a detail ledger of
+    individual salary advances, separate from the monthly payroll roll-up.
+    Resolves ``emp_id`` → ProCare employee (via username), upserts by
+    ``cash_advance_id``. Optional — absent source = skipped."""
+    if not insp.has_table("Employee_cash_advance"):
+        return
+    empid_to_pk = _estock_empid_to_pk(insp, src, dst)
+    cols = {c["name"] for c in insp.get_columns("Employee_cash_advance")}
+    a_id = _pick(cols, "cash_advance_id")
+    a_emp = _pick(cols, "emp_id")
+    a_money = _pick(cols, "cash_advance")
+    a_type = _pick(cols, "type")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.SalaryAdvance)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Employee_cash_advance")).mappings().all():
+        emp_pk = empid_to_pk.get(int(r.get(a_emp))) if a_emp and r.get(a_emp) is not None else None
+        if emp_pk is None:
+            continue  # advance for an employee ProCare doesn't know — skip
+        sid = int(r.get(a_id)) if a_id and r.get(a_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.SalaryAdvance(source_id=sid, employee_id=emp_pk)
+            dst.add(obj)
+        obj.employee_id = emp_pk
+        obj.amount = _num(r.get(a_money)) if a_money else 0
+        obj.advance_type = _str(r.get(a_type)) if a_type else None
+        n += 1
+    dst.flush()
+    counts["salary_advances"] = n
 
 
 def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:

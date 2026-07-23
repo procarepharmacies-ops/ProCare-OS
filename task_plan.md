@@ -141,6 +141,10 @@ bilingual (Arabic RTL first).
       on the employees screen. Columns from CLAUDE_CODE_ESTOCK_STRUCTURE.md §2.
       5 tests. NOTE: owner's docs/ESTOCK_SCHEMA_AND_MIRROR_TASK.md was NOT in
       the repo (local-only) — built from the committed structure doc. (2026-07-21)
+- [x] Salary advances ledger: `Employee_cash_advance` → `salary_advances`
+      (own sub-table). ETL `_load_salary_advances` (shared emp_id→ProCare
+      resolver, upsert by cash_advance_id, graceful-absent). Advances ledger +
+      total added to the payroll panel. 2 tests. (2026-07-21)
 - [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
 - [ ] Jobs master mirror + employee.job_id linkage
 

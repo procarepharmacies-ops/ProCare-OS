@@ -14,6 +14,7 @@ from app.services import payroll as svc
 def clean_payroll():
     s = SessionLocal()
     try:
+        s.execute(delete(m.SalaryAdvance))
         s.execute(delete(m.PayrollRecord))
         s.commit()
     finally:
@@ -115,6 +116,62 @@ def test_etl_load_payroll_maps_by_username_and_upserts(tmp_path):
         s = SessionLocal()
         try:
             s.execute(delete(m.PayrollRecord))
+            s.commit()
+        finally:
+            s.close()
+
+
+def test_employee_payroll_includes_advances_ledger():
+    s = SessionLocal()
+    try:
+        s.add_all([
+            m.SalaryAdvance(source_id=1, employee_id=2, amount=300, advance_type="سلفة"),
+            m.SalaryAdvance(source_id=2, employee_id=2, amount=200, advance_type="سلفة"),
+        ])
+        s.commit()
+        out = svc.employee_payroll(s, 2)
+        assert out["advances_total"] == 500.0
+        assert len(out["advances"]) == 2
+        # Newest first (highest advance_id).
+        assert out["advances"][0]["advance_id"] > out["advances"][1]["advance_id"]
+    finally:
+        s.close()
+
+
+def _advance_source(path):
+    eng = create_engine(f"sqlite:///{path}")
+    with eng.begin() as c:
+        c.execute(text("CREATE TABLE Employee (emp_id INT, username TEXT)"))
+        c.execute(text("INSERT INTO Employee VALUES (77,'ahmed'),(88,'ghost')"))
+        c.execute(text(
+            "CREATE TABLE Employee_cash_advance (cash_advance_id INT, emp_id INT, cash_advance REAL, type TEXT)"
+        ))
+        c.execute(text(
+            "INSERT INTO Employee_cash_advance VALUES (1,77,300,'سلفة'),(2,88,999,'سلفة')"
+        ))
+    return eng
+
+
+def test_etl_load_salary_advances_maps_and_upserts(tmp_path):
+    src = _advance_source(tmp_path / "adv.db")
+    try:
+        insp = inspect(src)
+        with src.connect() as conn, SessionLocal() as dst:
+            counts: dict = {}
+            etl._load_salary_advances(insp, conn, dst, counts)
+            dst.commit()
+            assert counts["salary_advances"] == 1  # only 'ahmed' resolvable
+            rec = dst.query(m.SalaryAdvance).filter_by(source_id=1).one()
+            assert rec.employee_id == 2 and float(rec.amount) == 300.0
+
+            etl._load_salary_advances(insp, conn, dst, {})
+            dst.commit()
+            assert dst.query(m.SalaryAdvance).filter_by(source_id=1).count() == 1
+    finally:
+        src.dispose()
+        s = SessionLocal()
+        try:
+            s.execute(delete(m.SalaryAdvance))
             s.commit()
         finally:
             s.close()
