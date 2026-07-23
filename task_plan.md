@@ -203,6 +203,35 @@ bilingual (Arabic RTL first).
       with bilingual descriptions, max-discount limit, and the role-access
       superset (assistant ⊂ manager ⊂ ceo). 7 tests. (2026-07-21)
 
+## Phase 7 — production hardening + POS depth (owner review 2026-07-23)
+Owner is deploying on the Elsanta SQL Server 2008 (co-hosting ProCare's own DB)
+and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
+
+- [x] **PR 3 — SQL Server 2008 production readiness** (this branch):
+      * Fixed 8 hardcoded `ALTER TABLE … ADD COLUMN` in migrate.py → dialect-
+        aware `ADD`/`ADD COLUMN` (would have failed on SQL Server).
+      * `db/base.py`: `IS_MSSQL` + `fast_executemany=True` for the bulk mirror.
+      * `sql/performance-analysis.sql`: removed DATEFROMPARTS + LAG (2012+) →
+        2008-safe literal cast + self-join.
+      * CLAUDE.md: SQL Server 2008 guard-rail block (no `.offset()` / TRIM /
+        LENGTH / NULLS LAST / DATEFROMPARTS / LAG; dialect-aware column adds).
+      * `deploy/SQL-SERVER-2008-ELSANTA.md`: full co-host deployment guide
+        (edition check, ProCare DB + read-only eStock login, restore-from-.bak
+        first sync, incremental cutover, watchdog with REQUIRE_SQLSERVER=1).
+      * 359 tests green (no regressions). (2026-07-23)
+- [ ] **PR 1 — POS invoice depth**: Sale.note; manual batch pick + old-expiry
+      reminder (FEFO default, pinned batch first, spill FEFO); hold/park invoice
+      (held_invoices table + resume/discard, no stock touch, auto-expire);
+      receipt print-options (profit gated to mgr/ceo, dosage/uses, note); expiry
+      on POS lines + F2 popup; per-line purchase discount.
+- [ ] **PR 2 — coverage**: mirror Branches_Product_Amount + Cash_disk_close +
+      Branch_order_* (slice 1); GL Gedo_* verbatim (slice 2, needs live column
+      audit); `tools/estock_schema_dump.py` (read-only INFORMATION_SCHEMA dump →
+      commit → closes the ~11 undocumented-tables blind spot).
+      HONEST BASELINE: ETL reads 22 source tables (not 48 — that's ProCare's own
+      table count); ~25 uncovered tables are empty/temp/config; Employee_daily_time
+      (2.8M) deferred.
+
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
 - [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys

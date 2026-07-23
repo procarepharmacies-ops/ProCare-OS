@@ -799,3 +799,34 @@
   maps by username + skips unknown + upserts by cash_advance_id). Full suite
   359 passed / 0 (357 + 2).
 - VERIFIED: `next build` clean (/employees 3.28 kB); migration idempotent.
+
+## 2026-07-23 · Phase 7 PR 3 — SQL Server 2008 production readiness — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Owner is standing up production on the Elsanta branch's SQL Server 2008,
+  co-hosting ProCare's own DB on that instance (no SQLite in prod). Reviewed the
+  codebase for 2008 blockers + wrote the deployment path.
+- FIXES:
+  * db/migrate.py — 8 early `ensure_*` functions issued hardcoded
+    `ALTER TABLE … ADD COLUMN` (invalid T-SQL on ANY SQL Server; guarded so a
+    fresh create_all DB never hit them, but a legacy-column migration on SQL
+    Server would have failed). All now dialect-aware
+    (`add = "ADD" if mssql else "ADD COLUMN"`), matching the newer migrations.
+  * db/base.py — added IS_MSSQL + `fast_executemany=True` (mssql only) so the
+    full mirror (95K+ sales / 184K+ lines add_all) doesn't do one round-trip
+    per row on the shared 2008 instance. No-op on SQLite.
+  * sql/performance-analysis.sql — replaced DATEFROMPARTS (2012+) with a 2008-
+    safe YYYYMMDD literal cast, and LAG() OVER (2012+) with a self-join on
+    (yr-1) for revenue_growth_pct. Header notes 2008 compatibility.
+  * CLAUDE.md — new "SQL Server 2008 compatibility" guard-rail block under Code
+    Quality: no `.offset()` (emits OFFSET/FETCH 2012+; use TOP/keyset), no
+    TRIM/LENGTH/NULLS LAST, dialect-aware column adds, no DATEFROMPARTS/LAG/etc
+    in sql/ scripts.
+- DOC: deploy/SQL-SERVER-2008-ELSANTA.md — edition check (Express 10GB cap vs
+  Standard), create ProCare DB + read-write login + read-only eStock reader,
+  TCP/ODBC-18 notes, connections.json template, restore-latest-.bak → preflight
+  → full mirror (`--import … --fresh`) → verify full_synced_at → incremental
+  cutover (SYNC_INCREMENTAL_DAYS=7) → watchdog with REQUIRE_SQLSERVER=1, plus a
+  pre-flight checklist. LAN-only warning (2008 is EOL).
+- VERIFIED: test_migrate.py (4) + full suite 359 passed / 0 (no regressions);
+  IS_MSSQL/IS_SQLITE resolve correctly. No frontend touched.
+- Confirmed the guide's CLI is real: `python -m app.services.etl --import <db>
+  <BRANCH> [--fresh]` (etl.py:1693).

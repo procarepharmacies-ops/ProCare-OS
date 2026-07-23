@@ -115,6 +115,19 @@ Types: `fix`, `feat`, `refactor`, `test`, `docs`, `perf`
 - Check for SQL injection, XSS, CORS misconfig, credential leaks before merge
 - No `TODO`s in main — either fix it now or file an issue
 
+**SQL Server 2008 compatibility (production runs on it):** the Elsanta branch
+server is SQL Server 2008; ProCare co-hosts its own DB on that instance. Never
+use constructs newer than 2008 in query code or migrations:
+- **No `.offset()`** in SQLAlchemy queries — `.limit()` alone emits `TOP n`
+  (2008-safe); adding `.offset()` makes SQLAlchemy emit `OFFSET/FETCH` (2012+)
+  and breaks. Paginate with keyset/`TOP` instead.
+- No `func.trim`/`func.length` (absent on 2008 — see `services/incentives.py`);
+  no `NULLS LAST` (use `fefo_order()`); date parts via `common.sql_day`.
+- Column adds via the `ensure_*` pattern must be dialect-aware
+  (`add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"`).
+- In `sql/*.sql` operator scripts: no `DATEFROMPARTS`/`LAG`/`LEAD`/`IIF`/
+  `STRING_AGG` (all 2012+).
+
 **Windows PC Compatibility:**
 - Backend must gracefully handle missing `python-dotenv` (optional import in `run.py`)
 - Seed must be idempotent — running twice = no errors, no duplicates
