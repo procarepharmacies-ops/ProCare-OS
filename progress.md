@@ -643,7 +643,55 @@
 - VERIFIED: `pytest app/tests/` 340 passed / 0 (333 + 7). `next build` clean
   (/permissions 1.21 kB).
 
-## 2026-07-21 · Phase 6 — Audit/change history — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+## 2026-07-22 · Phase 5 (FINAL) — Daily Briefing UI & AI Assistant Tools (القرارات اليومية)
+
+- **Daily Briefing Dashboard Widget** (NEW):
+  * React component (DecisionCardsWidget.js) displaying open decision cards
+  * Integrated into main dashboard between KPIs and view switcher
+  * Severity-based color coding (critical red → warning amber → info blue)
+  * Action buttons: ✓ approve (mark actioned) | ✕ dismiss (skip)
+  * Bilingual AR/EN with RTL/LTR layout; fail-soft on API errors
+  * Frontend build clean; PR #33 created (draft)
+
+- **AI Assistant Tools** (services/ai.py):
+  * Two new intents: "forecast_risk" (at-risk products) + "decisions" (daily cards)
+  * Keyword routing for Arabic/English cues in _route_keywords()
+  * Execution logic in _execute() retrieves reorder suggestions & decision cards
+  * Bilingual responses with severity/priority counts
+  * Updated help text to mention new capabilities
+  * Existing AI chat tests pass (3/3); full suite green (340/340)
+
+- **Phase 5 SUMMARY** — All Four Sub-Tasks Delivered:
+  1. ✅ Forecasting foundation (Holt + day-of-week seasonality)
+     - Services: services/forecast.py, nightly scheduler job (1 AM)
+     - Tests: 6 (history, idempotency, API, stockout risks)
+  2. ✅ Decision card generation (actionable briefings)
+     - Services: services/decisions.py, nightly job (1:30 AM)
+     - Tests: 5 (dismiss, action, archive, sorting, generation)
+  3. ✅ Reorder proposals 2.0 (forecast-driven POs + transfer-first)
+     - Services: services/reorder.py
+     - Tests: 6 (priority, sorting, transfer-first, transfer-only)
+  4. ✅ Daily briefing UI & AI assistant
+     - Frontend: DecisionCardsWidget component
+     - Backend: AI assistant intents for forecast & decisions
+     - Tests: 340 total (all pass)
+
+- **Test Coverage**: 340 tests pass (340 + 0 failures). Phase 5 tests:
+  - test_forecast.py: 6 ✓
+  - test_decisions.py: 5 ✓
+  - test_reorder.py: 6 ✓
+  - test_api.py (AI chat): 3 ✓
+  - existing suite: 320 ✓
+
+- **Deliverables**: PR #33 (draft) with:
+  - Frontend: DecisionCardsWidget.js, dashboard integration, API client
+  - Backend: AI assistant tools in services/ai.py
+  - Docs: progress.md Phase 5 final entry
+  - Commits: 6 on branch (widget, docs, AI tools, merge main, helpers)
+
+- **Status**: Phase 5 COMPLETE. Next: Phase 6 (charts & executive dashboards).
+
+## 2026-07-23 · Phase 6 — Audit/change history — branch claude/phase-6-proceed-yju8m0 (merged to main)
 - Built the "who changed what, when" change-history over the tables ProCare owns.
 - PRICE LOG: new `ProductChange` model (product_id, field, old/new, employee, at;
   idempotent `ensure_product_change_table`, wired into startup). New
