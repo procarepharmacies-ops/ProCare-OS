@@ -59,8 +59,9 @@ def ensure_role_column(engine) -> None:
     columns = {c["name"] for c in inspector.get_columns("employees")}
     if "role" in columns:
         return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE employees ADD COLUMN role VARCHAR(20) DEFAULT 'assistant'"))
+        conn.execute(text(f"ALTER TABLE employees {add} role VARCHAR(20) DEFAULT 'assistant'"))
 
 
 def ensure_original_sale_id_column(engine) -> None:
@@ -72,8 +73,9 @@ def ensure_original_sale_id_column(engine) -> None:
     columns = {c["name"] for c in inspector.get_columns("sales")}
     if "original_sale_id" in columns:
         return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE sales ADD COLUMN original_sale_id INTEGER NULL"))
+        conn.execute(text(f"ALTER TABLE sales {add} original_sale_id INTEGER NULL"))
 
 
 def ensure_shelf_location_column(engine) -> None:
@@ -85,8 +87,9 @@ def ensure_shelf_location_column(engine) -> None:
     columns = {c["name"] for c in inspector.get_columns("products")}
     if "shelf_location" in columns:
         return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE products ADD COLUMN shelf_location VARCHAR(80) NULL"))
+        conn.execute(text(f"ALTER TABLE products {add} shelf_location VARCHAR(80) NULL"))
 
 
 def ensure_loyalty_points_column(engine) -> None:
@@ -98,8 +101,9 @@ def ensure_loyalty_points_column(engine) -> None:
     columns = {c["name"] for c in inspector.get_columns("customers")}
     if "loyalty_points" in columns:
         return
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE customers ADD COLUMN loyalty_points NUMERIC(18,3) DEFAULT 0"))
+        conn.execute(text(f"ALTER TABLE customers {add} loyalty_points NUMERIC(18,3) DEFAULT 0"))
 
 
 def ensure_task_priority_columns(engine) -> None:
@@ -109,11 +113,12 @@ def ensure_task_priority_columns(engine) -> None:
     if "employee_tasks" not in inspector.get_table_names():
         return
     columns = {c["name"] for c in inspector.get_columns("employee_tasks")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
     with engine.begin() as conn:
         if "priority" not in columns:
-            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"))
+            conn.execute(text(f"ALTER TABLE employee_tasks {add} priority VARCHAR(10) DEFAULT 'normal'"))
         if "category" not in columns:
-            conn.execute(text("ALTER TABLE employee_tasks ADD COLUMN category VARCHAR(20) DEFAULT 'general'"))
+            conn.execute(text(f"ALTER TABLE employee_tasks {add} category VARCHAR(20) DEFAULT 'general'"))
 
 
 def ensure_prescription_status_columns(engine) -> None:
@@ -123,11 +128,12 @@ def ensure_prescription_status_columns(engine) -> None:
     if "prescriptions" not in inspector.get_table_names():
         return
     columns = {c["name"] for c in inspector.get_columns("prescriptions")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
     with engine.begin() as conn:
         if "status" not in columns:
-            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN status VARCHAR(20) DEFAULT 'captured'"))
+            conn.execute(text(f"ALTER TABLE prescriptions {add} status VARCHAR(20) DEFAULT 'captured'"))
         if "reviewed_by" not in columns:
-            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN reviewed_by INTEGER NULL"))
+            conn.execute(text(f"ALTER TABLE prescriptions {add} reviewed_by INTEGER NULL"))
 
 
 def ensure_titan_match_columns(engine) -> None:

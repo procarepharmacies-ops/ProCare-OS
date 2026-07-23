@@ -48,12 +48,21 @@ def _build_url() -> str:
 
 DATABASE_URL = _build_url()
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
+IS_MSSQL = DATABASE_URL.startswith("mssql")
+
+# SQL Server bulk-load accelerator: pyodbc's default executemany sends one
+# round-trip per row, so a full mirror (95K+ sales, 184K+ sale lines) crawls.
+# fast_executemany batches parameter arrays into a single call — a large speedup
+# for the ETL's add_all/flush, exactly the co-hosted-2008 scenario. mssql+pyodbc
+# only; harmless to omit elsewhere.
+_engine_kwargs = {"fast_executemany": True} if IS_MSSQL else {}
 
 engine = create_engine(
     DATABASE_URL,
     echo=False,
     future=True,
     connect_args={"check_same_thread": False} if IS_SQLITE else {},
+    **_engine_kwargs,
     # SQL Server can drop a pooled connection at any time (server restart, the
     # sync thread's transaction being KILLed, an idle-timeout, a network blip).
     # Without a liveness check the pool hands out a dead connection and the

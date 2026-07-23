@@ -15,12 +15,17 @@
      • sales metrics exclude returns          -> is_return = 0
      • available stock = amount > 0 AND not expired (exp_date > @today OR NULL)
      • cost/profit use the buy_price snapshot captured on each sale line
+
+   SQL Server 2008 compatible: no DATEFROMPARTS / LAG (both 2012+). The Elsanta
+   branch server is SQL Server 2008 — this script runs there unchanged.
    =========================================================================== */
 
 DECLARE @today  date = CAST(GETDATE() AS date);      -- demo data: '2026-06-26'
 DECLARE @years  int  = 5;
 DECLARE @vendor nvarchar(100) = N'PharmaOverseas';   -- matches name_en or name_ar
-DECLARE @from   date = DATEFROMPARTS(YEAR(@today) - @years + 1, 1, 1);
+-- Jan 1 of (year - years + 1), built without DATEFROMPARTS (2012+): compose the
+-- YYYYMMDD literal and cast. Deterministic and 2008-safe.
+DECLARE @from   date = CAST(CAST(YEAR(@today) - @years + 1 AS char(4)) + '0101' AS date);
 
 /* ---------------------------------------------------------------------------
    A. FIVE-YEAR PERFORMANCE BY YEAR
@@ -79,9 +84,12 @@ SELECT s.yr                                         AS [year],
        CAST(s.revenue / NULLIF(s.invoices, 0) AS DECIMAL(18,2)) AS avg_bill,
        ISNULL(p.purchase_orders, 0)                 AS purchase_orders,
        ISNULL(p.purchases_spend, 0)                 AS purchases_spend,
-       CAST(100.0 * (s.revenue - LAG(s.revenue) OVER (ORDER BY s.yr))
-             / NULLIF(LAG(s.revenue) OVER (ORDER BY s.yr), 0) AS DECIMAL(6,1)) AS revenue_growth_pct
+       -- Year-over-year revenue growth. LAG() is 2012+, so the previous year's
+       -- revenue comes from a self-join on (yr - 1) instead — 2008-safe.
+       CAST(100.0 * (s.revenue - s_prev.revenue)
+             / NULLIF(s_prev.revenue, 0) AS DECIMAL(6,1)) AS revenue_growth_pct
 FROM   sales_y s
+LEFT   JOIN sales_y   s_prev ON s_prev.yr = s.yr - 1
 LEFT   JOIN cogs_y    c  ON c.yr  = s.yr
 LEFT   JOIN returns_y r  ON r.yr  = s.yr
 LEFT   JOIN new_cust_y nc ON nc.yr = s.yr
