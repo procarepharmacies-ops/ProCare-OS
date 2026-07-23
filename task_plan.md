@@ -219,7 +219,7 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         (edition check, ProCare DB + read-only eStock login, restore-from-.bak
         first sync, incremental cutover, watchdog with REQUIRE_SQLSERVER=1).
       * 359 tests green (no regressions). (2026-07-23)
-- [~] **PR 1 — POS invoice depth** (split into 1a/1b/1c):
+- [x] **PR 1 — POS invoice depth** (1a/1b/1c all merged):
   - [x] **PR 1a — invoice line details**: `Sale.note` (col+migration, threads to
         receipt); manual batch pick (`SaleLineInput.batch_id`/`LineIn.batch_id`,
         `deduct_stock_fefo(pin_batch_id=)` pinned-first-then-spill-FEFO, bad/
@@ -233,8 +233,12 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         missing/price_changed; discard idempotent); `/api/sales/hold|held|
         held/{id}/resume|discard`; `HOLD_EXPIRE_DAYS` (default 3); POS Hold
         button + held-drawer (resume re-prices to current). 6 tests. (2026-07-23)
-  - [ ] **PR 1c — per-line purchase discount**: PurchaseLine.disc_money +
-        migration + receive-goods UI column + totals math.
+  - [x] **PR 1c — per-line purchase discount**: `PurchaseLine.disc_money` +
+        `ensure_purchase_line_discount_column`; `create_purchase` validates
+        (0..line value) + folds line discounts into invoice total_discount so
+        net = gross − total_discount + tax; `PurchaseLineIn.disc_money`;
+        purchase detail exposes per-line disc_money + total_net; receive-goods
+        UI discount column. 2 tests. (2026-07-23) — POS cluster (PR1) complete.
 - [ ] **PR 2 — coverage**: mirror Branches_Product_Amount + Cash_disk_close +
       Branch_order_* (slice 1); GL Gedo_* verbatim (slice 2, needs live column
       audit); `tools/estock_schema_dump.py` (read-only INFORMATION_SCHEMA dump →

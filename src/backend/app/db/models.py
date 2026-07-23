@@ -400,6 +400,9 @@ class PurchaseLine(Base):
     bonus: Mapped[float] = mapped_column(Qty, default=0)
     buy_price: Mapped[float] = mapped_column(Money)
     sell_price: Mapped[float] = mapped_column(Money)
+    # Per-line cash discount from the supplier (خصم نقدي على السطر), separate
+    # from bonus free units. Reduces the line's landed cost.
+    disc_money: Mapped[float] = mapped_column(Money, default=0)
     exp_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     purchase: Mapped[Purchase] = relationship(back_populates="lines")

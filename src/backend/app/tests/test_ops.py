@@ -52,6 +52,40 @@ def test_treasury_api_endpoints(client):
 
 
 # --- purchase returns ----------------------------------------------------------
+def test_purchase_line_discount_reduces_net_and_persists(client, session):
+    vendor = session.scalars(select(m.Vendor)).first()
+    product = session.scalars(select(m.Product)).first()
+    # 10 @ 5 = 50 gross, minus a 7 per-line cash discount → 43 net.
+    create = client.post(
+        "/api/purchasing/purchases",
+        json={
+            "branch_id": 1,
+            "vendor_id": vendor.vendor_id,
+            "lines": [{"product_id": product.product_id, "amount": 10, "buy_price": 5.0, "disc_money": 7.0}],
+        },
+    )
+    assert create.status_code == 200
+    pid = create.json()["purchase_id"]
+    detail = client.get(f"/api/purchasing/purchases/{pid}").json()
+    assert detail["lines"][0]["disc_money"] == pytest.approx(7.0)
+    assert detail["total_net"] == pytest.approx(43.0)  # 50 - 7
+
+
+def test_purchase_line_discount_cannot_exceed_line_value(client, session):
+    vendor = session.scalars(select(m.Vendor)).first()
+    product = session.scalars(select(m.Product)).first()
+    r = client.post(
+        "/api/purchasing/purchases",
+        json={
+            "branch_id": 1,
+            "vendor_id": vendor.vendor_id,
+            "lines": [{"product_id": product.product_id, "amount": 2, "buy_price": 5.0, "disc_money": 999.0}],
+        },
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "bad_discount"
+
+
 def test_purchase_return_restores_vendor_balance_and_stock(client, session):
     vendor = session.scalars(select(m.Vendor)).first()
     product = session.scalars(select(m.Product)).first()
