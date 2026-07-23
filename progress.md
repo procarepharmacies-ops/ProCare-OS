@@ -592,3 +592,29 @@
   key prefixes/categories valid, API center/ticker/dismiss round-trip.
 - VERIFIED: `pytest app/tests/` 329 passed / 0 (324 + 5). `next build` clean
   (/notifications 1.05 kB). Migration idempotent; 3 endpoints in OpenAPI.
+
+## 2026-07-21 · Phase 6 — POS parity cluster (partial-fill shortage + F2 + hotkeys) — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Three POS-screen parity gaps, all additive/backwards-compatible:
+  1. **Shortcoming partial-fill** — `pos.create_sale(allow_partial=True)`: each
+     line is capped to `sellable_qty` (new helper: non-expired on-hand at the
+     branch), sold FEFO, and the unmet remainder auto-inserted as an OPEN
+     `ShortageItem` (note "auto from POS", reported_by=cashier) inside the SAME
+     transaction. Fully-OOS lines are dropped from the invoice but still logged;
+     if nothing can be filled the sale is refused (`no_sellable_stock`).
+     Discount scales to the filled amount so a trimmed line can't go negative.
+     Default OFF — strict all-or-nothing sales (and every existing test)
+     unchanged. `SaleIn.allow_partial` on `POST /api/sales`; the response now
+     echoes the actually-sold `lines` so the POS can show filled-vs-logged.
+  2. **F2 branch-stock popup** — global keydown binds F2 → modal of the top
+     search match's on-hand at this branch + `other_branches` (data already in
+     `list_products`); Esc closes.
+  3. **Visible hotkey strip** — Enter/F2/Esc chips under the POS search box.
+- FRONTEND: partial-fill checkbox above Complete-sale (+ "logged to shortage
+  sheet" note when a line was trimmed), F2 modal, hotkey strip. 7 i18n keys
+  (AR/EN).
+- TESTS: test_pos_shortage.py (4) — partial sells available + logs remainder +
+  drains stock; strict mode still raises insufficient_stock (no leaked shortage
+  row after rollback); nothing-sellable → no_sellable_stock; API echoes filled
+  lines. Existing test_pos.py (7) still green.
+- VERIFIED: `pytest app/tests/` 333 passed / 0 (329 + 4). `next build` clean
+  (/pos 8.66 kB).

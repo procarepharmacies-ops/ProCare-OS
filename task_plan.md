@@ -157,17 +157,22 @@ bilingual (Arabic RTL first).
       cheques; the mirror + alert can be added then.
 
 ### From CLAUDE_CODE_ESTOCK_FEATURES.md (behavioral parity)
-- [ ] Mirror `Shortcoming`/`Branches_shortcoming` history into كشكول النواقص
-      (ProCare ShortageItem screen already exists); POS auto-insert on unmet
-      qty after FEFO allocation (sell what's available, log the rest)
+- [x] POS auto-insert on unmet qty after FEFO allocation (sell what's
+      available, log the rest): `create_sale(allow_partial=True)` caps each
+      line to sellable qty, sells it FEFO, and auto-inserts the unmet remainder
+      as an open `ShortageItem` (atomic). Default off — normal sales stay
+      all-or-nothing. POS toggle + response echoes filled lines. 4 tests.
+      (2026-07-21) [Mirroring the raw Shortcoming/Branches_shortcoming HISTORY
+      is separate and still needs the eStock table audit.]
 - [x] Notification center + ribbon: News_bar feed (respect deleted) +
       Flag categories; posts expiry/low-stock/shortage events there. (Built
       with the news-ticker item above — categories are inventory-focused
       expiry/low_stock/shortage; the POS/treasury/bank/expense/supplier Flag
       buckets can be added as those event sources land.)
-- [ ] F2 branch-stock popup at POS (cross-branch data already in
-      list_products.other_branches — bind the hotkey + modal)
-- [ ] Visible hotkey map strip at POS (search/F2/discount/customer/hold/cash)
+- [x] F2 branch-stock popup at POS (binds F2 → modal of the top match's
+      on-hand at this branch + other_branches; Esc closes). (2026-07-21)
+- [x] Visible hotkey map strip at POS (Enter/F2/Esc chips under the search;
+      grows as more keys are wired). (2026-07-21)
 - [ ] Permissions discovery screen: all role flags for current user, ON/OFF —
       "hidden features" become visible
 
