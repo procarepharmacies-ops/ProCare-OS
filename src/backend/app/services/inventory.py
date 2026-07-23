@@ -176,6 +176,43 @@ def create_product(session: Session, data: dict) -> dict:
     return {"product_id": p.product_id, "name_ar": p.name_ar}
 
 
+def update_product_pricing(
+    session: Session,
+    product_id: int,
+    *,
+    sell_price: float | None = None,
+    buy_price: float | None = None,
+    min_stock: float | None = None,
+    employee_id: int | None = None,
+) -> dict:
+    """Edit a product's sell/buy price or minimum stock, logging every changed
+    field to ``product_changes`` (who/from/to/when) atomically with the edit.
+    Only provided fields are touched; a no-op change is not logged."""
+    from app.services import changelog
+    from app.services.pos import POSError
+
+    p = session.get(m.Product, product_id)
+    if p is None or p.is_deleted:
+        raise POSError("product_not_found", f"صنف غير موجود #{product_id}")
+
+    changed = []
+    for field, new in (("sell_price", sell_price), ("buy_price", buy_price), ("min_stock", min_stock)):
+        if new is None:
+            continue
+        new = float(new)
+        if new < 0:
+            raise POSError("bad_value", "القيمة يجب ألا تكون سالبة / value must be non-negative")
+        old = float(getattr(p, field) or 0)
+        if abs(old - new) < 1e-9:
+            continue  # no change — don't log a phantom edit
+        changelog.log_product_change(session, product_id, field, old, new, employee_id)
+        setattr(p, field, new)
+        changed.append({"field": field, "old": round(old, 3), "new": round(new, 3)})
+
+    session.commit()
+    return {"product_id": product_id, "changed": changed}
+
+
 def filter_values(session: Session) -> dict:
     """Distinct classification values that actually exist — feeds the filter
     dropdowns (الشكل الصيدلاني، الأماكن) on the items screen."""

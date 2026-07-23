@@ -1158,3 +1158,28 @@ class NotificationDismissal(Base):
     __table_args__ = (
         Index("IX_notif_dismissal_key", "event_key"),
     )
+
+
+class ProductChange(Base):
+    """Price / min-stock change log for a product (eStock Product_Changes parity).
+
+    Written whenever ProCare edits a product's sell/buy price or minimum-stock
+    level, so the pharmacy has a "who changed this price, from what, to what,
+    and when" trail. One row per changed field. New table — ``create_all`` adds
+    it automatically on existing databases.
+    """
+
+    __tablename__ = "product_changes"
+
+    change_id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    field: Mapped[str] = mapped_column(String(30))  # sell_price | buy_price | min_stock
+    old_value: Mapped[float] = mapped_column(Money, default=0)
+    new_value: Mapped[float] = mapped_column(Money, default=0)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_product_change_product", "product_id", "created_at"),
+        Index("IX_product_change_created", "created_at"),
+    )

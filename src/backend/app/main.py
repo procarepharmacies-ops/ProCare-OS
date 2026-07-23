@@ -32,6 +32,7 @@ from app.db.migrate import (
     ensure_forecast_tables,
     ensure_ledger_reason_column,
     ensure_notification_table,
+    ensure_product_change_table,
     ensure_incentive_points_column,
     ensure_loyalty_points_column,
     ensure_loyalty_tier_columns,
@@ -84,6 +85,8 @@ async def lifespan(_app: FastAPI):
     ensure_ledger_reason_column(engine)
     # Phase 6: notification center dismissals (News_bar parity)
     ensure_notification_table(engine)
+    # Phase 6: product price/min-stock change log (Product_Changes parity)
+    ensure_product_change_table(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 

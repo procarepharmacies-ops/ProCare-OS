@@ -642,3 +642,31 @@
   None, ROLE_ACCESS nesting, API me (employee_id), 400 no-identity, 404 unknown.
 - VERIFIED: `pytest app/tests/` 340 passed / 0 (333 + 7). `next build` clean
   (/permissions 1.21 kB).
+
+## 2026-07-21 · Phase 6 — Audit/change history — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Built the "who changed what, when" change-history over the tables ProCare owns.
+- PRICE LOG: new `ProductChange` model (product_id, field, old/new, employee, at;
+  idempotent `ensure_product_change_table`, wired into startup). New
+  `inventory.update_product_pricing(sell/buy/min, employee_id)` edits a product
+  and logs each changed field to product_changes ATOMICALLY (no-op changes not
+  logged; negative rejected). `POST /api/inventory/products/{id}/pricing`.
+- STOCK LOG: `changelog.stock_changes` over the existing StockMovement trail
+  (every sale/adjust/transfer/count already writes one), joined to product +
+  employee, with bilingual reason labels (Product_amount_Change parity).
+- LOGIN LOG: `changelog.login_history` over the existing AuthEvent audit
+  (user_login parity); also already at `/audit/auth-events`.
+- API: `GET /api/audit/product-changes` + `/stock-changes` (audit router =
+  ceo/manager). SERVICE `services/changelog.py` (log_product_change is the only
+  writer — never commits, caller's txn owns it).
+- ETL: added `ProductChange` to `_WIPE_ORDER` before Product so the full-sync
+  wipe stays FK-safe (caught by cross-test isolation: a price-edit test left
+  product_changes rows referencing products the etl test then wiped).
+- FRONTEND `/history`: 3 tabs (price changes / stock movements / login history),
+  bilingual, management-only nav entry. 4 api.js methods; nav_history + 15
+  hist_* i18n keys (AR/EN).
+- TESTS: test_changelog.py (7) — price edit logs old→new + actor, no-op logs
+  nothing, unknown product raises, stock movement reflects a sale (delta<0 +
+  reason label), login history returns events, API pricing-edit→product-changes
+  round-trip, API stock-changes. Full suite 347 passed / 0 (340 + 7).
+- VERIFIED: `next build` clean (/history 1.25 kB); migration idempotent; 2 new
+  audit endpoints + pricing endpoint in OpenAPI.

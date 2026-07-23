@@ -453,6 +453,16 @@ def ensure_ledger_reason_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
 
 
+def ensure_product_change_table(engine) -> None:
+    """Ensure the product_changes table exists (Phase 6: price/min-stock change
+    log). Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "product_changes" not in inspector.get_table_names():
+        from app.db.models import Base, ProductChange
+
+        Base.metadata.create_all(engine, tables=[ProductChange.__table__])
+
+
 def ensure_notification_table(engine) -> None:
     """Ensure the notification_dismissals table exists (Phase 6: notification
     center). Creates it via create_all if missing; idempotent."""

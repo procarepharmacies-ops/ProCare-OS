@@ -297,6 +297,13 @@ export const api = {
   voidCommissionRun: (runId) =>
     http(`/commissions/runs/${runId}/void`, { method: "POST" }),
 
+  // Change history (audit): price changes, stock movements, login events.
+  productChanges: (branch, days = 90) => http(`/audit/product-changes?days=${days}`),
+  stockChanges: (branch, days = 30) => http(`/audit/stock-changes${bq(branch, `days=${days}`)}`),
+  authEvents: (limit = 100) => http(`/audit/auth-events?limit=${limit}`),
+  updatePricing: (productId, payload) =>
+    http(`/inventory/products/${productId}/pricing`, { method: "POST", body: JSON.stringify(payload) }),
+
   // Permissions discovery: the current user's own flags/limits/role access.
   myPermissions: (employeeId) =>
     http(`/permissions/me${employeeId ? `?employee_id=${employeeId}` : ""}`),
