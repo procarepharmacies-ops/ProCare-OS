@@ -37,6 +37,9 @@ class SaleIn(BaseModel):
     override_by: int | None = None
     # Loyalty: spend this many points as an extra invoice discount.
     redeem_points: float = 0.0
+    # Shortcoming behaviour: sell what's on hand and log the unmet remainder to
+    # the shortage sheet instead of failing the whole invoice.
+    allow_partial: bool = False
 
 
 class TransferIn(BaseModel):
@@ -60,6 +63,7 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
             card_paid=payload.card_paid,
             override_by=payload.override_by,
             redeem_points=payload.redeem_points,
+            allow_partial=payload.allow_partial,
         )
     except pos.POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
@@ -69,6 +73,12 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
         "total_net": money(sale.total_net),
         "is_credit": sale.is_credit,
         "sale_date": sale.sale_date.isoformat(),
+        # Echo the actually-sold lines so the POS can show what was filled vs
+        # logged as a shortage when allow_partial trimmed a line.
+        "lines": [
+            {"product_id": sl.product_id, "amount": money(sl.amount), "total_sell": money(sl.total_sell)}
+            for sl in sale.lines
+        ],
     }
     # CRM extras for the POS receipt screen: points balance + WhatsApp invoice.
     if sale.customer_id:
