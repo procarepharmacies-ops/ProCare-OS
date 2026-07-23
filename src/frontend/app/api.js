@@ -304,6 +304,9 @@ export const api = {
   updatePricing: (productId, payload) =>
     http(`/inventory/products/${productId}/pricing`, { method: "POST", body: JSON.stringify(payload) }),
 
+  // Payroll depth: per-employee base/commission/deductions/advances/net + history.
+  employeePayroll: (employeeId) => http(`/employees/${employeeId}/payroll`),
+
   // Shareholders / owners register + dividend history (company_Owner mirror).
   shareholders: () => http("/shareholders"),
   shareholder: (id) => http(`/shareholders/${id}`),

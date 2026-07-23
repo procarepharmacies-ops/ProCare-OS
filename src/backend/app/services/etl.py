@@ -453,6 +453,8 @@ def mirror(
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
         # Shareholders + dividends (optional, upsert by source id).
         _load_shareholders(insp, src, dst, counts)
+        # Payroll depth (optional, upsert by source salary id).
+        _load_payroll(insp, src, dst, counts)
 
         dst.commit()
     finally:
@@ -1392,6 +1394,85 @@ def _load_shareholders(insp, src, dst, counts) -> None:
         n_div += 1
     dst.flush()
     counts["dividends"] = n_div
+
+
+def _load_payroll(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Employee_salary`` (monthly payroll) into ProCare.
+
+    ProCare employees are matched to eStock by USERNAME (they carry no source
+    ``emp_id``), so this resolves ``Employee_salary.emp_id`` → username (via the
+    source ``Employee`` master) → ProCare ``employee_id``. Upserts by
+    ``salary_id`` so re-syncing keeps one row per source payroll record.
+    Optional — absent source table = skipped, never an error. Net is recomputed
+    (basic + commission + over − deduction − absence − advance) so it stays
+    self-consistent regardless of the source's own ``total``."""
+    if not insp.has_table("Employee_salary") or not insp.has_table("Employee"):
+        return
+
+    # emp_id -> username, from the source Employee master.
+    ecols = {c["name"] for c in insp.get_columns("Employee")}
+    e_id = _pick(ecols, "emp_id")
+    e_user = _pick(ecols, "username")
+    if e_id is None or e_user is None:
+        return
+    empid_to_user: dict[int, str] = {}
+    for r in src.execute(text(f"SELECT {e_id}, {e_user} FROM Employee")).mappings().all():
+        if r.get(e_id) is not None and r.get(e_user):
+            empid_to_user[int(r.get(e_id))] = str(r.get(e_user)).strip().lower()
+
+    # username -> ProCare employee_id.
+    user_to_pk = {
+        (u or "").strip().lower(): eid
+        for eid, u in dst.execute(select(m.Employee.employee_id, m.Employee.username)).all()
+        if u
+    }
+
+    cols = {c["name"] for c in insp.get_columns("Employee_salary")}
+    s_id = _pick(cols, "salary_id")
+    s_emp = _pick(cols, "emp_id")
+    s_basic = _pick(cols, "basic_salary")
+    s_comm = _pick(cols, "emp_commission")
+    s_over = _pick(cols, "emp_over_commission")
+    s_ded = _pick(cols, "emp_deduction")
+    s_abs = _pick(cols, "emp_absence_money")
+    s_total = _pick(cols, "total")
+    s_month = _pick(cols, "month_salary")
+    s_adv = _pick(cols, "cash_advance")
+    s_state = _pick(cols, "state")
+
+    by_src = {p.source_id: p for p in dst.scalars(select(m.PayrollRecord)).all() if p.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Employee_salary")).mappings().all():
+        emp_pk = user_to_pk.get(empid_to_user.get(int(r.get(s_emp)))) if s_emp and r.get(s_emp) is not None else None
+        if emp_pk is None:
+            continue  # payroll row for an employee ProCare doesn't know — skip
+        basic = _num(r.get(s_basic)) if s_basic else 0
+        comm = _num(r.get(s_comm)) if s_comm else 0
+        over = _num(r.get(s_over)) if s_over else 0
+        ded = _num(r.get(s_ded)) if s_ded else 0
+        absence = _num(r.get(s_abs)) if s_abs else 0
+        advance = _num(r.get(s_adv)) if s_adv else 0
+        net = round(basic + comm + over - ded - absence - advance, 2)
+
+        sid = int(r.get(s_id)) if s_id and r.get(s_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.PayrollRecord(source_id=sid, employee_id=emp_pk)
+            dst.add(obj)
+        obj.employee_id = emp_pk
+        obj.period = _str(r.get(s_month)) if s_month else None
+        obj.state = _str(r.get(s_state)) if s_state else None
+        obj.basic_salary = basic
+        obj.commission = comm
+        obj.over_commission = over
+        obj.deduction = ded
+        obj.absence_money = absence
+        obj.cash_advance = advance
+        obj.source_total = _num(r.get(s_total)) if s_total else 0
+        obj.net = net
+        n += 1
+    dst.flush()
+    counts["payroll"] = n
 
 
 def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:

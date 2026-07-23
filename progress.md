@@ -747,3 +747,35 @@
   ETL source fixture with company_Owner + Gedo_Dividends_paied.
 - VERIFIED: `pytest app/tests/` 352 passed / 0. `next build` clean
   (/shareholders 1.27 kB). Migration idempotent; 2 endpoints in OpenAPI.
+
+## 2026-07-21 · Phase 6 — Payroll depth (Employee_salary mirror) — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- NOTE: the user asked me to read docs/ESTOCK_SCHEMA_AND_MIRROR_TASK.md §5b, but
+  that file is NOT committed to the repo (local-only on the owner's machine, like
+  before) — I could not read it and did not fabricate it. Built faithfully from
+  the COMMITTED docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md §2, which documents the exact
+  Employee_salary columns, plus the owner's explicit spec. Flagged to the user.
+- MODEL `PayrollRecord` (source_id=salary_id unique, employee_id FK, period=
+  month_salary, state, basic_salary, commission, over_commission, deduction,
+  absence_money, cash_advance, source_total, net). Idempotent
+  `ensure_payroll_table` wired into startup.
+- ETL `_load_payroll`: has_table-guarded (Employee_salary + Employee). ProCare
+  employees carry no source emp_id, so it resolves Employee_salary.emp_id →
+  username (from source Employee master) → ProCare employee_id; rows for
+  employees ProCare doesn't know are skipped. UPSERTS by salary_id (not in the
+  destructive _WIPE_ORDER — employees aren't wiped). Net RECOMPUTED = basic +
+  commission + over − deduction − absence − advance (independent of source total).
+  Wired into mirror() after _load_shareholders.
+- SERVICE `services/payroll.py`: `employee_payroll(employee_id)` → panel summary
+  (base / commission[+over] / deductions[deduction+absence] / advances / net) of
+  the LATEST record + full monthly history; base_salary_on_file fallback when no
+  record mirrored yet; None if employee missing.
+- API: `GET /api/employees/{id}/payroll` (employees router = CEO-only). 404.
+- FRONTEND: payroll panel on the employees detail card — 5 KPI tiles (base/
+  commission/deductions/advances/net + period) + a monthly-history table when >1
+  record; graceful "no records mirrored yet · base on file: X". 1 api.js method;
+  11 pay_* i18n keys (AR/EN).
+- TESTS: test_payroll.py (5) — panel breakdown of latest record + net math, no-
+  records fallback to base-on-file, missing employee→None, ETL maps by username +
+  skips unknown + upserts by salary_id, API panel + 404. Full suite 357 passed.
+- VERIFIED: `next build` clean (/employees 3.14 kB); migration idempotent;
+  endpoint in OpenAPI.

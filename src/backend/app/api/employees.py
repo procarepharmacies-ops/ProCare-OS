@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import auth_guard
 from app.db.base import get_session
 from app.services import employees
+from app.services import payroll as payroll_svc
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -77,6 +78,16 @@ def employee_detail(
     result = employees.employee_detail(session, employee_id)
     if not result:
         return {"error": "Employee not found"}
+    return result
+
+
+@router.get("/{employee_id}/payroll")
+def employee_payroll(employee_id: int, session: Session = Depends(get_session)):
+    """Payroll panel (base / commission / deductions / advances / net) + monthly
+    history for one employee. CEO-only via the router-level guard."""
+    result = payroll_svc.employee_payroll(session, employee_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Employee not found"})
     return result
 
 

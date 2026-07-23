@@ -133,7 +133,14 @@ bilingual (Arabic RTL first).
       column audit; ProCare-side logging is live now.]
 - [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
       (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
-- [ ] Payroll depth: Employee_salary/cash_advance/commission/deduction tables
+- [x] Payroll depth: `Employee_salary` mirrored → `payroll_records` (base,
+      commission+over, deduction+absence, advance, net recomputed). ETL
+      `_load_payroll` resolves emp_id→username→ProCare employee, upserts by
+      salary_id, graceful-absent. `GET /api/employees/{id}/payroll` (CEO) +
+      payroll panel (base/commission/deductions/advances/net + monthly history)
+      on the employees screen. Columns from CLAUDE_CODE_ESTOCK_STRUCTURE.md §2.
+      5 tests. NOTE: owner's docs/ESTOCK_SCHEMA_AND_MIRROR_TASK.md was NOT in
+      the repo (local-only) — built from the committed structure doc. (2026-07-21)
 - [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
 - [ ] Jobs master mirror + employee.job_id linkage
 
