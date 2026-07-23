@@ -297,6 +297,10 @@ export const api = {
   voidCommissionRun: (runId) =>
     http(`/commissions/runs/${runId}/void`, { method: "POST" }),
 
+  // Permissions discovery: the current user's own flags/limits/role access.
+  myPermissions: (employeeId) =>
+    http(`/permissions/me${employeeId ? `?employee_id=${employeeId}` : ""}`),
+
   // Notification center + ticker (News_bar/Flag parity): expiry/low-stock/shortage.
   notifications: (branch, expiryDays = 30) =>
     http(`/notifications${bq(branch, `expiry_days=${expiryDays}`)}`),

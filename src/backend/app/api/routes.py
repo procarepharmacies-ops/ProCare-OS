@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, commissions, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, notifications, parties, performance, prescriptions, purchasing, reports, reorder, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
+from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, commissions, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, notifications, parties, performance, permissions, prescriptions, purchasing, reports, reorder, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -159,6 +159,8 @@ router.include_router(incentives.router)
 router.include_router(commissions.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # Notification center + ticker: live expiry/low-stock/shortage feed (News_bar parity).
 router.include_router(notifications.router, dependencies=[Depends(auth_guard())])
+# Permissions discovery: the current user's own flags/limits/role access.
+router.include_router(permissions.router, dependencies=[Depends(auth_guard())])
 # Marketing & social studio: content calendar, AI copywriting, promo codes.
 router.include_router(marketing.router, dependencies=[Depends(auth_guard())])
 # Catalogue quality: duplicate detection + Titan enrichment review (read-only).

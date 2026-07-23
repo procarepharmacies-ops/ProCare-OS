@@ -109,6 +109,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/clinical", key: "nav_clinical", ico: "mortar", roles: null },
       { href: "/assistant", key: "nav_assistant", ico: "sparkle", roles: null },
+      { href: "/permissions", key: "nav_permissions", ico: "badge", roles: null },
       { href: "/settings", key: "nav_settings", ico: "gear", roles: ["ceo", "manager"] },
     ],
   },

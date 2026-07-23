@@ -173,8 +173,11 @@ bilingual (Arabic RTL first).
       on-hand at this branch + other_branches; Esc closes). (2026-07-21)
 - [x] Visible hotkey map strip at POS (Enter/F2/Esc chips under the search;
       grows as more keys are wired). (2026-07-21)
-- [ ] Permissions discovery screen: all role flags for current user, ON/OFF —
-      "hidden features" become visible
+- [x] Permissions discovery screen: `services/permissions.py` + `GET
+      /api/permissions/me` (resolves employee from Bearer token, else
+      ?employee_id) + `/permissions` screen — EMP_CONTROL flag matrix ON/OFF
+      with bilingual descriptions, max-discount limit, and the role-access
+      superset (assistant ⊂ manager ⊂ ceo). 7 tests. (2026-07-21)
 
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync

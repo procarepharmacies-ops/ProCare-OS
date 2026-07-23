@@ -618,3 +618,27 @@
   lines. Existing test_pos.py (7) still green.
 - VERIFIED: `pytest app/tests/` 333 passed / 0 (329 + 4). `next build` clean
   (/pos 8.66 kB).
+
+## 2026-07-21 · Phase 6 — Permissions discovery screen — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Built the "hidden features become visible" screen (EMP_CONTROL parity):
+  shows a logged-in user exactly what they can/can't do.
+- SERVICE `services/permissions.py` (read-only): `PERMISSION_FLAGS` (the six
+  employee boolean flags — can_see_buy_price/edit_sell_price/sale_credit/
+  return/void/change_shift — each with bilingual label + one-line description);
+  `ROLE_ACCESS` nested supersets (assistant ⊂ manager ⊂ ceo) mirroring the
+  routes.py auth_guard gates; `my_permissions(employee_id)` returns role +
+  role label + flag matrix (enabled bool) + max_disc_per + granted/total counts
+  + role_access, or None if the employee is gone.
+- API `api/permissions.py`: `GET /api/permissions/me` — resolves identity from
+  the Bearer token when present, else an explicit `?employee_id` (so it still
+  works with auth disabled / in tests). 400 no-identity, 404 unknown employee.
+  Registered under auth_guard() (any logged-in employee).
+- FRONTEND `/permissions`: identity + role + granted/max-discount summary,
+  the flag matrix (green ✓ enabled / red ✕ disabled with descriptions), and the
+  role-access chips. Nav entry (badge icon, all roles). 1 api.js method;
+  nav_permissions + 11 perm_* i18n keys (AR/EN).
+- TESTS: test_permissions.py (7) — flag matrix + bilingual labels + role access
+  superset for CEO, flag.enabled matches the employee row, missing employee →
+  None, ROLE_ACCESS nesting, API me (employee_id), 400 no-identity, 404 unknown.
+- VERIFIED: `pytest app/tests/` 340 passed / 0 (333 + 7). `next build` clean
+  (/permissions 1.21 kB).
