@@ -59,6 +59,7 @@ class SaleLineInput:
     amount: float
     sell_price: float | None = None  # None => use product default
     disc_money: float = 0.0
+    batch_id: int | None = None  # manual batch pick; None => pure FEFO
 
 
 # --- sp_check_credit --------------------------------------------------------
@@ -111,11 +112,19 @@ def deduct_stock_fefo(
     ref_id: int | None,
     employee_id: int | None,
     reason: str = "sale",
+    pin_batch_id: int | None = None,
 ) -> list[tuple[int, float]]:
     """Walk live batches first-expire-first and decrement them to cover ``qty``.
 
     Returns the list of (batch_id, qty_taken). Raises if there isn't enough
     sellable (non-expired) stock — so an expired-only product cannot be sold.
+
+    ``pin_batch_id`` (eStock's manual batch pick): consume that specific sellable
+    batch FIRST, then spill any remainder to the rest FEFO. FEFO is never
+    weakened — expired stock is still excluded, and the pinned batch must be a
+    sellable batch of this product at this branch (else ``bad_batch``). The
+    "you picked a fresher box while an older one is on the shelf" reminder is a
+    UI concern (it has the batch expiries); the engine just honours the choice.
     """
     batches = session.scalars(
         select(m.StockBatch)
@@ -127,6 +136,17 @@ def deduct_stock_fefo(
         )
         .order_by(*fefo_order())
     ).all()
+
+    if pin_batch_id is not None:
+        pinned = next((b for b in batches if b.batch_id == pin_batch_id), None)
+        if pinned is None:
+            raise POSError(
+                "bad_batch",
+                f"الدفعة المختارة غير صالحة أو منتهية #{pin_batch_id} / "
+                f"chosen batch is not a sellable batch of this product",
+            )
+        # Pinned batch first, then the rest in FEFO order (spill).
+        batches = [pinned] + [b for b in batches if b.batch_id != pin_batch_id]
 
     available = sum(float(b.amount) for b in batches)
     if available < qty:
@@ -172,6 +192,7 @@ def create_sale(
     override_by: int | None = None,
     redeem_points: float = 0.0,
     allow_partial: bool = False,
+    note: str | None = None,
 ) -> m.Sale:
     """Create one atomic invoice. Commits on success; rolls back on any failure.
 
@@ -261,6 +282,7 @@ def create_sale(
             is_credit=is_credit,
             cash_paid=0.0 if is_credit else (net if cash_paid is None else cash_paid),
             card_paid=card_paid,
+            note=(note or None),
         )
         session.add(sale)
         session.flush()  # assign sale_id
@@ -276,6 +298,7 @@ def create_sale(
                 eff_amount,
                 ref_id=sale.sale_id,
                 employee_id=cashier_id,
+                pin_batch_id=ln.batch_id,
             )
             primary_batch = taken[0][0] if taken else None
             sale_line = m.SaleLine(

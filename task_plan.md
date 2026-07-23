@@ -219,11 +219,18 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         (edition check, ProCare DB + read-only eStock login, restore-from-.bak
         first sync, incremental cutover, watchdog with REQUIRE_SQLSERVER=1).
       * 359 tests green (no regressions). (2026-07-23)
-- [ ] **PR 1 — POS invoice depth**: Sale.note; manual batch pick + old-expiry
-      reminder (FEFO default, pinned batch first, spill FEFO); hold/park invoice
-      (held_invoices table + resume/discard, no stock touch, auto-expire);
-      receipt print-options (profit gated to mgr/ceo, dosage/uses, note); expiry
-      on POS lines + F2 popup; per-line purchase discount.
+- [~] **PR 1 — POS invoice depth** (split into 1a/1b/1c):
+  - [x] **PR 1a — invoice line details**: `Sale.note` (col+migration, threads to
+        receipt); manual batch pick (`SaleLineInput.batch_id`/`LineIn.batch_id`,
+        `deduct_stock_fefo(pin_batch_id=)` pinned-first-then-spill-FEFO, bad/
+        expired pin → `bad_batch`); `nearest_expiry` on product list; POS batch
+        picker with "older batch exists" reminder + expiry chips; receipt
+        print-options (dosage/uses line, profit gated to mgr/ceo) + note printed;
+        `sale_detail` gains note+dosage+uses. 8 tests. (2026-07-23)
+  - [ ] **PR 1b — hold/park invoice**: held_invoices table + resume/discard,
+        no stock touch, auto-expire; POS hold button + drawer.
+  - [ ] **PR 1c — per-line purchase discount**: PurchaseLine.disc_money +
+        migration + receive-goods UI column + totals math.
 - [ ] **PR 2 — coverage**: mirror Branches_Product_Amount + Cash_disk_close +
       Branch_order_* (slice 1); GL Gedo_* verbatim (slice 2, needs live column
       audit); `tools/estock_schema_dump.py` (read-only INFORMATION_SCHEMA dump →

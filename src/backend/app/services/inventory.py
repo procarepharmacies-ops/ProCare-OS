@@ -111,6 +111,25 @@ def list_products(
                     {"branch_id": bid, "branch": bname, "on_hand": money(qty)}
                 )
 
+    # Nearest (earliest) sellable expiry per product at the scoped branch — the
+    # POS shows it so the cashier sees an approaching-expiry item at a glance.
+    nearest: dict[int, str] = {}
+    if rows:
+        ids = [p.product_id for p, _ in rows]
+        exp_rows = session.execute(
+            select(m.StockBatch.product_id, func.min(m.StockBatch.exp_date))
+            .where(
+                m.StockBatch.product_id.in_(ids),
+                m.StockBatch.exp_date.is_not(None),
+                available_stock_filter(),
+                branch_filter(m.StockBatch, branch_id),
+            )
+            .group_by(m.StockBatch.product_id)
+        ).all()
+        for pid, exp in exp_rows:
+            if exp is not None:
+                nearest[pid] = exp.isoformat()
+
     out = []
     for p, qty in rows:
         on_hand_qty = money(qty)
@@ -134,6 +153,7 @@ def list_products(
                 "is_otc": p.is_otc,
                 "uses": p.uses,
                 "other_branches": others.get(p.product_id, []),
+                "nearest_expiry": nearest.get(p.product_id),
                 "low": on_hand_qty < float(p.min_stock or 0),
             }
         )

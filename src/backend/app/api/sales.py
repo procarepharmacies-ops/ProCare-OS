@@ -24,6 +24,7 @@ class LineIn(BaseModel):
     amount: float = Field(gt=0)
     sell_price: float | None = None
     disc_money: float = 0.0
+    batch_id: int | None = None  # manual batch pick; None => FEFO
 
 
 class SaleIn(BaseModel):
@@ -40,6 +41,8 @@ class SaleIn(BaseModel):
     # Shortcoming behaviour: sell what's on hand and log the unmet remainder to
     # the shortage sheet instead of failing the whole invoice.
     allow_partial: bool = False
+    # Cashier's free-text note (prints on the receipt).
+    note: str | None = None
 
 
 class TransferIn(BaseModel):
@@ -55,7 +58,7 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
         sale = pos.create_sale(
             session,
             branch_id=payload.branch_id,
-            lines=[pos.SaleLineInput(l.product_id, l.amount, l.sell_price, l.disc_money) for l in payload.lines],
+            lines=[pos.SaleLineInput(l.product_id, l.amount, l.sell_price, l.disc_money, l.batch_id) for l in payload.lines],
             customer_id=payload.customer_id,
             cashier_id=payload.cashier_id,
             is_credit=payload.is_credit,
@@ -64,6 +67,7 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
             override_by=payload.override_by,
             redeem_points=payload.redeem_points,
             allow_partial=payload.allow_partial,
+            note=payload.note,
         )
     except pos.POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
@@ -255,6 +259,9 @@ def sale_detail(sale_id: int, session: Session = Depends(get_session)):
                 "disc_money": money(ln.disc_money),
                 "total_sell": money(ln.total_sell),
                 "profit": money(line_profit),
+                # For the receipt's optional dosage/usage line.
+                "dosage_form": ln.product.dosage_form,
+                "uses": ln.product.uses,
             }
         )
     return {
@@ -275,5 +282,6 @@ def sale_detail(sale_id: int, session: Session = Depends(get_session)):
         "cash_paid": money(s.cash_paid),
         "card_paid": money(s.card_paid),
         "profit": money(-total_profit if s.is_return else total_profit),
+        "note": s.note,
         "lines": lines,
     }

@@ -54,6 +54,12 @@ function POSInner() {
   const [allowPartial, setAllowPartial] = useState(false);
   // F2 cross-branch stock popup: the product whose branch stock we're showing.
   const [branchStock, setBranchStock] = useState(null);
+  // Cashier's free-text invoice note (prints on the receipt).
+  const [saleNote, setSaleNote] = useState("");
+  // Receipt print options (dosage/usage line; profit line for managers).
+  const [printOpts, setPrintOpts] = useState({ profit: false, dosage: false });
+  // Manual batch picker: { item, batches } for the cart line being chosen.
+  const [batchPicker, setBatchPicker] = useState(null);
 
   // POS writes to a specific branch; default to the first if "All" is selected.
   const posBranch = branch || branches[0]?.branch_id;
@@ -173,10 +179,42 @@ function POSInner() {
           unit_big: p.unit_big || null,
           unit_small: p.unit_small || null,
           unit_factor: Number(p.unit_factor) > 1 ? Number(p.unit_factor) : 1,
+          nearest_expiry: p.nearest_expiry || null,
+          batch_id: null, // manual batch pick; null => FEFO
+          batch_label: null,
         },
       ];
     });
   }
+  // Manual batch pick (eStock parity): open a popover of this line's sellable
+  // batches so the cashier can choose a specific box (e.g. the fresher one).
+  async function openBatchPicker(item) {
+    try {
+      const r = await api.productBatches(item.product_id, posBranch);
+      const sellable = (r.batches || []).filter((b) => !b.expired && b.amount > 0);
+      setBatchPicker({ item, batches: sellable });
+    } catch {
+      setBatchPicker({ item, batches: [] });
+    }
+  }
+  function chooseBatch(pid, batch) {
+    setCart((c) =>
+      c.map((x) =>
+        x.product_id === pid
+          ? { ...x, batch_id: batch ? batch.batch_id : null, batch_label: batch ? batch.exp_date : null }
+          : x
+      )
+    );
+    setBatchPicker(null);
+  }
+  // The earliest-expiry sellable batch id — picking anything later warrants a
+  // reminder (an older box is still on the shelf).
+  const fefoFirstId = (batches) => {
+    const dated = batches.filter((b) => b.exp_date);
+    if (!dated.length) return batches[0]?.batch_id ?? null;
+    return dated.reduce((a, b) => (a.exp_date <= b.exp_date ? a : b)).batch_id;
+  };
+
   // qty is what the cashier typed, in the line's SELECTED unit; stock stays in
   // big units, so a small-unit qty is divided by the factor (٢ شريط = ٠٫٦٦٧ علبة).
   function setQty(pid, qty) {
@@ -320,7 +358,8 @@ function POSInner() {
     if (!lastSaleId) return;
     try {
       const sale = await api.saleDetail(lastSaleId);
-      printReceipt(sale, { lang });
+      // Profit only prints for management, even if toggled on.
+      printReceipt(sale, { lang, showProfit: printOpts.profit && canSeeProfit, showDosage: printOpts.dosage });
     } catch {
       /* receipt is best-effort */
     }
@@ -336,9 +375,10 @@ function POSInner() {
         cashier_id: 1,
         is_credit: isCredit,
         customer_id: customerId ? Number(customerId) : null,
-        lines: cart.map((x) => ({ product_id: x.product_id, amount: x.amount })),
+        lines: cart.map((x) => ({ product_id: x.product_id, amount: x.amount, batch_id: x.batch_id || null })),
         redeem_points: Number(redeemIn) || 0,
         allow_partial: allowPartial,
+        note: saleNote.trim() || null,
       };
       const r = await api.createSale(payload);
       // If this sale came from a prescription, mark it dispensed.
@@ -362,6 +402,7 @@ function POSInner() {
       setIsCredit(false);
       setCustomerId("");
       setRedeemIn("");
+      setSaleNote("");
     } catch (e) {
       setResult({ ok: false, msg: e.message });
     }
@@ -596,7 +637,20 @@ function POSInner() {
           {cart.length === 0 && <p className="muted">{L("cart_empty")}</p>}
           {cart.map((x) => (
             <div key={x.product_id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ flex: 1 }}>{x.name}</span>
+              <span style={{ flex: 1 }}>
+                {x.name}
+                <span style={{ display: "block", fontSize: 11 }} className="muted">
+                  {x.nearest_expiry ? `${L("expiry_lbl")} ${x.nearest_expiry}` : ""}
+                  {x.batch_id ? ` · ${L("pos_batch")}: ${x.batch_label || x.batch_id}` : ""}
+                </span>
+              </span>
+              <button
+                className={`btn icon ${x.batch_id ? "primary" : ""}`}
+                onClick={() => openBatchPicker(x)}
+                title={L("pos_choose_batch")}
+              >
+                🏷
+              </button>
               <button className="btn icon" onClick={() => showSubs(x)} title={L("alternatives")}>
                 ⇄
               </button>
@@ -766,6 +820,15 @@ function POSInner() {
               <span>{L("pos_partial_toggle")}</span>
             </label>
 
+            <input
+              className="input"
+              placeholder={L("pos_note_ph")}
+              value={saleNote}
+              onChange={(e) => setSaleNote(e.target.value)}
+              maxLength={300}
+              style={{ width: "100%", marginBottom: 10 }}
+            />
+
             <button
               className="btn primary"
               style={{ width: "100%" }}
@@ -787,14 +850,74 @@ function POSInner() {
               </a>
             )}
             {lastSaleId && (
-              <button className="btn" onClick={doPrintReceipt}
-                      style={{ marginTop: 8, width: "100%" }}>
-                {L("print_receipt")}
-              </button>
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, marginBottom: 6 }}>
+                  <label style={{ display: "flex", gap: 4, cursor: "pointer" }}>
+                    <input type="checkbox" checked={printOpts.dosage} onChange={(e) => setPrintOpts((o) => ({ ...o, dosage: e.target.checked }))} />
+                    {L("pos_print_dosage")}
+                  </label>
+                  {canSeeProfit && (
+                    <label style={{ display: "flex", gap: 4, cursor: "pointer" }}>
+                      <input type="checkbox" checked={printOpts.profit} onChange={(e) => setPrintOpts((o) => ({ ...o, profit: e.target.checked }))} />
+                      {L("pos_print_profit")}
+                    </label>
+                  )}
+                </div>
+                <button className="btn" onClick={doPrintReceipt} style={{ width: "100%" }}>
+                  {L("print_receipt")}
+                </button>
+              </div>
             )}
           </div>
         </div>
       </div>
+      )}
+
+      {/* Manual batch picker: choose a specific batch (fresher box) for a line.
+          A red reminder flags any batch that isn't the earliest-expiry one. */}
+      {batchPicker && (
+        <div
+          onClick={() => setBatchPicker(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "grid", placeItems: "center", zIndex: 50 }}
+        >
+          <div className="card" onClick={(e) => e.stopPropagation()} style={{ minWidth: 340, maxWidth: 520 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <h3 className="section-title" style={{ margin: 0 }}>{L("pos_choose_batch")} — {batchPicker.item.name}</h3>
+              <button className="btn icon" style={{ marginInlineStart: "auto" }} onClick={() => setBatchPicker(null)}>✕</button>
+            </div>
+            {batchPicker.batches.length === 0 ? (
+              <p className="muted">{L("no_alternatives")}</p>
+            ) : (
+              <table className="tbl">
+                <tbody>
+                  <tr>
+                    <td colSpan="3">
+                      <button className="btn" onClick={() => chooseBatch(batchPicker.item.product_id, null)}>
+                        {L("pos_auto_fefo")}
+                      </button>
+                    </td>
+                  </tr>
+                  {batchPicker.batches
+                    .slice()
+                    .sort((a, b) => (a.exp_date || "9999").localeCompare(b.exp_date || "9999"))
+                    .map((b) => {
+                      const isFefo = b.batch_id === fefoFirstId(batchPicker.batches);
+                      return (
+                        <tr key={b.batch_id}>
+                          <td>{L("expiry_lbl")} {b.exp_date || "—"}</td>
+                          <td className="num muted">{fmt(b.amount)}</td>
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            {!isFefo && <span className="badge warn" style={{ fontSize: 11, marginInlineEnd: 6 }}>{L("pos_older_exists")}</span>}
+                            <button className="btn" onClick={() => chooseBatch(batchPicker.item.product_id, b)}>{L("acc_show")}</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       )}
 
       {/* F2 cross-branch stock popup: where else this item is on the shelf. */}
