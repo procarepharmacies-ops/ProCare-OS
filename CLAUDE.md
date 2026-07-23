@@ -441,6 +441,21 @@ allowed (new run — history preserved, no silent dedupe); voiding keeps the row
 lines (`status='void'`, audit trail) and is idempotent; commission math never
 blocks sales. Tables added idempotently via `ensure_commission_tables`.
 
+### Shareholders (Phase 6) — `shareholders` / `dividend_payments`
+
+Mirror of eStock `company_Owner` + `Gedo_Dividends_paied` (owner's register):
+each shareholder's capital (starting → current) and dividends paid per year.
+
+Invariants: ETL `_load_shareholders` is `has_table`-guarded (absent source →
+skipped, never an error); shareholders **upsert by `source_id`** (eStock
+`coow_id`) so re-syncing from either branch server keeps ONE owners register —
+they are deliberately NOT in the destructive `_WIPE_ORDER`; deleted owners
+(`company_Owner.deleted`) are skipped; dividends upsert by `source_id` and any
+dividend whose owner is unknown/deleted is dropped. `GET /api/shareholders`
+(register + ownership `share_pct` + dividend totals) and `/{id}` (annual
+dividend history) are **CEO-only**, read-only. Tables added idempotently via
+`ensure_shareholder_tables`.
+
 ---
 
 ## Operations Monitoring (SRE) — watchdog · digest · db_health

@@ -1183,3 +1183,61 @@ class ProductChange(Base):
         Index("IX_product_change_product", "product_id", "created_at"),
         Index("IX_product_change_created", "created_at"),
     )
+
+
+class Shareholder(Base):
+    """Company shareholder / owner (eStock ``company_Owner`` mirror, المساهمون).
+
+    Read-only mirror of the owners register: each shareholder's current and
+    starting capital. Dividends paid to them live in ``dividend_payments``.
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "shareholders"
+
+    shareholder_id: Mapped[int] = mapped_column(primary_key=True)
+    # eStock coow_id, kept so the ETL can upsert without duplicating on re-sync.
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)
+    code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    name_ar: Mapped[str] = mapped_column(String(150))
+    name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    tel: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    current_capital: Mapped[float] = mapped_column(Money, default=0)
+    start_capital: Mapped[float] = mapped_column(Money, default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    dividends: Mapped[list["DividendPayment"]] = relationship(
+        back_populates="shareholder", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("IX_shareholder_source", "source_id"),
+    )
+
+
+class DividendPayment(Base):
+    """A dividend paid to a shareholder for a year (eStock ``Gedo_Dividends_paied``).
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "dividend_payments"
+
+    dividend_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)
+    shareholder_id: Mapped[int] = mapped_column(ForeignKey("shareholders.shareholder_id"))
+    year: Mapped[int | None] = mapped_column(nullable=True)
+    # eStock Gedo_Financial journal link (gf_id) — kept for traceability.
+    gf_id: Mapped[int | None] = mapped_column(nullable=True)
+    amount: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    shareholder: Mapped[Shareholder] = relationship(back_populates="dividends")
+
+    __table_args__ = (
+        Index("IX_dividend_shareholder", "shareholder_id"),
+        Index("IX_dividend_year", "year"),
+    )

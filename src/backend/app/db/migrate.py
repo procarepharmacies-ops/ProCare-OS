@@ -453,6 +453,19 @@ def ensure_ledger_reason_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE ledger_entries {add} reason_code VARCHAR(30) NULL"))
 
 
+def ensure_shareholder_tables(engine) -> None:
+    """Ensure shareholders + dividend_payments tables exist (Phase 6:
+    shareholders mirror). Creates them via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    missing = [t for t in ("shareholders", "dividend_payments") if t not in table_names]
+    if missing:
+        from app.db.models import Base, DividendPayment, Shareholder
+
+        tables = [Shareholder.__table__, DividendPayment.__table__]
+        Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
+
+
 def ensure_product_change_table(engine) -> None:
     """Ensure the product_changes table exists (Phase 6: price/min-stock change
     log). Creates it via create_all if missing; idempotent."""
