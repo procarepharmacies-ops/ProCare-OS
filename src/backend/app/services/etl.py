@@ -67,11 +67,12 @@ DEFERRED_PLAN = [
 # live eStock tables ProCare does NOT yet mirror. NB: this is the count that
 # matters for "how much of eStock do we cover", not ProCare's own table count.
 COVERED_SOURCE_TABLES = frozenset({
-    "Products", "Customer", "Vendor", "Employee", "Product_Amount",
+    "Products", "Customer", "Vendor", "Employee", "Product_Amount", "Branches_Product_Amount",
     "Sales_header", "Sales_details", "Branches_sales_header", "Branches_sales_details",
     "Back_sales_header", "Back_Sales_details", "Branches_back_sales_header", "Branches_back_sales_details",
     "Purchase_header", "Purchase_details", "Branches_purchase_header", "Branches_purchase_details",
-    "Cash_depots",
+    "Cash_depots", "Cash_disk_close", "Branches_Cash_disk_close",
+    "Branch_order_header", "Branch_order_details",
     "company_Owner", "Gedo_Dividends_paied",
     "Employee_salary", "Employee_cash_advance",
 })
@@ -430,6 +431,7 @@ def mirror(
         _load_vendors(insp, src, dst, counts, dedup=dedup)
         _load_employees(insp, src, dst, counts)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
+        _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map, default_branch)
 
         # Cashier attribution: eStock stores the cashier as a username on each
         # sale; map it to the ProCare employee so per-cashier reports work.
@@ -464,6 +466,10 @@ def mirror(
         ]:
             _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch,
                             header_tbl=h, detail_tbl=d, window_cutoff=window_cutoff)
+
+        # Mirror high-value uncovered tables (Phase 7).
+        _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch)
+        _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default_branch)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
         # Shareholders + dividends (optional, upsert by source id).
@@ -1061,6 +1067,191 @@ def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
     dst.add_all(batch_objs)
     dst.flush()
     counts["stock_batches"] = n
+
+
+def _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
+    """Mirror eStock's Branches_Product_Amount (per-branch batch stock).
+
+    Inferred columns (pending schema-dump confirmation from Elsanta):
+    - product_id, amount, buy_price, sell_price, tax_price, exp_date (like Product_Amount)
+    - counter_id (or pa_id) for dedup
+    - store_id or branch_id mapping
+    """
+    if not insp.has_table("Branches_Product_Amount"):
+        return
+    cols = {c["name"] for c in insp.get_columns("Branches_Product_Amount")}
+    pid = _pick(cols, "product_id")
+    store = _pick(cols, "store_id")
+    counter = _pick(cols, "counter_id", "pa_id")  # try counter_id first, fallback to pa_id
+    amount = _pick(cols, "amount")
+    buy = _pick(cols, "buy_price")
+    sell = _pick(cols, "sell_price")
+    tax = _pick(cols, "tax_price")
+    exp = _pick(cols, "exp_date")
+
+    rows = src.execute(text("SELECT * FROM Branches_Product_Amount")).mappings().all()
+    n = 0
+    batch_objs = []
+    for r in rows:
+        src_pid = int(r[pid]) if pid and r.get(pid) is not None else None
+        dst_pid = product_map.get(src_pid)
+        if dst_pid is None:
+            continue
+        branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        batch_objs.append(
+            m.StockBatch(
+                product_id=dst_pid,
+                branch_id=branch_id or default_branch,
+                source_counter=int(r[counter]) if counter and r.get(counter) is not None else None,
+                amount=max(_num(r.get(amount)), 0),
+                buy_price=_num(r.get(buy)) if buy else 0,
+                sell_price=_num(r.get(sell)) if sell else 0,
+                tax_price=_num(r.get(tax)) if tax else 0,
+                exp_date=_as_date(r.get(exp)) if exp else None,
+            )
+        )
+        n += 1
+    if batch_objs:
+        counts.setdefault("stock_batches", 0)
+        counts["stock_batches"] += n
+        dst.add_all(batch_objs)
+        dst.flush()
+
+
+def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) -> None:
+    """Mirror eStock's Cash_disk_close / Branches_Cash_disk_close (shift history).
+
+    Reads both the centralized and branch-specific versions, accumulating shift records.
+    Inferred columns: cdc_id, cdc_emp_id, cdc_shift_start_time, cdc_start_cash,
+    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, store_id.
+    """
+    n = 0
+    shift_objs = []
+    for tbl in ("Cash_disk_close", "Branches_Cash_disk_close"):
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        shift_id = _pick(cols, "cdc_id")
+        emp_id = _pick(cols, "cdc_emp_id", "emp_id")
+        cash_depot = _pick(cols, "cdc_cash_id")
+        start_time = _pick(cols, "cdc_shift_start_time", "shift_start_time")
+        start_cash = _pick(cols, "cdc_start_cash", "start_cash")
+        current_cash = _pick(cols, "cdc_curr_cash", "current_cash")
+        actual_cash = _pick(cols, "cdc_act_cash", "actual_cash")
+        to_emp = _pick(cols, "cdc_to_emp_id")
+        trans_val = _pick(cols, "cdc_trans_value", "trans_value")
+        notice = _pick(cols, "cdc_notice", "notice")
+        store = _pick(cols, "store_id")
+
+        rows = src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
+        for r in rows:
+            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            shift_objs.append(
+                m.CashShiftClose(
+                    branch_id=branch_id or default_branch,
+                    source_shift_id=int(r[shift_id]) if shift_id and r.get(shift_id) is not None else None,
+                    employee_id=None,  # would need employee_map to resolve username
+                    cash_depot_id=int(r[cash_depot]) if cash_depot and r.get(cash_depot) is not None else None,
+                    shift_start_time=_as_dt(r.get(start_time)) if start_time else None,
+                    start_cash=_num(r.get(start_cash)) if start_cash else 0,
+                    current_cash=_num(r.get(current_cash)) if current_cash else 0,
+                    actual_cash=_num(r.get(actual_cash)) if actual_cash else 0,
+                    transfer_amount=_num(r.get(trans_val)) if trans_val else 0,
+                    note=str(r.get(notice)).strip() if notice and r.get(notice) else None,
+                )
+            )
+            n += 1
+    if shift_objs:
+        counts["shift_closes"] = n
+        dst.add_all(shift_objs)
+        dst.flush()
+
+
+def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
+    """Mirror eStock's Branch_order_header/details (inter-branch transfers).
+
+    Inferred columns (header): bo_id, from_store_id, to_store_id, order_date, received_date, status
+    Inferred columns (details): bol_id, bo_id (FK), product_id, qty, received_qty
+    """
+    if not insp.has_table("Branch_order_header"):
+        counts["branch_orders"] = 0
+        return
+
+    # Load headers
+    h_cols = {c["name"] for c in insp.get_columns("Branch_order_header")}
+    h_id = _pick(h_cols, "bo_id")
+    h_from_store = _pick(h_cols, "from_store_id", "from_branch_id")
+    h_to_store = _pick(h_cols, "to_store_id", "to_branch_id")
+    h_order_date = _pick(h_cols, "order_date")
+    h_received_date = _pick(h_cols, "received_date")
+    h_status = _pick(h_cols, "status")
+    h_notice = _pick(h_cols, "notice")
+
+    h_rows = src.execute(text("SELECT * FROM Branch_order_header")).mappings().all()
+    h_map: dict[int, int] = {}  # source bo_id -> dest order_id
+    header_objs = []
+    for r in h_rows:
+        src_order_id = int(r[h_id]) if h_id and r.get(h_id) is not None else None
+        from_branch = branch_map.get(int(r[h_from_store])) if h_from_store and r.get(h_from_store) is not None else default_branch
+        to_branch = branch_map.get(int(r[h_to_store])) if h_to_store and r.get(h_to_store) is not None else default_branch
+        header = m.BranchOrderHeader(
+            source_order_id=src_order_id,
+            from_branch_id=from_branch or default_branch,
+            to_branch_id=to_branch or default_branch,
+            order_date=_as_date(r.get(h_order_date)) if h_order_date else None,
+            received_date=_as_date(r.get(h_received_date)) if h_received_date else None,
+            status=str(r.get(h_status)).lower().strip() if h_status and r.get(h_status) else "pending",
+            note=str(r.get(h_notice)).strip() if h_notice and r.get(h_notice) else None,
+        )
+        header_objs.append(header)
+        if src_order_id:
+            h_map[src_order_id] = len(header_objs) - 1  # provisional index (before flush)
+
+    if header_objs:
+        dst.add_all(header_objs)
+        dst.flush()
+        # Re-map to actual inserted IDs
+        h_map = {src_id: obj.order_id for src_id, obj in zip(h_map.keys(), header_objs)}
+
+    # Load details if available
+    if not insp.has_table("Branch_order_details"):
+        counts["branch_orders"] = len(header_objs)
+        return
+
+    d_cols = {c["name"] for c in insp.get_columns("Branch_order_details")}
+    d_id = _pick(d_cols, "bol_id")
+    d_order_id = _pick(d_cols, "bo_id")
+    d_product_id = _pick(d_cols, "product_id")
+    d_qty = _pick(d_cols, "qty", "quantity")
+    d_received_qty = _pick(d_cols, "received_qty")
+    d_notice = _pick(d_cols, "notice")
+
+    d_rows = src.execute(text("SELECT * FROM Branch_order_details")).mappings().all()
+    line_objs = []
+    for r in d_rows:
+        src_order_id = int(r[d_order_id]) if d_order_id and r.get(d_order_id) is not None else None
+        order_id = h_map.get(src_order_id)
+        if not order_id:
+            continue  # orphan line (no matching header)
+        src_pid = int(r[d_product_id]) if d_product_id and r.get(d_product_id) is not None else None
+        dst_pid = product_map.get(src_pid)
+        if not dst_pid:
+            continue  # orphan product
+        line_objs.append(
+            m.BranchOrderLine(
+                order_id=order_id,
+                product_id=dst_pid,
+                quantity=max(_num(r.get(d_qty)), 0),
+                received_qty=max(_num(r.get(d_received_qty)), 0) if d_received_qty else 0,
+                note=str(r.get(d_notice)).strip() if d_notice and r.get(d_notice) else None,
+            )
+        )
+
+    if line_objs:
+        dst.add_all(line_objs)
+        dst.flush()
+
+    counts["branch_orders"] = len(header_objs)
 
 
 def _load_sales(
