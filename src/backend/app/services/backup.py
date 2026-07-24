@@ -67,7 +67,13 @@ def backup_now(reason: str = "manual") -> dict:
             _prune(dest.parent)
             return {"ok": True, "path": str(dest), "reason": reason}
         # SQL Server: server-side native backup (path is ON THE SERVER).
-        dbname = engine.url.database
+        # engine.url.database is empty when the URL is built from an
+        # odbc_connect string, so ask the server for the current DB name
+        # instead of trusting the (blank) URL attribute.
+        with engine.connect() as _c:
+            dbname = _c.execute(text("SELECT DB_NAME()")).scalar()
+        if not dbname:
+            dbname = engine.url.database
         dest = f"procare-{stamp}.bak"
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text(f"BACKUP DATABASE [{dbname}] TO DISK = :d"), {"d": dest})
