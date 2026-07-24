@@ -507,6 +507,77 @@ class PurchaseOrderDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
+class CashShiftClose(Base):
+    """Cashier shift reconciliation history — mirrors eStock's Cash_disk_close.
+
+    Per-shift open/close record: start time, starting cash, current, actual,
+    and any over/short amount. Read-only history from eStock; ProCare cashier
+    shifts are separate.
+    """
+
+    __tablename__ = "cash_shift_closes"
+
+    shift_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    source_shift_id: Mapped[int | None] = mapped_column(nullable=True)  # eStock cdc_id
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    cash_depot_id: Mapped[int | None] = mapped_column(nullable=True)  # eStock cash_depot_id
+    shift_start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    shift_end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    start_cash: Mapped[float] = mapped_column(Money, default=0)
+    current_cash: Mapped[float] = mapped_column(Money, default=0)
+    actual_cash: Mapped[float] = mapped_column(Money, default=0)
+    transferred_to_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    transfer_amount: Mapped[float] = mapped_column(Money, default=0)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_shift_close_branch_time", "branch_id", "shift_start_time"),
+    )
+
+
+class BranchOrderHeader(Base):
+    """Inter-branch transfer request header — mirrors eStock's Branch_order_header.
+
+    One requisition per branch-to-branch stock request. Read-only history mirror;
+    ProCare's own transfers are StockTransfer.
+    """
+
+    __tablename__ = "branch_order_headers"
+
+    order_id: Mapped[int] = mapped_column(primary_key=True)
+    source_order_id: Mapped[int | None] = mapped_column(nullable=True)  # eStock bo_id
+    from_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    to_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    received_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/received/cancelled
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_order_branches_date", "from_branch_id", "to_branch_id", "order_date"),
+    )
+
+
+class BranchOrderLine(Base):
+    """Inter-branch transfer request details — mirrors Branch_order_details."""
+
+    __tablename__ = "branch_order_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("branch_order_headers.order_id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    quantity: Mapped[float] = mapped_column(Qty, default=0)
+    received_qty: Mapped[float] = mapped_column(Qty, default=0)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    __table_args__ = (
+        Index("IX_orderline_product", "order_id", "product_id"),
+    )
+
+
 class EmployeeTask(Base):
     """Daily task assignments. CEO/managers create and assign; staff mark done.
 

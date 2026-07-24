@@ -16,8 +16,8 @@ def _source(path):
         # One table the ETL covers, one it does not.
         c.execute(text("CREATE TABLE Products (product_id INT, product_name_ar TEXT, sell_price REAL)"))
         c.execute(text("INSERT INTO Products VALUES (1,'صنف',10.0)"))
-        c.execute(text("CREATE TABLE Branches_Product_Amount (bpa_id INT, product_id INT, store_id INT, amount REAL)"))
-        c.execute(text("INSERT INTO Branches_Product_Amount VALUES (1,1,2,5.0),(2,1,2,7.0)"))
+        c.execute(text("CREATE TABLE Employee_daily_time (edt_id INT, emp_id INT, work_date DATE, hours REAL)"))
+        c.execute(text("INSERT INTO Employee_daily_time VALUES (1,1,'2026-01-01',8.0),(2,1,'2026-01-02',7.5)"))
     return eng
 
 
@@ -26,17 +26,17 @@ def test_dump_flags_coverage_and_columns(tmp_path):
     try:
         dump = dumptool.dump_schema(eng, with_counts=True)
         assert dump["total_tables"] == 2
-        # Products is in COVERED_SOURCE_TABLES; Branches_Product_Amount is not.
+        # Products is in COVERED_SOURCE_TABLES; Employee_daily_time is deliberately not.
         assert "Products" in dump["covered"]
-        assert "Branches_Product_Amount" in dump["uncovered"]
+        assert "Employee_daily_time" in dump["uncovered"]
         assert dump["covered_count"] == 1 and dump["uncovered_count"] == 1
 
         products = next(t for t in dump["tables"] if t["name"] == "Products")
         assert {c["name"] for c in products["columns"]} == {"product_id", "product_name_ar", "sell_price"}
         assert products["row_count"] == 1
 
-        bpa = next(t for t in dump["tables"] if t["name"] == "Branches_Product_Amount")
-        assert bpa["row_count"] == 2 and bpa["covered"] is False
+        edt = next(t for t in dump["tables"] if t["name"] == "Employee_daily_time")
+        assert edt["row_count"] == 2 and edt["covered"] is False
     finally:
         eng.dispose()
 
@@ -57,7 +57,7 @@ def test_render_markdown_has_gap_section(tmp_path):
     try:
         md = dumptool.render_markdown(dumptool.dump_schema(eng))
         assert "Coverage gap" in md
-        assert "Branches_Product_Amount" in md
+        assert "Employee_daily_time" in md
         assert "✅ `Products`" in md
     finally:
         eng.dispose()

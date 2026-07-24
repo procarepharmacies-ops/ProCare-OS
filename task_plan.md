@@ -247,12 +247,23 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         docs/estock-schema-dump.md + .json. Owner runs once on Elsanta → commit →
         real column data for the mirrors + closes the ~11 undocumented-tables blind
         spot. 3 tests. (2026-07-23)
-  - [ ] **PR 2b — high-value mirrors** (needs the dump's confirmed columns):
-        Branches_Product_Amount (per-branch stock), Cash_disk_close, Branch_order_*;
-        then Gedo_* GL verbatim.
-      HONEST BASELINE: ETL reads 22 source tables (not 48 — that's ProCare's own
-      table count); ~25 uncovered tables are empty/temp/config; Employee_daily_time
-      (2.8M) deferred.
+  - [x] **PR 2b — high-value mirrors** (PR #47, columns inferred pending
+        Elsanta schema-dump confirmation): `Branches_Product_Amount` (per-branch
+        batch stock → stock_batches, alongside Product_Amount); `Cash_disk_close`
+        + `Branches_Cash_disk_close` (new `CashShiftClose` model — shift
+        reconciliation history); `Branch_order_header/details` (new
+        `BranchOrderHeader`/`BranchOrderLine` models — inter-branch requisition
+        history). All three: `has_table`-guarded, `_pick` column aliasing,
+        branch/product-mapped, orphan-row skip. `COVERED_SOURCE_TABLES` now 28
+        (was 22). 6 new ETL tests (synthetic sources). 380 tests green. (2026-07-24)
+  - [ ] **PR 2c — GL verbatim mirror** (follow-up, largest/riskiest): `Gedo_Financial`,
+        `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Account_Tree`,
+        `Tuning_accounts` (~195K rows combined) — needs real column names from
+        the schema-dump before starting (double-entry GL, higher error cost
+        than the Slice-1 tables).
+      HONEST BASELINE: ETL now reads 28 source tables (not 48 — that's ProCare's
+      own table count); ~25 uncovered tables are empty/temp/config;
+      Employee_daily_time (2.8M) deliberately deferred.
 
 ## Backlog (not started)
 - [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync

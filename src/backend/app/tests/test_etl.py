@@ -262,3 +262,104 @@ def test_run_full_load_refuses_without_credentials():
     result = etl.run_full_load()
     assert result["ran"] is False
     assert "credentials" in result["reason"].lower()
+
+
+# Phase 7: High-value mirrors (Branches_Product_Amount, Cash_disk_close, Branch_order_*)
+
+
+def test_load_branch_product_amount(estock_source):
+    """Mirror Branches_Product_Amount (per-branch batch stock) alongside Product_Amount."""
+    try:
+        with estock_source.begin() as c:
+            # Inferred schema: product_id, amount, buy_price, sell_price, tax_price, exp_date, store_id
+            c.execute(text(
+                "CREATE TABLE Branches_Product_Amount ("
+                "counter_id INT, product_id INT, amount REAL, buy_price REAL, sell_price REAL, "
+                "tax_price REAL, exp_date TEXT, store_id INT)"
+            ))
+            # Store 2 (MASHALA) branch stock
+            c.execute(text(
+                "INSERT INTO Branches_Product_Amount VALUES "
+                "(201,101,50,7,12,0,'2027-06-01',2),"
+                "(202,102,10,40,60,0,'2027-08-15',2)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            # Check that branch stock was loaded alongside main stock
+            mashala_stock = s.query(m.StockBatch).filter(m.StockBatch.branch_id == 2).all()
+            assert len(mashala_stock) >= 2  # includes Branches_Product_Amount rows
+            # Verify a batch from Branches_Product_Amount
+            batch = next((b for b in mashala_stock if b.amount == 50), None)
+            assert batch is not None
+            prod_a = s.query(m.Product).filter(m.Product.code == "A").one()
+            assert batch.product_id == prod_a.product_id
+    finally:
+        reset_and_seed()
+
+
+def test_load_cash_shift_closes(estock_source):
+    """Mirror Cash_disk_close (shift reconciliation history)."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Cash_disk_close ("
+                "cdc_id INT, store_id INT, cdc_emp_id INT, cdc_shift_start_time TEXT, "
+                "cdc_start_cash REAL, cdc_curr_cash REAL, cdc_act_cash REAL, "
+                "cdc_trans_value REAL, cdc_notice TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Cash_disk_close VALUES "
+                "(1,1,1,'2026-07-24 08:00:00',0,5000,5050,0,'OK'),"
+                "(2,1,1,'2026-07-24 16:00:00',5050,10200,10200,0,'Balanced')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            shifts = s.query(m.CashShiftClose).filter(m.CashShiftClose.branch_id == 1).all()
+            assert len(shifts) >= 2
+            shift = shifts[0]
+            assert shift.start_cash == 0
+            assert shift.current_cash == 5000
+            assert shift.actual_cash == 5050
+    finally:
+        reset_and_seed()
+
+
+def test_load_branch_orders(estock_source):
+    """Mirror Branch_order_header/details (inter-branch transfer history)."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branch_order_header ("
+                "bo_id INT, from_store_id INT, to_store_id INT, "
+                "order_date TEXT, received_date TEXT, status TEXT, notice TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_header VALUES "
+                "(1,1,2,'2026-07-20','2026-07-21','received','Transfer OK')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branch_order_details ("
+                "bol_id INT, bo_id INT, product_id INT, qty REAL, received_qty REAL, notice TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_details VALUES "
+                "(1,1,101,20,20,NULL),"
+                "(2,1,102,5,5,NULL)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            orders = s.query(m.BranchOrderHeader).all()
+            assert len(orders) == 1
+            order = orders[0]
+            assert order.from_branch_id == 1 and order.to_branch_id == 2
+            assert order.status == "received"
+
+            lines = s.query(m.BranchOrderLine).filter(m.BranchOrderLine.order_id == order.order_id).all()
+            assert len(lines) == 2
+            assert lines[0].quantity == 20
+            assert lines[0].received_qty == 20
+    finally:
+        reset_and_seed()
