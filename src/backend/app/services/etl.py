@@ -62,6 +62,21 @@ DEFERRED_PLAN = [
     ("Branch_money_* (1,102/1,098)", "cash_transfers", "column audit pending"),
 ]
 
+# Every eStock SOURCE table this ETL reads (keep in sync with the _load_* funcs
+# below). Used by tools/estock_schema_dump.py to report the coverage gap — which
+# live eStock tables ProCare does NOT yet mirror. NB: this is the count that
+# matters for "how much of eStock do we cover", not ProCare's own table count.
+COVERED_SOURCE_TABLES = frozenset({
+    "Products", "Customer", "Vendor", "Employee", "Product_Amount",
+    "Sales_header", "Sales_details", "Branches_sales_header", "Branches_sales_details",
+    "Back_sales_header", "Back_Sales_details", "Branches_back_sales_header", "Branches_back_sales_details",
+    "Purchase_header", "Purchase_details", "Branches_purchase_header", "Branches_purchase_details",
+    "Cash_depots",
+    "company_Owner", "Gedo_Dividends_paied",
+    "Employee_salary", "Employee_cash_advance",
+})
+
+
 # Destination tables cleared (children first) before a full load. Branches and
 # the reference/lookup seeds are kept; the mirror fills operational data.
 _WIPE_ORDER = [

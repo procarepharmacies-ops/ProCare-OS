@@ -239,10 +239,17 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         net = gross − total_discount + tax; `PurchaseLineIn.disc_money`;
         purchase detail exposes per-line disc_money + total_net; receive-goods
         UI discount column. 2 tests. (2026-07-23) — POS cluster (PR1) complete.
-- [ ] **PR 2 — coverage**: mirror Branches_Product_Amount + Cash_disk_close +
-      Branch_order_* (slice 1); GL Gedo_* verbatim (slice 2, needs live column
-      audit); `tools/estock_schema_dump.py` (read-only INFORMATION_SCHEMA dump →
-      commit → closes the ~11 undocumented-tables blind spot).
+- [~] **PR 2 — coverage**:
+  - [x] **PR 2a — schema-dump / coverage tool**: `etl.COVERED_SOURCE_TABLES`
+        (the 22 source tables the ETL reads) + `tools/estock_schema_dump.py`
+        (READ-ONLY, dialect-agnostic via SQLAlchemy Inspector — SQL 2008 + SQLite):
+        dumps every table+columns(+optional COUNT), flags the coverage gap, writes
+        docs/estock-schema-dump.md + .json. Owner runs once on Elsanta → commit →
+        real column data for the mirrors + closes the ~11 undocumented-tables blind
+        spot. 3 tests. (2026-07-23)
+  - [ ] **PR 2b — high-value mirrors** (needs the dump's confirmed columns):
+        Branches_Product_Amount (per-branch stock), Cash_disk_close, Branch_order_*;
+        then Gedo_* GL verbatim.
       HONEST BASELINE: ETL reads 22 source tables (not 48 — that's ProCare's own
       table count); ~25 uncovered tables are empty/temp/config; Employee_daily_time
       (2.8M) deferred.
