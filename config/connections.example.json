@@ -1,10 +1,11 @@
 {
   "_comment": "Copy this file to connections.json (git-ignored) and fill in real values. NEVER commit connections.json.",
 
-  "network_host": "192.168.1.2",
+  "network_host": "192.168.1.10",
 
   "estock_source": {
     "_role": "READ-ONLY source to mirror during transition. ProCare NEVER writes here.",
+    "_note": "Live eStock on Mshala machine (192.168.1.2), credentials are read-only",
     "driver": "ODBC Driver 18 for SQL Server",
     "server": "192.168.1.2",
     "database": "stock",
@@ -17,18 +18,20 @@
 
   "titan_drugeye_source": {
     "_role": "READ-ONLY clinical source: product names + drug substitution/interactions.",
+    "_note": "On Mshala at D:\\Labirdo; schema discovery TBD",
     "path": "D:\\Labirdo",
     "driver": "ODBC Driver 18 for SQL Server",
-    "server": "TBD_(local_or_192.168.1.2)",
+    "server": "192.168.1.2",
     "database": "TBD_(audit D:/Labirdo to discover)",
     "username": "REPLACE_WITH_READONLY_LOGIN",
     "password": "REPLACE_ME"
   },
 
   "procare_database": {
-    "_role": "ProCare OS OWN database — the new system of record. Read/write.",
+    "_role": "ProCare OS OWN database — the new system of record. Read/write on ProCare Dev.",
+    "_note": "Phase 2 pilot: Elsanta + Mshala branches run in parallel on ProCare Dev for 3 months. After validation, cutover to full ProCare ownership.",
     "driver": "ODBC Driver 18 for SQL Server",
-    "server": "192.168.1.2",
+    "server": "192.168.1.10",
     "database": "ProCare",
     "username": "REPLACE_ME",
     "password": "REPLACE_ME",
@@ -42,8 +45,9 @@
   },
 
   "branches": {
-    "main": { "name_ar": "الرئيسي", "name_en": "Main" },
-    "elsanta": { "name_ar": "السنتا", "name_en": "Elsanta", "pilot": true }
+    "main": { "name_ar": "الرئيسي", "name_en": "Main", "pilot": false },
+    "elsanta": { "name_ar": "السنتا", "name_en": "Elsanta", "pilot": true, "_note": "3-month parallel test: Phase 2 POS writes" },
+    "mshala": { "name_ar": "مشعل", "name_en": "Mshala", "pilot": true, "_note": "3-month parallel test: Phase 2 POS writes + employee mobile" }
   },
 
   "notifications": {

@@ -2,7 +2,7 @@
 
 **A new, fully independent pharmacy operating system with its own clean database — built for Procare Pharmacies. It first _mirrors_ the live eStock data (read-only), runs in _parallel_ for testing, then _completely replaces_ eStock — fused with the Titan / Drug-Eye clinical drug database and an AI + automation layer.**
 
-> Two branches: **MAIN (الرئيسي)** and **ELSANTA (السنتا)**. Both source systems run on the LAN host **`192.168.1.2`**.
+> Three branches: **MAIN (الرئيسي)**, **ELSANTA (السنتا)**, and **MSHALA (مشعل)**. eStock source (Mshala host: **`192.168.1.2`**); ProCare OS database (ProCare Dev: **`192.168.1.10`**). Phase 2 pilot: Elsanta + Mshala run in parallel for 3 months.
 > UI is **Arabic by default (RTL)**; English and Dark mode are **optional, per-user toggles**.
 
 ---
@@ -26,17 +26,17 @@ ProCare OS is a **standalone system of record**, not a permanent read-only layer
 
 - **Own clean database from day one** — real foreign keys, proper indexes, NON-NULL dates, no broken views. This directly fixes every data-quality problem found in eStock (which has **ZERO** stored procedures, **ZERO** functions, **NO** foreign keys, and **8 BROKEN** views).
 - **eStock is read-only, and temporary** — used only as the initial source of truth to mirror and validate against during the transition. ProCare **never writes to the eStock database** — read-only ETL only, via a dedicated read-only SQL login.
-- **Two branches, modeled cleanly** — MAIN and ELSANTA, with a `branch_id` on every operational row, replicating how eStock connects the branches (Module 7).
+- **Three branches, modeled cleanly** — MAIN, ELSANTA, and MSHALA, with a `branch_id` on every operational row, replicating how eStock connects the branches (Module 7).
 - **Fuses clinical intelligence** — Titan / Drug-Eye (at path `D:\Labirdo`) supplies drug product names, substitution/alternatives, interactions, and dosing, surfaced at the counter as **advisory** guidance (never silently blocks a sale).
 - **Adds AI + automation** — Arabic assistant, smart reorder, expiry alerts, forecasting, WhatsApp/email reports.
 
 ## Build strategy — mirror → parallel → cut over
 
-| Phase | Goal | eStock relationship |
-|-------|------|---------------------|
-| **Phase 1 — Mirror** | Read from the original eStock DB to mirror data into ProCare's own DB and validate it; stand up the read-only dashboard + Arabic AI assistant. | Read-only ETL |
-| **Phase 2 — Parallel** | Run the new system in parallel on **one** branch to test in real use. **Elsanta is the recommended pilot branch.** | Read-only ETL continues |
-| **Phase 3 — Cut over** | Switch over **completely** and **retire eStock**. ProCare becomes the sole, independent system of record. | eStock retired |
+| Phase | Goal | Branches | Servers |
+|-------|------|----------|---------|
+| **Phase 1 — Mirror** | Read from the original eStock DB (Mshala, 192.168.1.2) to mirror data into ProCare's own DB and validate it; stand up the read-only dashboard + Arabic AI assistant. | All branches (read-only) | eStock: 192.168.1.2; ProCare: 192.168.1.10 |
+| **Phase 2 — Parallel** | Run the new system in **parallel** on **Elsanta + Mshala** to test POS writes and employee mobile in real use for **3 months**. Both branches write to ProCare DB. | Main (eStock); Elsanta + Mshala (ProCare pilot) | eStock: 192.168.1.2; ProCare: 192.168.1.10 |
+| **Phase 3 — Cut over** | After validation, switch Main over **completely** and **retire eStock**. ProCare becomes the sole, independent system of record. | All branches (ProCare) | ProCare: 192.168.1.10 only |
 
 Full delivery plan: **[`docs/06-roadmap.md`](docs/06-roadmap.md)**.
 
@@ -58,12 +58,13 @@ Full delivery plan: **[`docs/06-roadmap.md`](docs/06-roadmap.md)**.
 | [`.gitignore`](.gitignore) | Ensures `config/connections.json` (and other secrets) are never committed |
 | [`src/`](src/README.md) | Application source — **Phase 1 implemented**: FastAPI backend + Next.js dashboard (runnable now) |
 
-## The two source systems (on `192.168.1.2`)
+## Network topology & databases
 
-| System | Role | Location / Database | Status |
-|--------|------|---------------------|--------|
-| **eStock** | Operations: POS, purchasing, inventory, customers, vendors, HR, accounts, ledger | SQL Server `stock` (`stock_phy_ver1.8.0.0`) | Live; mirror source for Phase 1, retired after Phase 3 |
-| **Titan / Drug-Eye** | Clinical drug intelligence: product names, substitution/alternatives, interactions, dosing | Path `D:\Labirdo`; DB schema **TBD** (not yet audited) — see [`docs/03`](docs/03-titan-drugeye-integration.md) | Live; schema discovery pending |
+| System | Role | Location / Server | Database | Status |
+|--------|------|-------------------|----------|--------|
+| **eStock (Mshala)** | **READ-ONLY source**: POS, purchasing, inventory, customers, vendors, HR, accounts, ledger | 192.168.1.2 | SQL Server `stock` (`stock_phy_ver1.8.0.0`) | Live; Phase 1–2 mirror source; retired after Phase 3 cutover |
+| **ProCare OS (ProCare Dev)** | **System of record**: ProCare's own clean database with FKs, indexes, clean dates. Owns all writes in Phase 2–3. | 192.168.1.10 | SQL Server `ProCare` | Built fresh; Phase 2 pilots Elsanta + Mshala; Phase 3 all branches |
+| **Titan / Drug-Eye (Mshala)** | Clinical drug intelligence: product names, interactions, dosing (advisory) | 192.168.1.2, `D:\Labirdo` | TBD (audit pending) | Live; schema discovery in progress — see [`docs/03`](docs/03-titan-drugeye-integration.md) |
 
 ### eStock at a glance (from the 2026-06-23 audit)
 
@@ -86,9 +87,17 @@ ProCare's ETL applies these rules; the clean ProCare schema makes them impossibl
 - **FEFO** (First Expire First Out) = `ORDER BY exp_date ASC`.
 - **74 expired batches** still in stock; **61 customers** over their credit limit; **33,249 zero/negative** stock batches; **8 broken views** (`item_purchasing`, `store_item_qty`, etc. — querying them crashes).
 
-## Multi-branch — Main + Elsanta
+## Multi-branch — Main, Elsanta, Mshala
 
-ProCare replicates eStock Module 7 with a clean model: a `branches` table, per-branch + per-batch stock, atomic audited `stock_transfers` (header + lines) between branches, `cash_transfers` between branches, and a unified ledger with a `branch_id` on every financial row. The dashboard/UI has a branch switcher (Main / Elsanta / All). Details: [`docs/07-multi-branch.md`](docs/07-multi-branch.md).
+ProCare replicates eStock Module 7 with a clean model: a `branches` table, per-branch + per-batch stock, atomic audited `stock_transfers` (header + lines) between branches, `cash_transfers` between branches, and a unified ledger with a `branch_id` on every financial row. The dashboard/UI has a branch switcher (Main / Elsanta / Mshala / All).
+
+**Phase 2 pilot strategy (3 months):**
+- **Main** — stays on eStock, read-only (no cutover yet)
+- **Elsanta** — runs on ProCare OS with full POS read/write (testing)
+- **Mshala** — runs on ProCare OS with full POS read/write + employee mobile app (testing)
+- After 3-month validation, cutover Main to ProCare and retire eStock
+
+Details: [`docs/07-multi-branch.md`](docs/07-multi-branch.md).
 
 ## Tech stack
 
