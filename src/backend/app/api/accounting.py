@@ -132,3 +132,18 @@ def sales_summary(
     session: Session = Depends(get_session),
 ):
     return accounting.sales_summary(session, branch_id, days)
+
+
+@router.get("/gl-accounts")
+def gl_accounts(session: Session = Depends(get_session)):
+    """eStock's real chart of accounts (Account_Tree mirror), read-only."""
+    return {"accounts": accounting.gl_accounts(session)}
+
+
+@router.get("/gl-journal")
+def gl_journal(
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's central GL journal (Gedo_Financial mirror), read-only, newest first."""
+    return {"entries": accounting.gl_journal(session, limit)}

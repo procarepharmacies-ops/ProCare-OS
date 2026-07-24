@@ -959,3 +959,55 @@
   riskiest remaining slice (double-entry GL — wrong column mapping there is
   costlier than a stock/shift/order mirror) — genuinely worth waiting for the
   schema-dump's confirmed columns before starting, unlike Slice 1.
+
+## 2026-07-24 · Phase 7 PR 2c — GL verbatim mirror — branch claude/phase-7-gl-verbatim-mirror (PR #49, stacked on #47)
+- Owner said "yes" to proceeding on both fronts: marked #47 ready for review
+  (no longer draft) AND started PR 2c on inferred columns — same posture as
+  2b, since the schema-dump still hasn't been run on Elsanta.
+- SCOPE DECISION: rather than take the full GL slice (6 tables) in one PR,
+  narrowed to the two best-documented, most central tables only —
+  `Account_Tree` (chart of accounts) and `Gedo_Financial` (the journal every
+  money movement posts to). The five `Gedo_*` sub-ledgers
+  (customers/vendors/branches/employee/installment) and `Tuning_accounts`
+  need the party-type discriminator encoding confirmed (how eStock tags a
+  balance row as belonging to a customer vs vendor vs branch vs employee)
+  which isn't documented anywhere — genuinely blocked on the schema-dump,
+  unlike Account_Tree/Gedo_Financial whose columns are enumerated in
+  docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md. Deferred to PR 2d.
+- MODELS: `GlAccount` (mirrors Account_Tree — code, name_ar/en,
+  `parent_source_id` as a loose self-reference to another row's source_id,
+  start_money) and `GlJournalEntry` (mirrors Gedo_Financial — code,
+  gedo_type, value, from_type/from_id, to_type/to_id, form_type, notes,
+  computer_name, actual_cashier). Both are DELIBERATELY a separate tree from
+  ProCare's own synthetic `chart_of_accounts` (services/accounting.py, built
+  from ProCare's own LedgerEntry transactions) — this PR mirrors eStock's
+  REAL historical GL, not a reconstruction.
+- KEY DESIGN CALL: `from_type`/`to_type` on GlJournalEntry are stored exactly
+  as eStock wrote them, NOT translated to ProCare's own
+  `LedgerEntry.account_type` vocabulary ('customer'/'vendor'/'cash'/'bank'/
+  'branch'/'general') — the party-type code encoding on the eStock side is
+  unconfirmed, and inventing a translation table without real data would be
+  worse than leaving it opaque.
+- ETL: `_load_gl_accounts` / `_load_gl_journal`, both `has_table`-guarded,
+  upserted by source_id, NOT in `_WIPE_ORDER` (survive full refresh, same
+  pattern as shareholders/payroll/salary_advances). Journal entries treated
+  as immutable once posted — re-sync skips existing source_ids rather than
+  updating in place (matches how a real append-only GL journal behaves).
+  Wired into `mirror()` right after the PR #47 slice-1 loaders.
+  `COVERED_SOURCE_TABLES` grew 28 → 30.
+- API: `GET /api/accounting/gl-accounts`, `GET /api/accounting/gl-journal?
+  limit=` — both CEO-only (same gate as the rest of /api/accounting/*),
+  read-only.
+- TESTS: test_etl.py +2 — Account_Tree parent/child + start_money round-trip
+  with upsert-by-source-id (re-run doesn't duplicate); Gedo_Financial field
+  round-trip + immutable-on-resync assertion. Full suite 382 passed / 0.
+- GIT: branched from #47's branch (stacked) via stash — kept #47 focused and
+  reviewable rather than scope-creeping it with GL work. PR #49 opened as
+  draft against #47's branch as base; subscribed to activity. No CI
+  configured on this repo for either PR (0 check runs on both) — nothing to
+  babysit on that front, will watch for review comments.
+- NEXT: PR 2d (Gedo_customers/Gedo_Vendors/Gedo_branches/Gedo_employee/
+  Gedo_installment sub-ledger balances + Tuning_accounts manual adjustments)
+  is now the only piece genuinely blocked on the owner's schema-dump run —
+  the party-type discriminator encoding has no documented fallback to infer
+  from.

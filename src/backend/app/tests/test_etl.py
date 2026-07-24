@@ -363,3 +363,71 @@ def test_load_branch_orders(estock_source):
             assert lines[0].received_qty == 20
     finally:
         reset_and_seed()
+
+
+def test_load_gl_accounts(estock_source):
+    """Mirror Account_Tree (chart of accounts) verbatim, upserted by source id."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Account_Tree ("
+                "account_id INT, account_code TEXT, account_name_ar TEXT, account_name_en TEXT, "
+                "account_major INT, account_start_money REAL)"
+            ))
+            c.execute(text(
+                "INSERT INTO Account_Tree VALUES "
+                "(1,'1000','الأصول','Assets',NULL,0),"
+                "(2,'1100','النقدية','Cash',1,5000)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            accounts = s.query(m.GlAccount).order_by(m.GlAccount.source_id).all()
+            assert len(accounts) == 2
+            assets, cash = accounts
+            assert assets.code == "1000" and assets.parent_source_id is None
+            assert cash.code == "1100" and cash.parent_source_id == 1
+            assert cash.start_money == 5000
+
+        # Re-run to prove upsert-by-source-id doesn't duplicate.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlAccount).count() == 2
+    finally:
+        reset_and_seed()
+
+
+def test_load_gl_journal(estock_source):
+    """Mirror Gedo_Financial (central journal) verbatim, upserted by source id."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Gedo_Financial ("
+                "gf_id INT, gf_code TEXT, gf_gedo_type TEXT, gf_value REAL, "
+                "gf_from_type TEXT, gf_from_id INT, gf_to_type TEXT, gf_to_id INT, "
+                "gf_notes TEXT, gf_computer TEXT, gf_actual_cashier TEXT, gf_form_type TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_Financial VALUES "
+                "(1,'GF-1','sale',500,'customer',10,'cash',1,'Invoice #1','PC1','admin','sale'),"
+                "(2,'GF-2','purchase',-300,'cash',1,'vendor',20,'PO #1','PC1','admin','purchase')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            entries = s.query(m.GlJournalEntry).order_by(m.GlJournalEntry.source_id).all()
+            assert len(entries) == 2
+            e1 = entries[0]
+            assert e1.code == "GF-1" and e1.value == 500
+            assert e1.from_type == "customer" and e1.from_id == 10
+            assert e1.to_type == "cash" and e1.to_id == 1
+            assert e1.notes == "Invoice #1"
+
+        # Re-run: journal is append-only/immutable — must not duplicate existing source_ids.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlJournalEntry).count() == 2
+    finally:
+        reset_and_seed()

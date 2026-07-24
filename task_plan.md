@@ -256,12 +256,30 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         history). All three: `has_table`-guarded, `_pick` column aliasing,
         branch/product-mapped, orphan-row skip. `COVERED_SOURCE_TABLES` now 28
         (was 22). 6 new ETL tests (synthetic sources). 380 tests green. (2026-07-24)
-  - [ ] **PR 2c — GL verbatim mirror** (follow-up, largest/riskiest): `Gedo_Financial`,
-        `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Account_Tree`,
-        `Tuning_accounts` (~195K rows combined) — needs real column names from
-        the schema-dump before starting (double-entry GL, higher error cost
-        than the Slice-1 tables).
-      HONEST BASELINE: ETL now reads 28 source tables (not 48 — that's ProCare's
+  - [~] **PR 2c — GL verbatim mirror** (PR #49, stacked on #47; columns
+        inferred pending schema-dump): scoped narrowly to the two
+        best-documented GL tables only — `Account_Tree` (new `GlAccount`
+        model, chart of accounts, loose `parent_source_id` self-reference) +
+        `Gedo_Financial` (new `GlJournalEntry` model, the central journal —
+        `from_type`/`to_type` kept as eStock's own opaque codes, NOT
+        translated to ProCare's `LedgerEntry.account_type`, since the
+        party-type encoding is unconfirmed). Both upserted by source_id, not
+        in `_WIPE_ORDER` (survive full refresh); journal entries treated as
+        immutable once posted. Read-only CEO-only API: `GET
+        /api/accounting/gl-accounts`, `GET /api/accounting/gl-journal`.
+        `COVERED_SOURCE_TABLES` now 30 (was 28). 2 new ETL tests. 382 tests
+        green. (2026-07-24)
+  - [ ] **PR 2d — GL sub-ledgers + adjustments** (follow-up, deferred):
+        `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Gedo_employee`,
+        `Gedo_installment` (per-party for_him/for_me balances — column names
+        AND the party-type discriminator encoding are both unconfirmed),
+        `Tuning_accounts` + `Tuning_accounts_reason` (manual adjustments —
+        ProCare already has its own adjustment_reasons catalogue in
+        services/accounting.py; this would be the eStock-side historical
+        mirror). Genuinely needs the schema-dump's confirmed columns before
+        starting — more parties/encodings to get wrong than PR 2c's two
+        tables.
+      HONEST BASELINE: ETL now reads 30 source tables (not 48 — that's ProCare's
       own table count); ~25 uncovered tables are empty/temp/config;
       Employee_daily_time (2.8M) deliberately deferred.
 
