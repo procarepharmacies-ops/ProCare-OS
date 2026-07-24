@@ -164,6 +164,21 @@ CREATE TABLE IF NOT EXISTS employees (
     created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 5.5) CASHIER SHIFTS ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cashier_shifts (
+    shift_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    cashier_id     INTEGER NOT NULL REFERENCES employees(employee_id),
+    branch_id      INTEGER NOT NULL REFERENCES branches(branch_id),
+    opening_float  REAL    NOT NULL DEFAULT 0,
+    closing_float  REAL,
+    opened_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    closed_at      TEXT,
+    closing_notes  TEXT,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS IX_shifts_cashier_open ON cashier_shifts(cashier_id, closed_at) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS IX_shifts_branch      ON cashier_shifts(branch_id);
+
 -- 6) STOCK — batch-level, per branch ------------------------------------------
 CREATE TABLE IF NOT EXISTS stock_batches (
     batch_id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,24 +198,25 @@ CREATE INDEX IF NOT EXISTS IX_stock_branch         ON stock_batches(branch_id);
 CREATE INDEX IF NOT EXISTS IX_stock_expiry         ON stock_batches(exp_date, branch_id) WHERE amount > 0;
 
 CREATE TABLE IF NOT EXISTS stock_movements (
-    movement_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    batch_id    INTEGER NOT NULL REFERENCES stock_batches(batch_id),
-    branch_id   INTEGER NOT NULL REFERENCES branches(branch_id),
-    delta       REAL    NOT NULL,
-    reason      TEXT    NOT NULL CHECK
-        (reason IN ('sale','purchase','transfer_out','transfer_in','adjust','writeoff','opening','return','lock')),
-    ref_id      INTEGER,
-    employee_id INTEGER REFERENCES employees(employee_id),
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id      INTEGER NOT NULL REFERENCES stock_batches(batch_id),
+    movement_type TEXT    NOT NULL CHECK
+        (movement_type IN ('sale_reserved','sale_deduction','purchase','transfer_out','transfer_in','adjust','writeoff','opening','return','expiry_lock')),
+    qty           REAL    NOT NULL CHECK (qty >= 0),
+    branch_id     INTEGER NOT NULL REFERENCES branches(branch_id),
+    reference_id  INTEGER,
+    reference_type TEXT   CHECK (reference_type IN ('sale','purchase','transfer','return')),
+    notes         TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS IX_movements_batch ON stock_movements(batch_id);
-CREATE INDEX IF NOT EXISTS IX_movements_ref   ON stock_movements(reason, ref_id);
+CREATE INDEX IF NOT EXISTS IX_movements_ref   ON stock_movements(reference_type, reference_id);
 
 -- 7) SALES --------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sales (
     sale_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     branch_id       INTEGER NOT NULL REFERENCES branches(branch_id),
-    customer_id     INTEGER REFERENCES customers(customer_id),     -- NULL = walk-in
+    customer_id     INTEGER REFERENCES customers(customer_id),      -- NULL = walk-in
     cashier_id      INTEGER REFERENCES employees(employee_id),
     delivery_man_id INTEGER REFERENCES employees(employee_id),
     sale_class_id   INTEGER REFERENCES sale_classes(sale_class_id),
@@ -213,11 +229,14 @@ CREATE TABLE IF NOT EXISTS sales (
     change_given    REAL    NOT NULL DEFAULT 0,
     is_return       INTEGER NOT NULL DEFAULT 0 CHECK (is_return IN (0,1)),
     is_credit       INTEGER NOT NULL DEFAULT 0 CHECK (is_credit IN (0,1)),
+    payment_method  TEXT    DEFAULT 'cash' CHECK (payment_method IN ('cash','credit','mixed')),
+    original_sale_id INTEGER REFERENCES sales(sale_id),             -- For returns (Phase 2)
     created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS IX_sales_date        ON sales(sale_date);
 CREATE INDEX IF NOT EXISTS IX_sales_branch_date ON sales(branch_id, sale_date);
 CREATE INDEX IF NOT EXISTS IX_sales_customer    ON sales(customer_id) WHERE customer_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS IX_sales_cashier     ON sales(cashier_id) WHERE cashier_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS sale_lines (
     line_id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,7 +248,10 @@ CREATE TABLE IF NOT EXISTS sale_lines (
     buy_price  REAL    NOT NULL,                                   -- cost snapshot for profit
     disc_money REAL    NOT NULL DEFAULT 0,
     total_sell REAL    NOT NULL,
-    is_return  INTEGER NOT NULL DEFAULT 0 CHECK (is_return IN (0,1))
+    is_return  INTEGER NOT NULL DEFAULT 0 CHECK (is_return IN (0,1)),
+    qty_sold   REAL    DEFAULT NULL,                               -- Phase 2: explicit qty
+    unit_price REAL    DEFAULT NULL,                               -- Phase 2: unit price
+    unit_cost  REAL    DEFAULT 0 CHECK (unit_cost >= 0)            -- Phase 2: unit cost
 );
 CREATE INDEX IF NOT EXISTS IX_sale_lines_sale    ON sale_lines(sale_id);
 CREATE INDEX IF NOT EXISTS IX_sale_lines_product ON sale_lines(product_id);
