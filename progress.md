@@ -919,3 +919,43 @@
 - TESTS: test_schema_dump.py (3) — coverage flag + column/row extraction,
   case-insensitive matching (lowercase 'products' still covered), markdown gap
   section. Full suite 377 passed / 0. CLI smoke-tested end-to-end.
+
+## 2026-07-24 · Phase 7 PR 2b — high-value eStock mirrors — branch claude/phase-7-coverage-mirrors-high-value (PR #47)
+- Owner had not yet run the schema-dump tool on Elsanta, so proceeded on
+  inferred columns (from docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md) rather than
+  wait — flagged clearly in the PR body + code comments as pending
+  schema-dump confirmation. Flexible `_pick()` column aliasing (existing
+  pattern) tolerates the eventual real column names without a rewrite.
+- MODELS: `CashShiftClose` (shift_id PK, branch_id, source_shift_id,
+  employee_id, cash_depot_id, shift_start/end_time, start/current/actual_cash,
+  transfer fields, note) — mirrors Cash_disk_close/Branches_Cash_disk_close
+  shift reconciliation history. `BranchOrderHeader` + `BranchOrderLine` —
+  mirrors Branch_order_header/details inter-branch requisition history
+  (from/to branch, order/received dates, status, per-line qty/received_qty).
+- ETL: `_load_branch_product_amount` mirrors Branches_Product_Amount into
+  stock_batches alongside the existing Product_Amount loader (same shape:
+  product/store mapping, orphan-batch skip, CK_stock_amount clamp).
+  `_load_cash_shift_closes` reads BOTH Cash_disk_close and
+  Branches_Cash_disk_close (accumulates). `_load_branch_orders` loads headers
+  first (building a source-id→dest-id map), then details, skipping orphan
+  lines (no matching header) and orphan products (no matching product_map
+  entry) — same "skip, don't invent" rule as every other loader. All three
+  are `has_table`-guarded (no-op on a source that lacks them) and wired into
+  `mirror()` after the purchase loaders, before treasury.
+- `COVERED_SOURCE_TABLES` grew from 22 → 28 (added Branches_Product_Amount,
+  Cash_disk_close, Branches_Cash_disk_close, Branch_order_header,
+  Branch_order_details).
+- TESTS: test_etl.py +3 (branch product amount lands in the right branch,
+  shift close start/current/actual amounts round-trip, branch order
+  header+lines with product/branch mapping). test_schema_dump.py's fixture
+  swapped from Branches_Product_Amount (now covered) to Employee_daily_time
+  (still deliberately uncovered) as the "uncovered" example — updated 3
+  existing assertions to match. Full suite 380 passed / 0.
+- PR #47 opened as draft, subscribed to activity; no CI configured on this
+  repo (0 check runs) and no review comments yet — will re-check in ~1h per
+  the babysit protocol.
+- NEXT: PR 2c (GL verbatim: Gedo_Financial/Gedo_customers/Gedo_Vendors/
+  Gedo_branches/Account_Tree/Tuning_accounts, ~195K rows) is the largest and
+  riskiest remaining slice (double-entry GL — wrong column mapping there is
+  costlier than a stock/shift/order mirror) — genuinely worth waiting for the
+  schema-dump's confirmed columns before starting, unlike Slice 1.
