@@ -896,3 +896,26 @@
   legacy purchase_lines table.
 - Phase 7 PR1 (POS invoice depth) COMPLETE across PRs #43 (line details), #44
   (hold invoice), and this one.
+
+## 2026-07-23 · Phase 7 PR 2a — eStock schema-dump / coverage tool — branch claude/phase-6-proceed-yju8m0 (fresh off merged main)
+- Answers the owner's "48 vs 112 tables" honestly + de-risks every future mirror
+  by capturing the REAL schema from the live server.
+- `etl.COVERED_SOURCE_TABLES` — frozenset of the 22 eStock source tables the ETL
+  actually reads (Products/Customer/Vendor/Employee/Product_Amount, the 4
+  sales + 4 branch-sales/returns header+detail pairs, 2×purchase pairs,
+  Cash_depots, company_Owner, Gedo_Dividends_paied, Employee_salary,
+  Employee_cash_advance). Kept next to the _load_* funcs as the coverage source
+  of truth.
+- `tools/estock_schema_dump.py` — READ-ONLY, dialect-agnostic (SQLAlchemy
+  Inspector → works on SQL Server 2008 AND SQLite): `dump_schema` lists every
+  table + columns (name/type/nullable) + optional COUNT(*), case-insensitively
+  flags each as covered/uncovered vs COVERED_SOURCE_TABLES; `render_markdown`
+  writes a report with a COVERAGE-GAP section; CLI resolves the source from
+  `settings.estock_sources()[0]` or `--url`, writes docs/estock-schema-dump.md +
+  .json. `--counts` for row counts. Never writes to eStock.
+- WORKFLOW: owner runs `python -m tools.estock_schema_dump --counts` on the
+  Elsanta server, commits docs/estock-schema-dump.md → gives confirmed columns
+  for PR 2b mirrors + closes the ~11 undocumented-tables blind spot.
+- TESTS: test_schema_dump.py (3) — coverage flag + column/row extraction,
+  case-insensitive matching (lowercase 'products' still covered), markdown gap
+  section. Full suite 377 passed / 0. CLI smoke-tested end-to-end.
