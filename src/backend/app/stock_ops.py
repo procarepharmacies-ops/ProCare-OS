@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, date
 from app.db import get_db
+from app.branches import normalize_branch
 
 
 def reserve_batch_fefo(product_id: int, branch_id: str, qty_needed: int) -> list[dict]:
@@ -22,7 +23,7 @@ def reserve_batch_fefo(product_id: int, branch_id: str, qty_needed: int) -> list
       Raises ValueError if insufficient stock available.
     """
     db = get_db()
-    branch = _normalize_branch(branch_id)
+    branch = normalize_branch(branch_id)
 
     # Query available batches: exp_date > today, amount > 0, ordered by exp_date ASC (FEFO)
     sql = """
@@ -96,7 +97,7 @@ def create_stock_movement(
       movement_id
     """
     db = get_db()
-    branch = _normalize_branch(branch_id)
+    branch = normalize_branch(branch_id)
 
     sql = """
         INSERT INTO stock_movements
@@ -133,7 +134,7 @@ def deduct_stock(allocations: list[dict], sale_id: int, branch_id: str) -> None:
       branch_id: 'main' | 'elsanta' | 'mshala'
     """
     db = get_db()
-    branch = _normalize_branch(branch_id)
+    branch = normalize_branch(branch_id)
 
     for alloc in allocations:
         batch_id = alloc["batch_id"]
@@ -164,7 +165,7 @@ def lock_expired_batches(branch_id: str) -> int:
       count of batches locked
     """
     db = get_db()
-    branch = _normalize_branch(branch_id)
+    branch = normalize_branch(branch_id)
 
     sql = """
         UPDATE stock_batches
@@ -186,7 +187,7 @@ def lock_expired_batches(branch_id: str) -> int:
 def get_stock_on_hand(product_id: int, branch_id: str) -> int:
     """Total available stock (amount > 0, not expired)."""
     db = get_db()
-    branch = _normalize_branch(branch_id)
+    branch = normalize_branch(branch_id)
 
     sql = """
         SELECT COALESCE(SUM(amount), 0) as total
@@ -199,6 +200,3 @@ def get_stock_on_hand(product_id: int, branch_id: str) -> int:
     return result["total"] or 0
 
 
-def _normalize_branch(branch_id: str) -> str:
-    """Normalize branch identifier to lowercase."""
-    return branch_id.lower().strip()

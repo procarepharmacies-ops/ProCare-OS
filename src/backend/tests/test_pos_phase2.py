@@ -33,9 +33,9 @@ class TestStockOps:
 
         # Query demo data: product with multiple batches
         product = db.query_one(
-            "SELECT id FROM products LIMIT 1", []
+            "SELECT product_id FROM products LIMIT 1", []
         )
-        product_id = product["id"]
+        product_id = product["product_id"]
 
         branch = "main"
 
