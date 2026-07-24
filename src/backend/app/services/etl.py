@@ -73,7 +73,7 @@ COVERED_SOURCE_TABLES = frozenset({
     "Purchase_header", "Purchase_details", "Branches_purchase_header", "Branches_purchase_details",
     "Cash_depots", "Cash_disk_close", "Branches_Cash_disk_close",
     "Branch_order_header", "Branch_order_details",
-    "Account_Tree", "Gedo_Financial",
+    "Account_Tree", "Gedo_Financial", "Tuning_accounts",
     "company_Owner", "Gedo_Dividends_paied",
     "Employee_salary", "Employee_cash_advance",
 })
@@ -471,9 +471,11 @@ def mirror(
         # Mirror high-value uncovered tables (Phase 7).
         _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch)
         _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default_branch)
-        # GL verbatim mirror: chart of accounts + central journal (optional, upsert by source id).
+        # GL verbatim mirror: chart of accounts + central journal + manual adjustments
+        # (optional, upsert by source id).
         _load_gl_accounts(insp, src, dst, counts)
         _load_gl_journal(insp, src, dst, counts)
+        _load_gl_adjustments(insp, src, dst, counts)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
         # Shareholders + dividends (optional, upsert by source id).
@@ -1619,6 +1621,48 @@ def _load_gl_journal(insp, src, dst, counts) -> None:
         dst.add_all(rows)
         dst.flush()
     counts["gl_journal_entries"] = n
+
+
+def _load_gl_adjustments(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Tuning_accounts`` (manual GL adjustments, تسويات) verbatim.
+
+    Unlike the five Gedo_* sub-ledgers (customers/vendors/branches/employee/
+    installment — deferred: their balance-column names aren't documented
+    anywhere, and guessing wrong there would silently zero a real balance),
+    Tuning_accounts' columns ARE fully enumerated in
+    docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md, so this one is safe to mirror now.
+    ``who_class``/``reason_source_id`` are eStock's own opaque codes, stored
+    as-is (not translated) — same posture as GlJournalEntry.from_type/to_type.
+    Upserted by source_id; not in ``_WIPE_ORDER``. Optional — absent source
+    table = skipped, never an error."""
+    if not insp.has_table("Tuning_accounts"):
+        return
+    cols = {c["name"] for c in insp.get_columns("Tuning_accounts")}
+    t_id = _pick(cols, "Tuning_accounts_id")
+    t_class = _pick(cols, "class")
+    t_who_class = _pick(cols, "who_class")
+    t_who_id = _pick(cols, "who_id")
+    t_reason = _pick(cols, "Tuning_accounts_reason_id")
+    t_money = _pick(cols, "Tuning_accounts_money")
+    t_notes = _pick(cols, "notes")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GlAdjustment)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Tuning_accounts")).mappings().all():
+        sid = int(r.get(t_id)) if t_id and r.get(t_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GlAdjustment(source_id=sid)
+            dst.add(obj)
+        obj.class_code = _str(r.get(t_class)) if t_class else None
+        obj.who_class = _str(r.get(t_who_class)) if t_who_class else None
+        obj.who_id = int(r[t_who_id]) if t_who_id and r.get(t_who_id) is not None else None
+        obj.reason_source_id = int(r[t_reason]) if t_reason and r.get(t_reason) is not None else None
+        obj.amount = _num(r.get(t_money)) if t_money else 0
+        obj.notes = _str(r.get(t_notes)) if t_notes else None
+        n += 1
+    dst.flush()
+    counts["gl_adjustments"] = n
 
 
 def _load_shareholders(insp, src, dst, counts) -> None:

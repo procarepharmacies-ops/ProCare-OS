@@ -431,3 +431,37 @@ def test_load_gl_journal(estock_source):
             assert s.query(m.GlJournalEntry).count() == 2
     finally:
         reset_and_seed()
+
+
+def test_load_gl_adjustments(estock_source):
+    """Mirror Tuning_accounts (manual GL adjustments) verbatim, upserted by source id."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Tuning_accounts ("
+                "Tuning_accounts_id INT, class TEXT, who_class TEXT, who_id INT, "
+                "Tuning_accounts_reason_id INT, Tuning_accounts_money REAL, notes TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Tuning_accounts VALUES "
+                "(1,'debit','customer',10,3,150.5,'Discount correction'),"
+                "(2,'credit','vendor',20,7,-200,'Overpayment refund')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            adjustments = s.query(m.GlAdjustment).order_by(m.GlAdjustment.source_id).all()
+            assert len(adjustments) == 2
+            a1 = adjustments[0]
+            assert a1.class_code == "debit" and a1.who_class == "customer" and a1.who_id == 10
+            assert a1.reason_source_id == 3
+            assert a1.amount == 150.5
+            assert a1.notes == "Discount correction"
+
+        # Re-run to prove upsert-by-source-id doesn't duplicate.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlAdjustment).count() == 2
+    finally:
+        reset_and_seed()

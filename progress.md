@@ -1011,3 +1011,52 @@
   is now the only piece genuinely blocked on the owner's schema-dump run —
   the party-type discriminator encoding has no documented fallback to infer
   from.
+
+## 2026-07-24 · Phase 7 PR 2d — manual GL adjustments — branch claude/phase-7-gl-adjustments-mirror (PR #50, stacked on #49 -> #47)
+- Owner said "2PROCEED" — before blindly proceeding on the previously-flagged
+  "genuinely blocked" sub-ledger slice, re-checked the docs rather than just
+  pushing forward on a guess. Re-reading
+  docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md's Accounting section (§5) found that
+  `Tuning_accounts`' columns ARE fully enumerated
+  (`Tuning_accounts_id, class, who_class, who_id, Tuning_accounts_reason_id,
+  Tuning_accounts_money, notes`) — only the five `Gedo_*` sub-ledgers
+  (customers/vendors/branches/employee/installment) are actually
+  under-specified ("for_him / for_me balances" with zero column names). So
+  split the originally-deferred PR 2d into two: this PR ships
+  Tuning_accounts now (real documented columns, real value); the five
+  Gedo_* sub-ledgers move to a renamed PR 2e, kept genuinely deferred.
+- WHY the Gedo_* sub-ledgers stay blocked even with the `_pick`-tolerant
+  pattern that's carried every other Phase-7 mirror on inferred columns: for
+  every other table (stock, shifts, orders, journal), a wrong column guess
+  makes `_pick` return None and the loader skips that field — a visibly
+  incomplete but honest row. For a sub-ledger BALANCE table, the balance IS
+  the entire value of the row; guessing the for_him/for_me column name wrong
+  produces a row that looks complete (has party_id, has date) but silently
+  carries a zeroed or wrong balance — indistinguishable from real data until
+  someone reconciles it against eStock. That crosses from "safely inferred"
+  to "actively risky to ship as if functional," which is why this one
+  specific slice keeps waiting on the schema-dump while everything else in
+  Phase 7 didn't.
+- MODEL: `GlAdjustment` (mirrors Tuning_accounts — class_code, who_class,
+  who_id, reason_source_id, amount, notes). `who_class`/`reason_source_id`
+  kept as eStock's own opaque codes (not translated), same posture as
+  `GlJournalEntry.from_type`/`to_type` — explicitly DISTINCT from ProCare's
+  own forward-looking `ADJUSTMENT_REASONS` catalogue in
+  services/accounting.py (that one is for NEW adjustments made in ProCare;
+  this mirrors eStock's historical adjustment log).
+- ETL: `_load_gl_adjustments`, has_table-guarded, upserted by source_id, not
+  in `_WIPE_ORDER`. Wired into `mirror()` right after `_load_gl_journal`.
+  `COVERED_SOURCE_TABLES` grew 30 -> 31.
+- API: `GET /api/accounting/gl-adjustments?limit=` — CEO-only, read-only,
+  newest first.
+- TESTS: test_etl.py +1 — full field round-trip (class/who_class/who_id/
+  reason/amount/notes) + upsert-by-source-id re-run doesn't duplicate. Full
+  suite 383 passed / 0.
+- GIT: stacked on PR #49's branch (claude/phase-7-gl-verbatim-mirror), same
+  pattern as #49 on #47 — each PR stays focused and independently
+  reviewable. PR #50 opened as draft against #49's branch; subscribed to
+  activity.
+- NEXT: PR 2e (the five Gedo_* sub-ledger balance tables) is the one
+  remaining piece of Phase 7's coverage work that should wait for the
+  owner's `python -m tools.estock_schema_dump --counts` run on Elsanta
+  rather than proceed on inferred columns.

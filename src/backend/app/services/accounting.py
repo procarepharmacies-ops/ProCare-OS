@@ -538,3 +538,27 @@ def gl_journal(session: Session, limit: int = 500) -> list[dict]:
         }
         for e in rows
     ]
+
+
+def gl_adjustments(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's manual GL adjustments (Tuning_accounts mirror, تسويات,
+    read-only, most recent first). DISTINCT from ProCare's own forward-looking
+    ``ADJUSTMENT_REASONS`` catalogue above — this is eStock's historical
+    adjustment log. ``who_class``/``reason_source_id`` are eStock's own opaque
+    codes, not translated."""
+    rows = session.scalars(
+        select(m.GlAdjustment).order_by(m.GlAdjustment.gl_adjustment_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "gl_adjustment_id": a.gl_adjustment_id,
+            "source_id": a.source_id,
+            "class_code": a.class_code,
+            "who_class": a.who_class,
+            "who_id": a.who_id,
+            "reason_source_id": a.reason_source_id,
+            "amount": float(a.amount or 0),
+            "notes": a.notes,
+        }
+        for a in rows
+    ]

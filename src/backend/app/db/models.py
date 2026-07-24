@@ -1384,6 +1384,37 @@ class GlJournalEntry(Base):
     )
 
 
+class GlAdjustment(Base):
+    """Manual GL adjustment (eStock ``Tuning_accounts`` mirror, تسويات).
+
+    Verbatim read-only mirror of eStock's own manual-adjustment log — DISTINCT
+    from ProCare's own ``ADJUSTMENT_REASONS`` catalogue in
+    ``services/accounting.py`` (that's ProCare's forward-looking reason list
+    for NEW adjustments made in ProCare going forward; this is eStock's
+    historical record of adjustments already made there). ``who_class`` +
+    ``reason_source_id`` are eStock's own opaque codes, stored as-is — same
+    posture as ``GlJournalEntry.from_type``/``to_type``, not translated
+    pending the schema-dump. Upserted by source_id; not in ``_WIPE_ORDER``.
+    """
+
+    __tablename__ = "gl_adjustments"
+
+    gl_adjustment_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Tuning_accounts_id
+    class_code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # class
+    who_class: Mapped[str | None] = mapped_column(String(20), nullable=True)  # party-type code
+    who_id: Mapped[int | None] = mapped_column(nullable=True)  # party's eStock source id
+    reason_source_id: Mapped[int | None] = mapped_column(nullable=True)  # Tuning_accounts_reason_id
+    amount: Mapped[float] = mapped_column(Money, default=0)  # Tuning_accounts_money
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_adjustment_source", "source_id"),
+        Index("IX_gl_adjustment_who", "who_class", "who_id"),
+    )
+
+
 class PayrollRecord(Base):
     """Monthly payroll record per employee (eStock ``Employee_salary`` mirror).
 
