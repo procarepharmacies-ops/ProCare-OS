@@ -1319,6 +1319,71 @@ class DividendPayment(Base):
     )
 
 
+class GlAccount(Base):
+    """Chart of accounts (eStock ``Account_Tree`` mirror, شجرة الحسابات).
+
+    Read-only verbatim mirror — a SEPARATE tree from ProCare's own synthetic
+    chart of accounts (``LedgerEntry`` in ``services/accounting.py``, built from
+    ProCare's own transactions). This is eStock's real, historical GL tree.
+    ``parent_source_id`` is eStock's own account_id (not resolved to a ProCare
+    PK) — a loose self-reference, sufficient for a read-only mirror. Upserted
+    by source_id so re-syncing never duplicates; not in ``_WIPE_ORDER`` (kept
+    across full refreshes, like shareholders/payroll).
+    """
+
+    __tablename__ = "gl_accounts"
+
+    gl_account_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Account_Tree.account_id
+    code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    name_ar: Mapped[str] = mapped_column(String(200))
+    name_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    parent_source_id: Mapped[int | None] = mapped_column(nullable=True)  # account_major, loose self-ref
+    start_money: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_account_source", "source_id"),
+        Index("IX_gl_account_parent", "parent_source_id"),
+    )
+
+
+class GlJournalEntry(Base):
+    """Central GL journal (eStock ``Gedo_Financial`` mirror) — every money
+    movement, verbatim and read-only.
+
+    ``from_type``/``to_type`` + ``from_id``/``to_id`` are eStock's own opaque
+    party-type codes (Customer/Vendor/Branch/Employee/Shareholder) — stored
+    as-is, NOT translated to ProCare's ``LedgerEntry.account_type`` strings,
+    since the type-code encoding is unconfirmed pending the schema-dump.
+    Upserted by source_id (gf_id); not in ``_WIPE_ORDER`` (append-only ledger,
+    survives full refreshes like shareholders/dividends).
+    """
+
+    __tablename__ = "gl_journal_entries"
+
+    gl_entry_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_Financial.gf_id
+    code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    gedo_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    value: Mapped[float] = mapped_column(Money, default=0)
+    from_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    from_id: Mapped[int | None] = mapped_column(nullable=True)
+    to_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_id: Mapped[int | None] = mapped_column(nullable=True)
+    form_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    computer_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actual_cashier: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_journal_source", "source_id"),
+        Index("IX_gl_journal_from", "from_type", "from_id"),
+        Index("IX_gl_journal_to", "to_type", "to_id"),
+    )
+
+
 class PayrollRecord(Base):
     """Monthly payroll record per employee (eStock ``Employee_salary`` mirror).
 

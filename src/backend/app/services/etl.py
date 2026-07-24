@@ -73,6 +73,7 @@ COVERED_SOURCE_TABLES = frozenset({
     "Purchase_header", "Purchase_details", "Branches_purchase_header", "Branches_purchase_details",
     "Cash_depots", "Cash_disk_close", "Branches_Cash_disk_close",
     "Branch_order_header", "Branch_order_details",
+    "Account_Tree", "Gedo_Financial",
     "company_Owner", "Gedo_Dividends_paied",
     "Employee_salary", "Employee_cash_advance",
 })
@@ -470,6 +471,9 @@ def mirror(
         # Mirror high-value uncovered tables (Phase 7).
         _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch)
         _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default_branch)
+        # GL verbatim mirror: chart of accounts + central journal (optional, upsert by source id).
+        _load_gl_accounts(insp, src, dst, counts)
+        _load_gl_journal(insp, src, dst, counts)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
         # Shareholders + dividends (optional, upsert by source id).
@@ -1521,6 +1525,100 @@ def _load_purchases(
             dst.execute(insert(m.PurchaseLine), line_rows)
         n_lines += len(line_rows)
     counts["purchase_lines"] = counts.get("purchase_lines", 0) + n_lines
+
+
+def _load_gl_accounts(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Account_Tree`` (chart of accounts, شجرة الحسابات) verbatim.
+
+    Read-only, upserted by source_id (account_id) so re-syncing never
+    duplicates. ``account_major`` (parent) is kept as a loose source-id
+    reference — no PK resolution needed for a read-only mirror. Columns are
+    INFERRED from docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md pending schema-dump
+    confirmation from Elsanta; ``_pick`` tolerates the real names once known.
+    Optional — absent source table = skipped, never an error."""
+    if not insp.has_table("Account_Tree"):
+        return
+    cols = {c["name"] for c in insp.get_columns("Account_Tree")}
+    a_id = _pick(cols, "account_id")
+    a_code = _pick(cols, "account_code")
+    a_ar = _pick(cols, "account_name_ar", "account_name")
+    a_en = _pick(cols, "account_name_en")
+    a_major = _pick(cols, "account_major")
+    a_start = _pick(cols, "account_start_money")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GlAccount)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Account_Tree")).mappings().all():
+        sid = int(r.get(a_id)) if a_id and r.get(a_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GlAccount(source_id=sid, name_ar="")
+            dst.add(obj)
+        obj.code = _str(r.get(a_code)) if a_code else obj.code
+        obj.name_ar = _ar(r.get(a_ar) if a_ar else None, r.get(a_en) if a_en else None)
+        obj.name_en = _str(r.get(a_en)) if a_en else None
+        obj.parent_source_id = int(r[a_major]) if a_major and r.get(a_major) is not None else None
+        obj.start_money = _num(r.get(a_start)) if a_start else 0
+        n += 1
+    dst.flush()
+    counts["gl_accounts"] = n
+
+
+def _load_gl_journal(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Gedo_Financial`` (the central GL journal) verbatim.
+
+    Every money movement in eStock posts here; this is a READ-ONLY historical
+    mirror, not a reconstruction — ``from_type``/``to_type`` party-type codes
+    are stored as eStock wrote them (NOT translated to ProCare's own
+    ``LedgerEntry.account_type`` vocabulary, since the encoding is unconfirmed
+    pending the schema-dump). Upserted by source_id (gf_id) so re-syncing never
+    duplicates; NOT in ``_WIPE_ORDER`` — an append-only ledger survives full
+    refreshes, same as shareholders/payroll. Optional — absent source table =
+    skipped, never an error."""
+    if not insp.has_table("Gedo_Financial"):
+        return
+    cols = {c["name"] for c in insp.get_columns("Gedo_Financial")}
+    g_id = _pick(cols, "gf_id")
+    g_code = _pick(cols, "gf_code")
+    g_type = _pick(cols, "gf_gedo_type")
+    g_value = _pick(cols, "gf_value")
+    g_from_type = _pick(cols, "gf_from_type")
+    g_from_id = _pick(cols, "gf_from_id")
+    g_to_type = _pick(cols, "gf_to_type")
+    g_to_id = _pick(cols, "gf_to_id")
+    g_form = _pick(cols, "gf_form_type")
+    g_notes = _pick(cols, "gf_notes")
+    g_computer = _pick(cols, "gf_computer")
+    g_cashier = _pick(cols, "gf_actual_cashier")
+
+    existing = {e.source_id for e in dst.scalars(select(m.GlJournalEntry)).all() if e.source_id is not None}
+    n = 0
+    rows = []
+    for r in src.execute(text("SELECT * FROM Gedo_Financial")).mappings().all():
+        sid = int(r.get(g_id)) if g_id and r.get(g_id) is not None else None
+        if sid is not None and sid in existing:
+            continue  # already mirrored — journal entries are immutable once posted
+        rows.append(
+            m.GlJournalEntry(
+                source_id=sid,
+                code=_str(r.get(g_code)) if g_code else None,
+                gedo_type=_str(r.get(g_type)) if g_type else None,
+                value=_num(r.get(g_value)) if g_value else 0,
+                from_type=_str(r.get(g_from_type)) if g_from_type else None,
+                from_id=int(r[g_from_id]) if g_from_id and r.get(g_from_id) is not None else None,
+                to_type=_str(r.get(g_to_type)) if g_to_type else None,
+                to_id=int(r[g_to_id]) if g_to_id and r.get(g_to_id) is not None else None,
+                form_type=_str(r.get(g_form)) if g_form else None,
+                notes=_str(r.get(g_notes)) if g_notes else None,
+                computer_name=_str(r.get(g_computer)) if g_computer else None,
+                actual_cashier=_str(r.get(g_cashier)) if g_cashier else None,
+            )
+        )
+        n += 1
+    if rows:
+        dst.add_all(rows)
+        dst.flush()
+    counts["gl_journal_entries"] = n
 
 
 def _load_shareholders(insp, src, dst, counts) -> None:

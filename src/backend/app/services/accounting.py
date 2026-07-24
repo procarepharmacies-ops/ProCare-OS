@@ -491,3 +491,50 @@ def sales_by_customer(session: Session, branch_id: int | None = None, days: int 
         }
         for cid, name_ar, name_en, n, total in session.execute(q)
     ]
+
+
+def gl_accounts(session: Session) -> list[dict]:
+    """eStock's real, historical chart of accounts (Account_Tree mirror,
+    read-only) — a SEPARATE tree from ProCare's own synthetic ``chart_of_accounts``
+    above (which is built from ProCare's own transactions). ``parent_source_id``
+    is eStock's own account_id, not a ProCare PK."""
+    rows = session.scalars(select(m.GlAccount).order_by(m.GlAccount.code)).all()
+    return [
+        {
+            "gl_account_id": a.gl_account_id,
+            "source_id": a.source_id,
+            "code": a.code,
+            "name_ar": a.name_ar,
+            "name_en": a.name_en,
+            "parent_source_id": a.parent_source_id,
+            "start_money": float(a.start_money or 0),
+        }
+        for a in rows
+    ]
+
+
+def gl_journal(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's central GL journal (Gedo_Financial mirror, read-only, most
+    recent first). ``from_type``/``to_type`` are eStock's own opaque party-type
+    codes — NOT ProCare's ``LedgerEntry.account_type`` vocabulary."""
+    rows = session.scalars(
+        select(m.GlJournalEntry).order_by(m.GlJournalEntry.gl_entry_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "gl_entry_id": e.gl_entry_id,
+            "source_id": e.source_id,
+            "code": e.code,
+            "gedo_type": e.gedo_type,
+            "value": float(e.value or 0),
+            "from_type": e.from_type,
+            "from_id": e.from_id,
+            "to_type": e.to_type,
+            "to_id": e.to_id,
+            "form_type": e.form_type,
+            "notes": e.notes,
+            "computer_name": e.computer_name,
+            "actual_cashier": e.actual_cashier,
+        }
+        for e in rows
+    ]
