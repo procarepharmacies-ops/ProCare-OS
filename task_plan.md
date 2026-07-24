@@ -269,17 +269,26 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         /api/accounting/gl-accounts`, `GET /api/accounting/gl-journal`.
         `COVERED_SOURCE_TABLES` now 30 (was 28). 2 new ETL tests. 382 tests
         green. (2026-07-24)
-  - [ ] **PR 2d — GL sub-ledgers + adjustments** (follow-up, deferred):
+  - [x] **PR 2d — manual GL adjustments** (PR #50, stacked on #49 → #47):
+        `Tuning_accounts` (new `GlAdjustment` model) — split off from the
+        rest of the sub-ledger slice because ITS columns ARE fully enumerated
+        in docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md (`Tuning_accounts_id, class,
+        who_class, who_id, Tuning_accounts_reason_id, Tuning_accounts_money,
+        notes`), unlike the five `Gedo_*` sub-ledgers below. `who_class`/
+        `reason_source_id` kept as eStock's own opaque codes (not
+        translated), same posture as `GlJournalEntry`. Upserted by
+        source_id, not in `_WIPE_ORDER`. Read-only CEO-only API: `GET
+        /api/accounting/gl-adjustments`. `COVERED_SOURCE_TABLES` now 31
+        (was 30). 1 new ETL test. 383 tests green. (2026-07-24)
+  - [ ] **PR 2e — GL sub-ledger balances** (follow-up, genuinely deferred):
         `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Gedo_employee`,
-        `Gedo_installment` (per-party for_him/for_me balances — column names
-        AND the party-type discriminator encoding are both unconfirmed),
-        `Tuning_accounts` + `Tuning_accounts_reason` (manual adjustments —
-        ProCare already has its own adjustment_reasons catalogue in
-        services/accounting.py; this would be the eStock-side historical
-        mirror). Genuinely needs the schema-dump's confirmed columns before
-        starting — more parties/encodings to get wrong than PR 2c's two
-        tables.
-      HONEST BASELINE: ETL now reads 30 source tables (not 48 — that's ProCare's
+        `Gedo_installment` (per-party for_him/for_me balances). Unlike every
+        other Phase-7 mirror, these are NOT safely inferrable even with the
+        `_pick`-tolerant pattern: the balance-column names are undocumented,
+        and a wrong guess there doesn't just skip a field — it silently
+        stores a real sub-ledger row with a zeroed/wrong balance, which
+        reads as legitimate data. Genuinely blocked on the schema-dump.
+      HONEST BASELINE: ETL now reads 31 source tables (not 48 — that's ProCare's
       own table count); ~25 uncovered tables are empty/temp/config;
       Employee_daily_time (2.8M) deliberately deferred.
 

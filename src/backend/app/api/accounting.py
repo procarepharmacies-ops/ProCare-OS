@@ -147,3 +147,12 @@ def gl_journal(
 ):
     """eStock's central GL journal (Gedo_Financial mirror), read-only, newest first."""
     return {"entries": accounting.gl_journal(session, limit)}
+
+
+@router.get("/gl-adjustments")
+def gl_adjustments(
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's manual GL adjustments (Tuning_accounts mirror), read-only, newest first."""
+    return {"adjustments": accounting.gl_adjustments(session, limit)}
