@@ -107,14 +107,18 @@ async def lifespan(_app: FastAPI):
     # Phase 7: per-line purchase discount
     ensure_purchase_line_discount_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
-    # Run it in a background thread so a slow/heavy BACKUP DATABASE on the
-    # shared SQL Server never blocks the web server from starting.
-    from app.services import backup
+    # On a shared SQL Server 2008 instance a BACKUP DATABASE takes a lock that
+    # can block the web server's readers, so it is OPT-IN via STARTUP_BACKUP=1
+    # and runs in a daemon thread. By default it is OFF; the off-peak sync job
+    # (tools/sync_offpeak / scheduled task) takes the pre-mirror backup instead,
+    # so the server never blocks during business hours.
+    if os.environ.get("STARTUP_BACKUP", "0") == "1":
+        from app.services import backup
 
-    threading.Thread(
-        target=lambda: backup.backup_if_stale(24, "startup-daily"),
-        name="procare-startup-backup", daemon=True,
-    ).start()
+        threading.Thread(
+            target=lambda: backup.backup_if_stale(24, "startup-daily"),
+            name="procare-startup-backup", daemon=True,
+        ).start()
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
