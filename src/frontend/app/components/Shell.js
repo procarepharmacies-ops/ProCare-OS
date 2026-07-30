@@ -90,6 +90,7 @@ const NAV_GROUPS = [
       { href: "/shareholders", key: "nav_shareholders", ico: "customers", roles: ["ceo"] },
       { href: "/audit", key: "nav_audit", ico: "scale", roles: ["ceo", "manager"] },
       { href: "/history", key: "nav_history", ico: "clipboard", roles: ["ceo", "manager"] },
+      { href: "/analytics", key: "nav_analytics", ico: "chart", roles: ["ceo", "manager"] },
       { href: "/reports", key: "nav_reports", ico: "chart", roles: ["ceo", "manager"] },
       { href: "/deep", key: "nav_deep", ico: "sparkle", roles: ["ceo", "manager"] },
       { href: "/reports-daily", key: "nav_reports_daily", ico: "sheet", roles: ["ceo", "manager"] },
