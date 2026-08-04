@@ -1025,9 +1025,31 @@ def _load_employees(insp, src, dst, counts) -> None:
             )
             updated += 1
         else:
-            dst.add(m.Employee(
+            # Two eStock rows can carry the same username — the source has no
+            # unique index on it — while ProCare's `username` IS unique.
+            # `existing` is built once BEFORE this loop, so a new row must be
+            # registered here as it is created; otherwise the second source row
+            # falls into this branch too and queues a SECOND insert. That
+            # duplicate does not fail here — it fails at the post-loop flush, as
+            # a unique violation. And because the mirror is a single transaction
+            # (one commit at the end of `mirror`), that violation rolls back
+            # EVERY table already loaded, not just this employee.
+            #
+            # Flushing per new employee to obtain the id is affordable: Employee
+            # is a small master table (staff), not one of the 100K-row tables.
+            #
+            # Deliberately NOT wrapped in `dst.begin_nested()`. A SAVEPOINT would
+            # look like a tidier guard, but pysqlite does not emit BEGIN properly,
+            # so on SQLite (dev/demo) the savepoint's work escapes the enclosing
+            # transaction and survives a rollback — quietly breaking the
+            # all-or-nothing property the mirror depends on. Deduplicating here
+            # needs no savepoint and behaves identically on SQLite and SQL Server.
+            obj = m.Employee(
                 username=uname, password_hash="!estock-mirror", role="assistant", **fields
-            ))
+            )
+            dst.add(obj)
+            dst.flush()
+            existing[uname.lower()] = (obj.employee_id, obj.password_hash)
             created += 1
     dst.flush()
     counts["employees"] = created
