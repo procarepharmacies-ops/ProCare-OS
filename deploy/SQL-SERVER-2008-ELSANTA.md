@@ -187,9 +187,52 @@ exits 0 (healthy) / 1 (unhealthy) for Task Scheduler.
 
 ---
 
+## Troubleshooting
+
+### Error 9002 — "The transaction log for database 'ProCare' is full"
+
+A database created from the default `model` inherits the **FULL** recovery model,
+where the log is only truncated by a *log backup*. Nobody takes log backups of
+ProCare, so the log grows until it hits the disk or its MAXSIZE — and the first
+full mirror (121K `Branches_Product_Amount` rows, 70K `Branch_order_*` rows, plus
+sales/purchase history) is what surfaces it.
+
+ProCare's DB is a **mirror**: its recovery path is "re-run the mirror from
+eStock", not "replay the log to a point in time". **SIMPLE** recovery is the
+correct steady-state setting.
+
+```sql
+-- Diagnose (log_reuse_wait_desc tells you why the log can't be reused)
+SELECT name, recovery_model_desc, log_reuse_wait_desc
+FROM sys.databases WHERE name = 'ProCare';
+
+-- Fix (LOG_BACKUP case — the common one)
+ALTER DATABASE ProCare SET RECOVERY SIMPLE;
+GO
+USE ProCare;
+CHECKPOINT;
+DBCC SHRINKFILE (ProCare_log, 512);
+GO
+```
+
+Run [`sql/fix-transaction-log-full.sql`](../sql/fix-transaction-log-full.sql) for
+the full runbook — it covers the `ACTIVE_TRANSACTION` (crashed ETL run) and
+disk-full cases too, sets a bounded 8 GB log ceiling, and verifies eStock was
+untouched.
+
+> ⚠️ Apply this to **ProCare only**. Never change the recovery model of the
+> eStock `stock` database — that is the pharmacy's own recovery path.
+
+If SSMS raised this while opening **Database Diagrams** (`sp_upgraddiagrams` in
+the stack trace), that statement is incidental — it just happened to be the write
+that hit the full log. ProCare doesn't use diagrams; skip that SSMS feature.
+
+---
+
 ## Pre-flight checklist
 
 - [ ] `SERVERPROPERTY('Edition')` checked (Express ⇒ mind the 10 GB cap)
+- [ ] `ProCare` recovery model is **SIMPLE** (not FULL — see Troubleshooting)
 - [ ] `ProCare` DB + `procare_app` (read-write) created
 - [ ] `procare_reader` (read-only, `db_datareader`) into the eStock DB
 - [ ] TCP 1433 + mixed auth enabled; ODBC Driver 18 installed
