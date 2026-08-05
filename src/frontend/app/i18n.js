@@ -433,6 +433,8 @@ export const dict = {
     paid_cash: "مدفوع نقدًا",
     paid_card: "مدفوع بالبطاقة",
     credit_unpaid: "آجل (غير مدفوع)",
+    net_cash: "صافي النقدية بالدرج",
+    cash_refunds: "مرتجع نقدي",
     // cash desk
     cash_desk: "الدرج / الوردية",
     shift_open: "وردية مفتوحة",
@@ -1458,6 +1460,8 @@ export const dict = {
     paid_cash: "Paid cash",
     paid_card: "Paid by card",
     credit_unpaid: "Credit (unpaid)",
+    net_cash: "Net cash in drawer",
+    cash_refunds: "Cash refunds",
     cash_desk: "Cash desk / shift",
     shift_open: "Shift open",
     shift_closed: "No open shift",
