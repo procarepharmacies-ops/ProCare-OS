@@ -25,6 +25,8 @@ from app.config import settings
 from app.db import models as m
 from app.services import alerts, clinical, dashboard, llm, parties
 from app.services.common import money
+from app.services import decisions as decisions_svc
+from app.services import reorder as reorder_svc
 
 # The whitelist of intents the assistant is allowed to invoke.
 INTENTS = {
@@ -37,6 +39,8 @@ INTENTS = {
     "debtors": "Customers over their credit limit / with outstanding balance.",
     "profit": "Gross profit (revenue - cost) for the current month.",
     "drug_advice": "Clinical advice for a named drug: active ingredient, alternatives in stock, dosing.",
+    "forecast_risk": "Which products are at risk of running out of stock in the next 30 days.",
+    "decisions": "Today's actionable decision cards from forecasts (القرارات اليومية).",
     "help": "Explain what the assistant can do.",
 }
 
@@ -69,6 +73,10 @@ def _route_keywords(query: str) -> str:
     if has("تفاعل", "بديل", "بدائل", "جرعة", "الماده الفعاله", "المادة الفعالة", "دواء",
            "interaction", "alternative", "substitut", "dose", "dosage", "drug"):
         return "drug_advice"
+    if has("خطر", "خطره", "انقطاع", "ينقطع", "سيقطع", "نخلص", "رمز", "forecast", "stockout risk", "at risk"):
+        return "forecast_risk"
+    if has("قرار", "قرارات", "عاجل", "حرج", "تنفيذ", "تنبيه", "decisions", "briefing", "actionable"):
+        return "decisions"
     return "help"
 
 
@@ -200,14 +208,43 @@ def _execute(session: Session, intent: str, branch_id: int | None, lang: str, qu
             text += " (advisory — does not block a sale)"
         return {"intent": intent, "data": info, "answer": text}
 
+    if intent == "forecast_risk":
+        rows = reorder_svc.generate_reorder_suggestions(session, branch_id) if branch_id else []
+        critical = [r for r in rows if r["priority"] == "critical"]
+        urgent = [r for r in rows if r["priority"] == "urgent"]
+        if ar:
+            text = f"أصناف قيد الخطر (نقص متوقع خلال ٣٠ يوم): {len(rows)} صنف إجمالاً. "
+            text += f"{len(critical)} حرج (ينقطع خلال ٣ أيام)، {len(urgent)} عاجل (خلال أسبوع). "
+            text += "راجع لوحة التحكم للتفاصيل والعروض البديلة."
+        else:
+            text = f"At-risk products (shortage expected within 30 days): {len(rows)} total. "
+            text += f"{len(critical)} critical (out in ≤3 days), {len(urgent)} urgent (within a week). "
+            text += "Check the dashboard for details and transfer options."
+        return {"intent": intent, "data": {"total": len(rows), "critical": len(critical), "urgent": len(urgent), "items": rows}, "answer": text}
+
+    if intent == "decisions":
+        cards = decisions_svc.get_open_decision_cards(session, branch_id) if branch_id else []
+        critical = [c for c in cards if c["severity"] == "critical"]
+        warning = [c for c in cards if c["severity"] == "warning"]
+        if ar:
+            text = f"القرارات اليومية (تصرفات مقترحة من التنبؤات والمخزون): {len(cards)} قرار مفتوح. "
+            text += f"{len(critical)} حرج (أحمر)، {len(warning)} تحذير (أصفر). "
+            text += "الموافقة على أي منها تسجل التنفيذ. التجاهل يرفع القرار دون تنفيذ."
+        else:
+            text = f"Daily decisions (actionable insights from forecasts & inventory): {len(cards)} open. "
+            text += f"{len(critical)} critical (red), {len(warning)} warning (yellow). "
+            text += "Approve any to mark actioned. Dismiss to skip without action."
+        return {"intent": intent, "data": {"total": len(cards), "critical": len(critical), "warning": len(warning), "cards": cards}, "answer": text}
+
     # help
     text = (
         "أقدر أجاوبك عن: مبيعات اليوم/الشهر، الأصناف الأكثر مبيعاً، الأصناف قرب انتهاء الصلاحية، "
-        "النواقص ومسودة طلب الشراء، العملاء المدينين، أرباح الشهر، ونصائح الأدوية (التفاعلات/البدائل/الجرعات)."
+        "النواقص ومسودة طلب الشراء، العملاء المدينين، أرباح الشهر، أصناف قيد الخطر (توقع النقص)، "
+        "القرارات اليومية، ونصائح الأدوية (التفاعلات/البدائل/الجرعات)."
         if ar
         else "I can answer: today's/this month's sales, top sellers, items near expiry, "
-        "low stock and a draft purchase order, debtors, this month's profit, and drug advice "
-        "(interactions/alternatives/dosing)."
+        "low stock and a draft purchase order, debtors, this month's profit, at-risk products (forecast), "
+        "daily decisions, and drug advice (interactions/alternatives/dosing)."
     )
     return {"intent": "help", "data": {"intents": list(INTENTS)}, "answer": text}
 

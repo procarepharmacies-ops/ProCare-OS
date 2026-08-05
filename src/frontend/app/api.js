@@ -125,6 +125,12 @@ export const api = {
 
   recentSales: (branch) => http(`/sales/recent${bq(branch)}`),
   createSale: (payload) => http("/sales", { method: "POST", body: JSON.stringify(payload) }),
+  productBatches: (productId, branch) => http(`/inventory/products/${productId}/batches${bq(branch)}`),
+  // Hold / park invoice (parked carts).
+  holdInvoice: (payload) => http("/sales/hold", { method: "POST", body: JSON.stringify(payload) }),
+  heldInvoices: (branch) => http(`/sales/held${bq(branch)}`),
+  resumeHeld: (heldId) => http(`/sales/held/${heldId}/resume`),
+  discardHeld: (heldId) => http(`/sales/held/${heldId}/discard`, { method: "POST" }),
   returnable: (saleId) => http(`/sales/${saleId}/returnable`),
   returnSale: (saleId, payload = {}) =>
     http(`/sales/${saleId}/return`, { method: "POST", body: JSON.stringify(payload) }),
@@ -136,6 +142,8 @@ export const api = {
   perfAudit: (branch) => http(`/performance/audit${bq(branch)}`),
   perfVendor: (branch, query = "pharmaoverseas", years = 5) =>
     http(`/performance/vendor${bq(branch, `query=${encodeURIComponent(query)}&years=${years}`)}`),
+  perfDeep: (branch, years = 5, lang = "en") =>
+    http(`/performance/deep${bq(branch, `years=${years}&lang=${lang}`)}`),
 
   cashShift: (branchId) => http(`/cashdesk/current?branch_id=${branchId}`),
   openShift: (payload) => http("/cashdesk/open", { method: "POST", body: JSON.stringify(payload) }),
@@ -270,6 +278,56 @@ export const api = {
   stockBatches: (branch) => http(`/reports/stock/batches${bq(branch)}`),
   stockMovements: (branch, days = 30) => http(`/reports/stock/movements${bq(branch, `days=${days}`)}`),
   stockValuation: () => http("/reports/stock/valuation"),
+  // Item sales-movement report (eStock حركة مبيعات صنف في فترة): per-day
+  // opening/purchases/sales/returns/adjust/closing for one product.
+  itemMovement: (productId, branch, days = 30) =>
+    http(`/reports/item-movement${bq(branch, `product_id=${productId}&days=${days}`)}`),
+
+  // Employee incentives (OTC "push the most profitable brand" list).
+  incentiveCandidates: (metric, topN, branch, search = "") =>
+    http(`/incentives/candidates${bq(branch, `metric=${metric}&top_n=${topN}${search ? `&search=${encodeURIComponent(search)}` : ""}`)}`),
+  incentiveApply: (items) => http("/incentives/apply", { method: "POST", body: JSON.stringify({ items }) }),
+  incentiveList: () => http("/incentives/products"),
+  incentiveLeaderboard: (branch, month) =>
+    http(`/incentives/leaderboard${bq(branch, month ? `month=${month}` : "")}`),
+  employeeIncentives: (employeeId, month) =>
+    http(`/incentives/employee/${employeeId}${month ? `?month=${month}` : ""}`),
+
+  // Sales-rep commission calculator (net sales × % per rep, post + audit).
+  commissionPreview: (start, end, branch, rate) =>
+    http(`/commissions/preview${bq(branch, `period_start=${start}&period_end=${end}&default_rate_pct=${rate}`)}`),
+  commissionRuns: (branch) => http(`/commissions/runs${bq(branch)}`),
+  commissionRun: (runId) => http(`/commissions/runs/${runId}`),
+  postCommissionRun: (payload) =>
+    http("/commissions/runs", { method: "POST", body: JSON.stringify(payload) }),
+  voidCommissionRun: (runId) =>
+    http(`/commissions/runs/${runId}/void`, { method: "POST" }),
+
+  // Change history (audit): price changes, stock movements, login events.
+  productChanges: (branch, days = 90) => http(`/audit/product-changes?days=${days}`),
+  stockChanges: (branch, days = 30) => http(`/audit/stock-changes${bq(branch, `days=${days}`)}`),
+  authEvents: (limit = 100) => http(`/audit/auth-events?limit=${limit}`),
+  updatePricing: (productId, payload) =>
+    http(`/inventory/products/${productId}/pricing`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Payroll depth: per-employee base/commission/deductions/advances/net + history.
+  employeePayroll: (employeeId) => http(`/employees/${employeeId}/payroll`),
+
+  // Shareholders / owners register + dividend history (company_Owner mirror).
+  shareholders: () => http("/shareholders"),
+  shareholder: (id) => http(`/shareholders/${id}`),
+
+  // Permissions discovery: the current user's own flags/limits/role access.
+  myPermissions: (employeeId) =>
+    http(`/permissions/me${employeeId ? `?employee_id=${employeeId}` : ""}`),
+
+  // Notification center + ticker (News_bar/Flag parity): expiry/low-stock/shortage.
+  notifications: (branch, expiryDays = 30) =>
+    http(`/notifications${bq(branch, `expiry_days=${expiryDays}`)}`),
+  notificationTicker: (branch, limit = 12) =>
+    http(`/notifications/ticker${bq(branch, `limit=${limit}`)}`),
+  dismissNotifications: (eventKeys, branch) =>
+    http("/notifications/dismiss", { method: "POST", body: JSON.stringify({ event_keys: eventKeys, branch_id: branch || null }) }),
 
   // CRM: loyalty points, WhatsApp invoices, marketing campaigns.
   crmStatus: () => http("/crm/status"),
@@ -277,6 +335,12 @@ export const api = {
   customerProfile: (customerId) => http(`/customers/${customerId}/profile`),
   updateCustomer: (customerId, payload) => http(`/customers/${customerId}`, { method: "POST", body: JSON.stringify(payload) }),
   chartOfAccounts: (branch) => http(`/accounting/chart${bq(branch)}`),
+  // Accounting mirror: كشف حساب statement, Tuning تسويات reasons + adjustments.
+  accountStatement: (accountType, accountRef, branch, days) =>
+    http(`/accounting/statement${bq(branch, `account_type=${accountType}${accountRef ? `&account_ref=${accountRef}` : ""}&days=${days}`)}`),
+  adjustmentReasons: () => http("/accounting/adjustment-reasons"),
+  adjustments: (branch, days) => http(`/accounting/adjustments${bq(branch, `days=${days}`)}`),
+  createJournal: (payload) => http("/accounting/journal", { method: "POST", body: JSON.stringify(payload) }),
   adjustLoyalty: (customerId, payload) =>
     http(`/crm/loyalty/${customerId}/adjust`, { method: "POST", body: JSON.stringify(payload) }),
   saleWhatsapp: (saleId) => http(`/crm/sales/${saleId}/whatsapp`),
@@ -284,4 +348,46 @@ export const api = {
   createCampaign: (payload) => http("/crm/campaigns", { method: "POST", body: JSON.stringify(payload) }),
   sendCampaign: (campaignId) => http(`/crm/campaigns/${campaignId}/send`, { method: "POST" }),
   campaignLinks: (campaignId) => http(`/crm/campaigns/${campaignId}/links`),
+
+  // Phase 4: Social media + promo codes
+  generateSocialCopy: (context, brandName) =>
+    http("/marketing/posts/generate-copy", { method: "POST", body: JSON.stringify({ context, brand_name: brandName }) }),
+  createSocialPost: (payload) =>
+    http("/marketing/posts", { method: "POST", body: JSON.stringify(payload) }),
+  getSocialPost: (postId) => http(`/marketing/posts/${postId}`),
+  socialCalendar: (channel, month) => {
+    const p = new URLSearchParams();
+    if (channel) p.set("channel", channel);
+    if (month) p.set("month", String(month));
+    const s = p.toString();
+    return http(`/marketing/calendar${s ? "?" + s : ""}`);
+  },
+  approveSocialPost: (postId) =>
+    http(`/marketing/posts/${postId}/approve`, { method: "PATCH" }),
+  publishSocialPost: (postId) =>
+    http(`/marketing/posts/${postId}/publish`, { method: "POST" }),
+  createPromoCode: (payload) =>
+    http("/marketing/promo-codes", { method: "POST", body: JSON.stringify(payload) }),
+  listPromoCodes: () => http("/marketing/promo-codes"),
+  getActivePromoCodes: () => http("/marketing/promo-codes/active"),
+  validatePromoCode: (code, invoiceTotal) =>
+    http(`/marketing/promo-codes/${code}/validate?invoice_total=${invoiceTotal}`),
+  deactivatePromoCode: (code) =>
+    http(`/marketing/promo-codes/${code}/deactivate`, { method: "PATCH" }),
+
+  // Phase 6 Dashboard — new KPI endpoints.
+  purchasing: (branch) => http(`/dashboard/purchasing${bq(branch)}`),
+  yoy: (branch) => http(`/dashboard/yoy${bq(branch)}`),
+  dashboardCash: () => http("/dashboard/cash"),
+  expenses: (branch) => http(`/dashboard/expenses${bq(branch)}`),
+  staffNow: (branch) => http(`/dashboard/staff-now${bq(branch)}`),
+  stocktakingAlerts: (minutes = 5) => http(`/stocktaking/recent-alerts?minutes=${minutes}`),
+
+  // Phase 5 Decision cards (القرارات اليومية).
+  decisions: () => http("/decisions"),
+  dismissDecision: (cardId) => http(`/decisions/${cardId}/dismiss`, { method: "POST" }),
+  actionDecision: (cardId, employeeId = null) => http(`/decisions/${cardId}/action`, {
+    method: "POST",
+    body: JSON.stringify({ employee_id: employeeId }),
+  }),
 };

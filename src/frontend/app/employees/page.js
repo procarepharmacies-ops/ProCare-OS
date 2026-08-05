@@ -12,9 +12,23 @@ export default function EmployeesPage() {
   const [employees, setEmployees] = useState([]);
   const [summary, setSummary] = useState(null);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [payroll, setPayroll] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [created, setCreated] = useState(null);
+
+  // Load the payroll panel whenever an employee is opened.
+  useEffect(() => {
+    if (!selectedEmployee) {
+      setPayroll(null);
+      return;
+    }
+    let alive = true;
+    api.employeePayroll(selectedEmployee.employee_id)
+      .then((r) => alive && setPayroll(r))
+      .catch(() => alive && setPayroll(null));
+    return () => { alive = false; };
+  }, [selectedEmployee]);
 
   const isCeo = user?.role === "ceo";
 
@@ -131,6 +145,97 @@ export default function EmployeesPage() {
                 </div>
               ))}
             </div>
+
+            {/* Payroll panel: base / commission / deductions / advances / net */}
+            <h4 style={{ marginTop: 16 }}>{L("pay_title")}</h4>
+            {payroll && payroll.summary ? (
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {[
+                    ["pay_base", payroll.summary.basic_salary],
+                    ["pay_commission", payroll.summary.commission],
+                    ["pay_deductions", payroll.summary.deductions],
+                    ["pay_advances", payroll.summary.advances],
+                  ].map(([k, v]) => (
+                    <div key={k} className="kpi-box" style={{ minWidth: 120 }}>
+                      <div className="kpi-value" style={{ fontSize: 18 }}>{Number(v || 0).toLocaleString("en-US")}</div>
+                      <div className="kpi-label">{L(k)}</div>
+                    </div>
+                  ))}
+                  <div className="kpi-box" style={{ minWidth: 120 }}>
+                    <div className="kpi-value" style={{ fontSize: 18, color: "var(--ok)" }}>
+                      {Number(payroll.summary.net || 0).toLocaleString("en-US")}
+                    </div>
+                    <div className="kpi-label">{L("pay_net")} · {payroll.summary.period || ""}</div>
+                  </div>
+                </div>
+                {payroll.records.length > 1 && (
+                  <div className="table-wrapper" style={{ marginTop: 12 }}>
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th>{L("pay_period")}</th>
+                          <th className="num">{L("pay_base")}</th>
+                          <th className="num">{L("pay_commission")}</th>
+                          <th className="num">{L("pay_deductions")}</th>
+                          <th className="num">{L("pay_advances")}</th>
+                          <th className="num">{L("pay_net")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payroll.records.map((p) => (
+                          <tr key={p.payroll_id}>
+                            <td>{p.period || "—"}</td>
+                            <td className="num">{Number(p.basic_salary).toLocaleString("en-US")}</td>
+                            <td className="num">{Number(p.commission + p.over_commission).toLocaleString("en-US")}</td>
+                            <td className="num">{Number(p.deduction + p.absence_money).toLocaleString("en-US")}</td>
+                            <td className="num">{Number(p.cash_advance).toLocaleString("en-US")}</td>
+                            <td className="num" style={{ fontWeight: 600 }}>{Number(p.net).toLocaleString("en-US")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="muted">
+                {L("pay_none")}
+                {payroll ? ` · ${L("pay_on_file")}: ${Number(payroll.base_salary_on_file || 0).toLocaleString("en-US")}` : ""}
+              </p>
+            )}
+
+            {/* Salary advances (سلف) detail ledger — Employee_cash_advance */}
+            {payroll && payroll.advances && payroll.advances.length > 0 && (
+              <>
+                <h4 style={{ marginTop: 16 }}>
+                  {L("pay_advances_ledger")}
+                  <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+                    {" "}· {L("pay_advances_total")}: {Number(payroll.advances_total || 0).toLocaleString("en-US")}
+                  </span>
+                </h4>
+                <div className="table-wrapper">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>{L("date")}</th>
+                        <th>{L("pay_advance_type")}</th>
+                        <th className="num">{L("pay_advances")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payroll.advances.map((a) => (
+                        <tr key={a.advance_id}>
+                          <td>{a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB") : "—"}</td>
+                          <td>{a.advance_type || "—"}</td>
+                          <td className="num" style={{ fontWeight: 600 }}>{Number(a.amount).toLocaleString("en-US")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         )}
 

@@ -58,6 +58,7 @@ def purchase_detail(session: Session, purchase_id: int) -> dict | None:
         "bill_number": p.bill_number,
         "total_gross": float(p.total_gross or 0),
         "total_discount": float(p.total_discount or 0),
+        "total_net": round(float(p.total_gross or 0) - float(p.total_discount or 0) + float(p.total_tax or 0), 2),
         "total_tax": float(p.total_tax or 0),
         "is_return": p.is_return,
         "created_at": p.created_at.isoformat() if p.created_at else None,
@@ -73,6 +74,7 @@ def purchase_detail(session: Session, purchase_id: int) -> dict | None:
                 "bonus": float(pl.bonus or 0),
                 "buy_price": float(pl.buy_price or 0),
                 "sell_price": float(pl.sell_price or 0),
+                "disc_money": float(pl.disc_money or 0),
                 "exp_date": pl.exp_date.isoformat() if pl.exp_date else None,
             }
             for pl in lines
@@ -189,6 +191,7 @@ def create_purchase(
 
     try:
         gross = 0.0
+        line_disc_total = 0.0
         resolved = []
         for ln in lines:
             product = session.get(m.Product, int(ln["product_id"]))
@@ -202,24 +205,31 @@ def create_purchase(
                 raise POSError("bad_price", "سعر شراء غير صالح / invalid buy price")
             sell_price = float(ln.get("sell_price") or product.sell_price)
             bonus = float(ln.get("bonus") or 0)
+            disc_money = float(ln.get("disc_money") or 0)
+            line_gross = round(amount * buy_price, 2)
+            if disc_money < 0 or disc_money > line_gross:
+                raise POSError("bad_discount", "خصم السطر أكبر من قيمته / line discount exceeds its value")
             exp_date = ln.get("exp_date")  # date | None (parsed by the API layer)
-            gross += round(amount * buy_price, 2)
-            resolved.append((product, amount, bonus, buy_price, sell_price, exp_date))
+            gross += line_gross
+            line_disc_total += disc_money
+            resolved.append((product, amount, bonus, buy_price, sell_price, disc_money, exp_date))
 
-        net = round(gross - float(total_discount) + float(total_tax), 2)
+        net = round(gross - line_disc_total - float(total_discount) + float(total_tax), 2)
         purchase = m.Purchase(
             branch_id=branch_id,
             vendor_id=vendor_id,
             bill_date=datetime.now().date(),
             bill_number=bill_number,
             total_gross=round(gross, 2),
-            total_discount=float(total_discount),
+            # Invoice total discount = header discount + all per-line discounts,
+            # so total_gross − total_discount + total_tax == net.
+            total_discount=round(float(total_discount) + line_disc_total, 2),
             total_tax=float(total_tax),
         )
         session.add(purchase)
         session.flush()
 
-        for product, amount, bonus, buy_price, sell_price, exp_date in resolved:
+        for product, amount, bonus, buy_price, sell_price, disc_money, exp_date in resolved:
             batch = m.StockBatch(
                 product_id=product.product_id,
                 branch_id=branch_id,
@@ -248,6 +258,7 @@ def create_purchase(
                     bonus=bonus,
                     buy_price=buy_price,
                     sell_price=sell_price,
+                    disc_money=disc_money,
                     exp_date=exp_date,
                 )
             )

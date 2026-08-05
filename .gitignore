@@ -27,9 +27,17 @@ build/
 # Editors / OS / local run config (launch.json holds machine-specific paths)
 .vscode/
 .idea/
-.claude/
+# Keep local Claude config out of git, but DO track shared skills (e.g. the
+# Firecrawl CLI skill) so every checkout gets them.
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 .DS_Store
 Thumbs.db
+
+# Firecrawl CLI: scrape/crawl output cache + any local auth/config it drops in
+# the working tree (credentials really live in the home dir — never commit them).
+.firecrawl/
 
 # Data / backups / large binaries (keep the repo lean)
 *.bak

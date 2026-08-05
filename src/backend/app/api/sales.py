@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.db.base import get_session
-from app.services import pos
+from app.services import held as held_svc
+from app.services import pos, recommend
 from app.services.common import money
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -24,6 +25,7 @@ class LineIn(BaseModel):
     amount: float = Field(gt=0)
     sell_price: float | None = None
     disc_money: float = 0.0
+    batch_id: int | None = None  # manual batch pick; None => FEFO
 
 
 class SaleIn(BaseModel):
@@ -37,6 +39,11 @@ class SaleIn(BaseModel):
     override_by: int | None = None
     # Loyalty: spend this many points as an extra invoice discount.
     redeem_points: float = 0.0
+    # Shortcoming behaviour: sell what's on hand and log the unmet remainder to
+    # the shortage sheet instead of failing the whole invoice.
+    allow_partial: bool = False
+    # Cashier's free-text note (prints on the receipt).
+    note: str | None = None
 
 
 class TransferIn(BaseModel):
@@ -52,7 +59,7 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
         sale = pos.create_sale(
             session,
             branch_id=payload.branch_id,
-            lines=[pos.SaleLineInput(l.product_id, l.amount, l.sell_price, l.disc_money) for l in payload.lines],
+            lines=[pos.SaleLineInput(l.product_id, l.amount, l.sell_price, l.disc_money, l.batch_id) for l in payload.lines],
             customer_id=payload.customer_id,
             cashier_id=payload.cashier_id,
             is_credit=payload.is_credit,
@@ -60,6 +67,8 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
             card_paid=payload.card_paid,
             override_by=payload.override_by,
             redeem_points=payload.redeem_points,
+            allow_partial=payload.allow_partial,
+            note=payload.note,
         )
     except pos.POSError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
@@ -69,6 +78,12 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
         "total_net": money(sale.total_net),
         "is_credit": sale.is_credit,
         "sale_date": sale.sale_date.isoformat(),
+        # Echo the actually-sold lines so the POS can show what was filled vs
+        # logged as a shortage when allow_partial trimmed a line.
+        "lines": [
+            {"product_id": sl.product_id, "amount": money(sl.amount), "total_sell": money(sl.total_sell)}
+            for sl in sale.lines
+        ],
     }
     # CRM extras for the POS receipt screen: points balance + WhatsApp invoice.
     if sale.customer_id:
@@ -80,6 +95,49 @@ def create_sale(payload: SaleIn, session: Session = Depends(get_session)):
         out["whatsapp_link"] = wa.wa_link(customer.mobile, text)
         out["whatsapp_sent"] = wa.send_text(customer.mobile, text) if wa.is_configured() else False
     return out
+
+
+class HoldIn(BaseModel):
+    branch_id: int
+    cart: list[dict]                # the POS cart lines, verbatim
+    cashier_id: int | None = None
+    customer_id: int | None = None
+    label: str | None = None
+    note: str | None = None
+
+
+@router.post("/hold")
+def hold(payload: HoldIn, session: Session = Depends(get_session)):
+    """Park the current cart (touches no stock). Resume later to complete."""
+    try:
+        return held_svc.hold_invoice(
+            session, payload.branch_id, payload.cart,
+            cashier_id=payload.cashier_id, customer_id=payload.customer_id,
+            label=payload.label, note=payload.note,
+        )
+    except pos.POSError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
+
+
+@router.get("/held")
+def held_list(branch_id: int | None = None, session: Session = Depends(get_session)):
+    """Active parked carts for the branch (expired ones auto-purged)."""
+    return held_svc.list_held(session, branch_id or None)
+
+
+@router.get("/held/{held_id}/resume")
+def held_resume(held_id: int, session: Session = Depends(get_session)):
+    """Load a parked cart back, re-resolved against current products."""
+    out = held_svc.resume_held(session, held_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Held invoice not found"})
+    return out
+
+
+@router.post("/held/{held_id}/discard")
+def held_discard(held_id: int, session: Session = Depends(get_session)):
+    """Delete a parked cart (idempotent)."""
+    return {"discarded": held_svc.discard_held(session, held_id)}
 
 
 @router.post("/transfer")
@@ -193,6 +251,33 @@ def recent(branch_id: int | None = None, limit: int = 20, session: Session = Dep
     return {"sales": out}
 
 
+@router.get("/suggestions")
+def pos_suggestions(branch_id: int, cart: str = "", session: Session = Depends(get_session)):
+    """POS upsell/cross-sell suggestions for the current cart.
+
+    Args:
+        branch_id: current branch
+        cart: comma-separated product IDs already in cart (e.g. "5,12,3")
+
+    Returns:
+        {"suggestions": [{"product_id": ..., "name_ar": ..., "name_en": ...,
+                          "sell_price": ..., "on_hand": ..., "reason": "..."}]}
+        Reasons: "يُشترى معه عادة" (basket analysis), "مكمّل" (category rule),
+                 "بديل أفضل" (clinical upsell).
+
+        Never blocks checkout on failure (fail-soft).
+    """
+    cart_ids = []
+    if cart:
+        try:
+            cart_ids = [int(x.strip()) for x in cart.split(",") if x.strip()]
+        except ValueError:
+            cart_ids = []
+
+    suggestions = recommend.suggest_for_cart(session, branch_id, cart_ids, limit=3)
+    return {"suggestions": suggestions}
+
+
 @router.get("/{sale_id}")
 def sale_detail(sale_id: int, session: Session = Depends(get_session)):
     """Full invoice — header, lines, discount and profit per line and overall.
@@ -218,6 +303,9 @@ def sale_detail(sale_id: int, session: Session = Depends(get_session)):
                 "disc_money": money(ln.disc_money),
                 "total_sell": money(ln.total_sell),
                 "profit": money(line_profit),
+                # For the receipt's optional dosage/usage line.
+                "dosage_form": ln.product.dosage_form,
+                "uses": ln.product.uses,
             }
         )
     return {
@@ -238,5 +326,6 @@ def sale_detail(sale_id: int, session: Session = Depends(get_session)):
         "cash_paid": money(s.cash_paid),
         "card_paid": money(s.card_paid),
         "profit": money(-total_profit if s.is_return else total_profit),
+        "note": s.note,
         "lines": lines,
     }

@@ -83,6 +83,31 @@ _ACCOUNT_TYPE_LABELS = {
     "general": "حسابات عامة",
 }
 
+_ACCOUNT_TYPES = ("customer", "vendor", "cash", "bank", "branch", "general")
+
+# Named adjustment reasons — eStock's Tuning_accounts (تسويات) reason list.
+# A manual journal entry tagged with one of these is an *adjustment*
+# (ref_type='adjust'); the code is stored on the ledger row so the
+# adjustments report can group by reason. Bilingual so the UI reads in either
+# language and the reports stay legible.
+ADJUSTMENT_REASONS = [
+    {"code": "opening_balance", "ar": "رصيد افتتاحي", "en": "Opening balance"},
+    {"code": "discount_allowed", "ar": "خصم مسموح به", "en": "Discount allowed"},
+    {"code": "bad_debt", "ar": "ديون معدومة", "en": "Bad debt write-off"},
+    {"code": "inventory_writeoff", "ar": "إهلاك / تلف مخزون", "en": "Inventory write-off"},
+    {"code": "cash_short", "ar": "عجز خزينة", "en": "Cash shortage"},
+    {"code": "cash_over", "ar": "زيادة خزينة", "en": "Cash overage"},
+    {"code": "expense", "ar": "مصروف نثري", "en": "Petty expense"},
+    {"code": "correction", "ar": "تصحيح قيد", "en": "Entry correction"},
+    {"code": "other", "ar": "أخرى", "en": "Other"},
+]
+_REASON_BY_CODE = {r["code"]: r for r in ADJUSTMENT_REASONS}
+
+
+def adjustment_reasons() -> list[dict]:
+    """The Tuning_accounts (تسويات) reason catalogue for the manual-adjustment UI."""
+    return ADJUSTMENT_REASONS
+
 
 def chart_of_accounts(session: Session, branch_id: int | None = None) -> dict:
     """شجرة الحسابات — the account tree grouped by type, each type carrying its
@@ -282,29 +307,171 @@ def create_journal_entry(
     credit: float = 0.0,
     account_ref: int | None = None,
     note: str | None = None,
+    reason_code: str | None = None,
 ) -> dict:
-    """Manual journal entry (eStock's Tuning_accounts — 293 manual
-    adjustments). One-sided by design, matching the source system."""
+    """Manual journal entry (eStock's Tuning_accounts — manual adjustments).
+    One-sided by design, matching the source system.
+
+    When ``reason_code`` is given it must be a known Tuning reason; the entry is
+    then tagged as an *adjustment* (``ref_type='adjust'``) and the code is stored
+    so the adjustments report can group by it. Without a reason it stays a plain
+    ``ref_type='manual'`` posting (backwards-compatible)."""
     from app.services.pos import POSError
 
     # Must match the CK_ledger_account check constraint on ledger_entries.
-    if account_type not in ("customer", "vendor", "cash", "bank", "branch", "general"):
+    if account_type not in _ACCOUNT_TYPES:
         raise POSError("bad_account_type", "نوع حساب غير صالح / invalid account type")
     if (debit <= 0 and credit <= 0) or (debit > 0 and credit > 0):
         raise POSError("bad_amounts", "أدخل مديناً أو دائناً (وليس كليهما) / enter debit OR credit")
+    if reason_code is not None and reason_code not in _REASON_BY_CODE:
+        raise POSError("bad_reason", "سبب تسوية غير صالح / invalid adjustment reason")
+
+    is_adjust = reason_code is not None
     entry = m.LedgerEntry(
         branch_id=branch_id,
         account_type=account_type,
         account_ref=account_ref,
-        ref_type="manual",
+        ref_type="adjust" if is_adjust else "manual",
+        reason_code=reason_code,
         debit=float(debit),
         credit=float(credit),
-        note=note or "قيد يدوي / manual journal entry",
+        note=note or ("تسوية / adjustment" if is_adjust else "قيد يدوي / manual journal entry"),
     )
     session.add(entry)
     session.commit()
     session.refresh(entry)
-    return {"entry_id": entry.entry_id, "account_type": account_type, "debit": float(debit), "credit": float(credit)}
+    return {
+        "entry_id": entry.entry_id,
+        "account_type": account_type,
+        "account_ref": account_ref,
+        "ref_type": entry.ref_type,
+        "reason_code": reason_code,
+        "debit": float(debit),
+        "credit": float(credit),
+    }
+
+
+def account_statement(
+    session: Session,
+    account_type: str,
+    account_ref: int | None = None,
+    days: int = 90,
+    branch_id: int | None = None,
+) -> dict:
+    """كشف حساب — a single account's running-balance statement over a window.
+
+    Opening balance is every prior movement's net (debit − credit); each row in
+    the window then carries the balance after it, closing with the final
+    balance. This is the everyday eStock account report (customer/vendor
+    كشف حساب, treasury/bank ledger) the flat ledger view couldn't give."""
+    from app.services.pos import POSError
+
+    if account_type not in _ACCOUNT_TYPES:
+        raise POSError("bad_account_type", "نوع حساب غير صالح / invalid account type")
+
+    cutoff = datetime.now() - timedelta(days=days)
+
+    def _scoped(q):
+        q = q.where(m.LedgerEntry.account_type == account_type)
+        if account_ref is not None:
+            q = q.where(m.LedgerEntry.account_ref == account_ref)
+        if branch_id:
+            q = q.where(m.LedgerEntry.branch_id == branch_id)
+        return q
+
+    # Opening balance = net of everything strictly before the window.
+    opening_row = session.execute(
+        _scoped(
+            select(
+                func.coalesce(func.sum(m.LedgerEntry.debit), 0),
+                func.coalesce(func.sum(m.LedgerEntry.credit), 0),
+            ).where(m.LedgerEntry.entry_date < cutoff)
+        )
+    ).one()
+    opening_balance = float(opening_row[0] or 0) - float(opening_row[1] or 0)
+
+    rows = session.scalars(
+        _scoped(select(m.LedgerEntry).where(m.LedgerEntry.entry_date >= cutoff))
+        .order_by(m.LedgerEntry.entry_date.asc(), m.LedgerEntry.entry_id.asc())
+    ).all()
+
+    running = opening_balance
+    total_debit = total_credit = 0.0
+    lines = []
+    for e in rows:
+        debit = float(e.debit or 0)
+        credit = float(e.credit or 0)
+        running += debit - credit
+        total_debit += debit
+        total_credit += credit
+        reason = _REASON_BY_CODE.get(e.reason_code) if e.reason_code else None
+        lines.append({
+            "entry_id": e.entry_id,
+            "entry_date": e.entry_date.isoformat() if e.entry_date else None,
+            "ref_type": e.ref_type,
+            "ref_id": e.ref_id,
+            "reason_code": e.reason_code,
+            "reason_ar": reason["ar"] if reason else None,
+            "reason_en": reason["en"] if reason else None,
+            "debit": round(debit, 2),
+            "credit": round(credit, 2),
+            "balance": round(running, 2),
+            "note": e.note,
+        })
+
+    return {
+        "account_type": account_type,
+        "account_ref": account_ref,
+        "period_days": days,
+        "opening_balance": round(opening_balance, 2),
+        "total_debit": round(total_debit, 2),
+        "total_credit": round(total_credit, 2),
+        "closing_balance": round(running, 2),
+        "lines": lines,
+    }
+
+
+def adjustments_report(session: Session, branch_id: int | None = None, days: int = 90) -> dict:
+    """تقرير التسويات — manual adjustments (ref_type='adjust') grouped by their
+    Tuning reason, with per-reason debit/credit/net totals and a grand total."""
+    cutoff = datetime.now() - timedelta(days=days)
+    q = select(
+        m.LedgerEntry.reason_code,
+        func.count(m.LedgerEntry.entry_id),
+        func.coalesce(func.sum(m.LedgerEntry.debit), 0),
+        func.coalesce(func.sum(m.LedgerEntry.credit), 0),
+    ).where(
+        m.LedgerEntry.ref_type == "adjust",
+        m.LedgerEntry.entry_date >= cutoff,
+    ).group_by(m.LedgerEntry.reason_code)
+    if branch_id:
+        q = q.where(m.LedgerEntry.branch_id == branch_id)
+
+    groups = []
+    grand_debit = grand_credit = 0.0
+    for code, count, debit, credit in session.execute(q):
+        debit = float(debit or 0)
+        credit = float(credit or 0)
+        reason = _REASON_BY_CODE.get(code)
+        groups.append({
+            "reason_code": code,
+            "reason_ar": reason["ar"] if reason else (code or "—"),
+            "reason_en": reason["en"] if reason else (code or "—"),
+            "count": int(count),
+            "debit": round(debit, 2),
+            "credit": round(credit, 2),
+            "net": round(debit - credit, 2),
+        })
+        grand_debit += debit
+        grand_credit += credit
+    groups.sort(key=lambda g: abs(g["net"]), reverse=True)
+    return {
+        "period_days": days,
+        "groups": groups,
+        "total_debit": round(grand_debit, 2),
+        "total_credit": round(grand_credit, 2),
+        "total_net": round(grand_debit - grand_credit, 2),
+    }
 
 
 def sales_by_customer(session: Session, branch_id: int | None = None, days: int = 30, limit: int = 20) -> list[dict]:
@@ -336,4 +503,75 @@ def sales_by_customer(session: Session, branch_id: int | None = None, days: int 
             "revenue": round(float(total or 0), 2),
         }
         for cid, name_ar, name_en, n, total in session.execute(q)
+    ]
+
+
+def gl_accounts(session: Session) -> list[dict]:
+    """eStock's real, historical chart of accounts (Account_Tree mirror,
+    read-only) — a SEPARATE tree from ProCare's own synthetic ``chart_of_accounts``
+    above (which is built from ProCare's own transactions). ``parent_source_id``
+    is eStock's own account_id, not a ProCare PK."""
+    rows = session.scalars(select(m.GlAccount).order_by(m.GlAccount.code)).all()
+    return [
+        {
+            "gl_account_id": a.gl_account_id,
+            "source_id": a.source_id,
+            "code": a.code,
+            "name_ar": a.name_ar,
+            "name_en": a.name_en,
+            "parent_source_id": a.parent_source_id,
+            "start_money": float(a.start_money or 0),
+        }
+        for a in rows
+    ]
+
+
+def gl_journal(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's central GL journal (Gedo_Financial mirror, read-only, most
+    recent first). ``from_type``/``to_type`` are eStock's own opaque party-type
+    codes — NOT ProCare's ``LedgerEntry.account_type`` vocabulary."""
+    rows = session.scalars(
+        select(m.GlJournalEntry).order_by(m.GlJournalEntry.gl_entry_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "gl_entry_id": e.gl_entry_id,
+            "source_id": e.source_id,
+            "code": e.code,
+            "gedo_type": e.gedo_type,
+            "value": float(e.value or 0),
+            "from_type": e.from_type,
+            "from_id": e.from_id,
+            "to_type": e.to_type,
+            "to_id": e.to_id,
+            "form_type": e.form_type,
+            "notes": e.notes,
+            "computer_name": e.computer_name,
+            "actual_cashier": e.actual_cashier,
+        }
+        for e in rows
+    ]
+
+
+def gl_adjustments(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's manual GL adjustments (Tuning_accounts mirror, تسويات,
+    read-only, most recent first). DISTINCT from ProCare's own forward-looking
+    ``ADJUSTMENT_REASONS`` catalogue above — this is eStock's historical
+    adjustment log. ``who_class``/``reason_source_id`` are eStock's own opaque
+    codes, not translated."""
+    rows = session.scalars(
+        select(m.GlAdjustment).order_by(m.GlAdjustment.gl_adjustment_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "gl_adjustment_id": a.gl_adjustment_id,
+            "source_id": a.source_id,
+            "class_code": a.class_code,
+            "who_class": a.who_class,
+            "who_id": a.who_id,
+            "reason_source_id": a.reason_source_id,
+            "amount": float(a.amount or 0),
+            "notes": a.notes,
+        }
+        for a in rows
     ]

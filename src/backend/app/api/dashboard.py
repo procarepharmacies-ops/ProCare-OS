@@ -84,3 +84,45 @@ def range_summary(
 ):
     """KPIs for an arbitrary date range — the choose-your-dates view."""
     return dashboard.range_summary(session, _branch(branch_id), date_from, date_to)
+
+
+@router.get("/purchasing")
+def purchasing(
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Daily + monthly purchasing totals and purchasing-to-sales ratio (target 79-80%)."""
+    return dashboard.purchasing_summary(session, _branch(branch_id))
+
+
+@router.get("/yoy")
+def yoy(
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Year-over-Year sales + profit: current year vs last year, month by month."""
+    return dashboard.yoy_comparison(session, _branch(branch_id))
+
+
+@router.get("/cash")
+def cash(session: Session = Depends(get_session)):
+    """Current treasury cash balance per branch (POS 1 = Elsanta / POS 2 = Mashala)."""
+    return {"branches": dashboard.cash_by_branch(session)}
+
+
+@router.get("/expenses")
+def expenses(
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Daily + monthly expenses (pay vouchers from treasury)."""
+    return dashboard.expenses_summary(session, _branch(branch_id))
+
+
+@router.get("/staff-now")
+def staff_now(
+    branch_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Who is on shift right now and who is next in the handover queue."""
+    return dashboard.staff_on_shift(session, _branch(branch_id))

@@ -195,6 +195,58 @@ Response shows:
 - Database connection
 - eStock mirror connection
 
+### Watchdog (auto-restart on failure)
+
+The pharmacy opens at 9am — a frozen backend at 10am means lost sales. The
+watchdog polls `/api/health` and restarts the stack automatically after 3
+consecutive failures (a non-200, or a 200 that has silently fallen back to the
+dev SQLite DB), so no one has to be watching.
+
+**One-shot check** (exit 0 = healthy, 1 = unhealthy — good for cron/Task Scheduler):
+```bash
+deploy/procare-watchdog.sh --once            # Linux/Mac
+deploy\procare-watchdog.bat once             # Windows PC
+```
+
+**Run continuously** (Linux/Mac, quick):
+```bash
+nohup deploy/procare-watchdog.sh >/dev/null 2>&1 &
+```
+
+**systemd** (Linux, survives reboot):
+```ini
+# /etc/systemd/system/procare-watchdog.service
+[Unit]
+Description=ProCare health watchdog
+After=docker.service
+[Service]
+ExecStart=/opt/ProCare-OS/deploy/procare-watchdog.sh
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+**Windows PC** — Task Scheduler → *Create Task* → trigger *At log on* → action
+*Start a program*: `deploy\procare-watchdog.bat` (Start in = repo root).
+
+Tunables (environment variables): `HEALTH_URL` (default
+`http://localhost:7000/api/health`), `INTERVAL` (60s), `FAIL_THRESHOLD` (3),
+`REQUIRE_SQLSERVER` (1 — set 0 in SQLite dev), `COOLDOWN` (120s), `RESTART_CMD`,
+`LOG_FILE` (default `.local-run/watchdog.log`). It also restarts the backend if
+Docker OOM-killed it. A 5-minute in-process DB self-ping (`health_selfping`) runs
+inside the scheduler as a second layer when `AUTOMATION_ENABLED=1`.
+
+### Database size + disk monitor
+
+When running on SQL Server Express (10 GB/DB cap), an hourly job grades DB size
+and free disk and WhatsApps the manager at 80/90/95 %:
+```bash
+curl http://localhost:3000/api/automation/db-health   # CEO/manager auth
+```
+Override the cap with `DB_SIZE_CAP_MB` (default 10240). Requires
+`AUTOMATION_ENABLED=1` + APScheduler for the scheduled alerts; the endpoint works
+regardless.
+
 ### Logs
 
 **Backend:**

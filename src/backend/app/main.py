@@ -23,9 +23,25 @@ from app.db.base import SessionLocal, engine
 from app.db.migrate import (
     bootstrap_ceo_if_configured,
     ensure_assigned_agent_column,
+    ensure_branch_names_corrected,
+    ensure_commission_tables,
     ensure_customer_address_column,
+    ensure_customer_crm_columns,
     ensure_employee_reset_columns,
+    ensure_fk_indexes,
+    ensure_forecast_tables,
+    ensure_ledger_reason_column,
+    ensure_notification_table,
+    ensure_payroll_table,
+    ensure_product_change_table,
+    ensure_purchase_line_discount_column,
+    ensure_held_invoice_table,
+    ensure_salary_advance_table,
+    ensure_sale_note_column,
+    ensure_shareholder_tables,
+    ensure_incentive_points_column,
     ensure_loyalty_points_column,
+    ensure_loyalty_tier_columns,
     ensure_original_sale_id_column,
     ensure_prescription_status_columns,
     ensure_product_classification_columns,
@@ -35,6 +51,7 @@ from app.db.migrate import (
     ensure_shelf_location_column,
     ensure_task_priority_columns,
     ensure_titan_match_columns,
+    ensure_titan_drug_columns,
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
@@ -53,10 +70,41 @@ async def lifespan(_app: FastAPI):
     ensure_prescription_status_columns(engine)
     ensure_employee_reset_columns(engine)
     ensure_titan_match_columns(engine)
+    ensure_titan_drug_columns(engine)
     ensure_product_unit_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
+    ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix
     ensure_assigned_agent_column(engine)
+    # FK-check indexes: without them the sync's batch wipe is quadratic
+    # (~500s/cycle on real data); with them it's instant.
+    ensure_fk_indexes(engine)
+    ensure_incentive_points_column(engine)
+    # Phase 3: Loyalty tiers and CRM engagement
+    ensure_loyalty_tier_columns(engine)
+    ensure_customer_crm_columns(engine)
+    # Phase 5: Forecasting and decision cards
+    ensure_forecast_tables(engine)
+    # Phase 6: Sales-rep commission calculator
+    ensure_commission_tables(engine)
+    # Phase 6: named adjustment reasons on the ledger (Tuning_accounts parity)
+    ensure_ledger_reason_column(engine)
+    # Phase 6: notification center dismissals (News_bar parity)
+    ensure_notification_table(engine)
+    # Phase 6: product price/min-stock change log (Product_Changes parity)
+    ensure_product_change_table(engine)
+    # Phase 6: shareholders + dividends mirror (company_Owner parity)
+    ensure_shareholder_tables(engine)
+    # Phase 6: payroll depth mirror (Employee_salary parity)
+    ensure_payroll_table(engine)
+    # Phase 6: salary advances ledger (Employee_cash_advance parity)
+    ensure_salary_advance_table(engine)
+    # Phase 7: cashier invoice note
+    ensure_sale_note_column(engine)
+    # Phase 7: hold/park invoice (parked carts)
+    ensure_held_invoice_table(engine)
+    # Phase 7: per-line purchase discount
+    ensure_purchase_line_discount_column(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 
@@ -64,8 +112,9 @@ async def lifespan(_app: FastAPI):
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()
-    # eStock sync never mirrors employees, so a freshly-synced production DB
-    # has no login at all unless BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
+    # Mirrored eStock employees arrive with unusable sentinel passwords, so a
+    # freshly-synced production DB still has no working login unless
+    # BOOTSTRAP_CEO_USERNAME/PASSWORD are set.
     with SessionLocal() as session:
         bootstrap_ceo_if_configured(session)
         # The pharmacy's real staff accounts (create-only, survives restarts).

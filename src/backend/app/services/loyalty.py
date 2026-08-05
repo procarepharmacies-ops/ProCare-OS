@@ -41,13 +41,22 @@ def redemption_value(points: float) -> float:
 
 
 def award_for_sale(session: Session, sale: m.Sale) -> float:
-    """Earn points on a (non-return) sale with a customer. No commit."""
+    """Earn points on a (non-return) sale with a customer, applying tier multiplier.
+
+    Phase 3: Gold/Platinum customers earn 1.25× / 1.5× points on top of the base.
+    No commit.
+    """
     if sale.customer_id is None or sale.is_return:
         return 0.0
     pts = points_for_spend(float(sale.total_net))
     if pts <= 0:
         return 0.0
     customer = session.get(m.Customer, sale.customer_id)
+    # Apply tier multiplier (silver=1.0, gold=1.25, platinum=1.5)
+    multiplier = tier_multiplier(customer)
+    pts = math.floor(pts * multiplier)
+    if pts <= 0:
+        return 0.0
     customer.loyalty_points = float(customer.loyalty_points or 0) + pts
     session.add(
         m.LoyaltyTransaction(
@@ -55,7 +64,7 @@ def award_for_sale(session: Session, sale: m.Sale) -> float:
             sale_id=sale.sale_id,
             points_delta=pts,
             kind="earn",
-            note=f"نقاط شراء فاتورة #{sale.sale_id} / earned on sale",
+            note=f"نقاط شراء فاتورة #{sale.sale_id} ({customer.tier}×{multiplier:.2f}) / earned on sale",
         )
     )
     return pts
@@ -149,3 +158,63 @@ def summary(session: Session, customer_id: int, limit: int = 30) -> dict:
             for t in txs
         ],
     }
+
+
+# --- Phase 3: Loyalty Tiers (فضي/ذهبي/بلاتيني) -------------------------
+
+
+def tier_thresholds() -> dict[str, tuple[float, float, float]]:
+    """Tier spending thresholds and point multipliers.
+
+    Returns: {tier: (min_spend, max_spend, multiplier)}
+    Config via settings: LOYALTY_TIER_SILVER_SPEND, LOYALTY_TIER_GOLD_SPEND, etc.
+    """
+    silver_max = float(getattr(settings, "loyalty_tier_gold_spend", 2000))
+    gold_max = float(getattr(settings, "loyalty_tier_platinum_spend", 10000))
+    return {
+        "silver": (0, silver_max, 1.0),
+        "gold": (silver_max, gold_max, 1.25),
+        "platinum": (gold_max, float("inf"), 1.5),
+    }
+
+
+def tier_multiplier(customer: m.Customer) -> float:
+    """Point multiplier for a customer based on current tier (1.0, 1.25, or 1.5)."""
+    tier = (customer.tier or "silver").lower()
+    thresholds = tier_thresholds()
+    return thresholds.get(tier, (0, 0, 1.0))[2]
+
+
+def recompute_customer_tier(session: Session, customer_id: int) -> tuple[str, float]:
+    """Recompute a customer's tier from rolling 12-month spend.
+
+    Returns: (new_tier, total_12m_spend). Updates customer.tier and
+    customer.tier_spend_12m. No commit.
+    """
+    from datetime import datetime, timedelta
+
+    customer = session.get(m.Customer, customer_id)
+    if customer is None:
+        return "silver", 0.0
+
+    # Sum all non-return sales for this customer in the past 12 months
+    cutoff = datetime.now() - timedelta(days=365)
+    stmt = select(m.Sale).where(
+        m.Sale.customer_id == customer_id, m.Sale.is_return == False, m.Sale.sale_date >= cutoff  # noqa: E712
+    )
+    sales = session.scalars(stmt).all()
+    total_spend = sum(float(s.total_net) for s in sales)
+
+    # Determine new tier
+    thresholds = tier_thresholds()
+    new_tier = "silver"
+    for tier_name in ("platinum", "gold", "silver"):
+        min_spend = thresholds[tier_name][0]
+        if total_spend >= min_spend:
+            new_tier = tier_name
+            break
+
+    # Update customer
+    customer.tier = new_tier
+    customer.tier_spend_12m = float(total_spend)
+    return new_tier, total_spend

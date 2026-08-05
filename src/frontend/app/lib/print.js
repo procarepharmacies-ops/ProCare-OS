@@ -48,18 +48,26 @@ const N = (v) => Number(v || 0).toLocaleString("en-US");
 // --- Receipt -----------------------------------------------------------------
 // `sale` is GET /api/sales/{id}. Discount always prints; profit prints only
 // when `showProfit` (management copy) — the customer copy stays clean.
-export function printReceipt(sale, { lang = "ar", showProfit = false } = {}) {
+export function printReceipt(sale, { lang = "ar", showProfit = false, showDosage = false, showNote = true } = {}) {
   const ar = lang !== "en";
+  const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
   const rows = sale.lines
-    .map(
-      (l) =>
+    .map((l) => {
+      const dose = showDosage && (l.dosage_form || l.uses)
+        ? `<tr><td colspan="${showProfit ? 6 : 5}" style="color:#555;font-size:11px;padding-top:0">↳ ${esc([l.dosage_form, l.uses].filter(Boolean).join(" — "))}</td></tr>`
+        : "";
+      return (
         `<tr><td>${ar ? l.name_ar : l.name_en || l.name_ar}</td>` +
         `<td>${N(l.amount)}</td><td>${N(l.sell_price)}</td>` +
         `<td>${N(l.disc_money)}</td><td>${N(l.total_sell)}</td>` +
         (showProfit ? `<td>${N(l.profit)}</td>` : "") +
-        `</tr>`
-    )
+        `</tr>` + dose
+      );
+    })
     .join("");
+  const noteBlock = showNote && sale.note
+    ? `<div style="margin-top:8px;font-size:12px">📝 ${esc(sale.note)}</div>`
+    : "";
   const html =
     brandHeader(`${ar ? "فاتورة رقم" : "Invoice #"} ${sale.sale_id}`) +
     `<div class="meta">${new Date(sale.sale_date).toLocaleString(ar ? "ar-EG" : "en-US")}` +
@@ -80,6 +88,7 @@ export function printReceipt(sale, { lang = "ar", showProfit = false } = {}) {
       : "") +
     `<div class="grand"><span>${ar ? "الصافي" : "Net"}</span><span>${N(sale.total_net)} ${ar ? "ج.م" : "EGP"}</span></div>` +
     `</div>` +
+    noteBlock +
     `<div class="bc">${code128Svg(`INV-${sale.sale_id}`, { height: 38 })}</div>` +
     `<div class="footer">${ar ? "شكراً لثقتكم — ProCare Pharmacies" : "Thank you — ProCare Pharmacies"}</div>`;
   openAndPrint(html, { rtl: ar, title: `Invoice ${sale.sale_id}` });

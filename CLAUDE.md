@@ -6,8 +6,8 @@
 
 **Local development (Windows/Mac/Linux):**
 ```bash
-cd src/backend && pip install -r requirements.txt && python run.py   # :8000
-cd src/frontend && npm install && npm run dev                        # :3000
+cd src/backend && pip install -r requirements.txt && python run.py   # :8100
+cd src/frontend && npm install && npm run dev                        # :3100
 ```
 
 **Production (Docker):**
@@ -115,6 +115,19 @@ Types: `fix`, `feat`, `refactor`, `test`, `docs`, `perf`
 - Check for SQL injection, XSS, CORS misconfig, credential leaks before merge
 - No `TODO`s in main — either fix it now or file an issue
 
+**SQL Server 2008 compatibility (production runs on it):** the Elsanta branch
+server is SQL Server 2008; ProCare co-hosts its own DB on that instance. Never
+use constructs newer than 2008 in query code or migrations:
+- **No `.offset()`** in SQLAlchemy queries — `.limit()` alone emits `TOP n`
+  (2008-safe); adding `.offset()` makes SQLAlchemy emit `OFFSET/FETCH` (2012+)
+  and breaks. Paginate with keyset/`TOP` instead.
+- No `func.trim`/`func.length` (absent on 2008 — see `services/incentives.py`);
+  no `NULLS LAST` (use `fefo_order()`); date parts via `common.sql_day`.
+- Column adds via the `ensure_*` pattern must be dialect-aware
+  (`add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"`).
+- In `sql/*.sql` operator scripts: no `DATEFROMPARTS`/`LAG`/`LEAD`/`IIF`/
+  `STRING_AGG` (all 2012+).
+
 **Windows PC Compatibility:**
 - Backend must gracefully handle missing `python-dotenv` (optional import in `run.py`)
 - Seed must be idempotent — running twice = no errors, no duplicates
@@ -180,15 +193,15 @@ Types: `fix`, `feat`, `refactor`, `test`, `docs`, `perf`
   │  └─ README.md (deployment guide: Multipass, Docker, Windows PC)
   └─ CLAUDE_SYSTEM_PROMPT.md (long-form standards; CLAUDE.md is the working guide)
 
-[Runtime: Backend (run.py on :8000)]
+[Runtime: Backend (run.py on :8100)]
   ├─ Startup: load .env, ensure DB tables, seed demo data (idempotent), create today's daily ops tasks
   ├─ Lifespan: spawn background ETL thread if SYNC_ENABLED=1
   ├─ Sync Thread: every SYNC_INTERVAL_SECONDS (default 30), query eStock, transform, insert into ProCare DB (atomic per table)
   └─ Routes: /api/* (REST), /docs (Swagger), /health, /sync/status
 
-[Runtime: Frontend (Next.js on :3000)]
+[Runtime: Frontend (Next.js on :3100)]
   ├─ Startup: load i18n, build SSR pages
-  ├─ Proxy: all /api/* → backend:8000 (server-side; users never see backend URL)
+  ├─ Proxy: all /api/* → backend:8100 (server-side; users never see backend URL)
   └─ Routes: / (dashboard), /pos, /prescriptions, /tasks, /transfers, /reports (all bilingual)
 
 [Database: SQLite (dev) or SQL Server (production)]
@@ -357,6 +370,184 @@ transfer linkage — requested transfers have NULL-batch lines.
 `GET /api/inventory/products?search=<q>` ranks **prefix** matches on
 name_ar/name_en/code first, then scientific-name prefix, then contains-anywhere
 — one typed letter must list every product beginning with that letter.
+
+### Forecasting (Phase 5) — `forecasts` table
+
+Nightly pre-computed demand forecasts per product×branch, cached for <500ms dashboard load:
+
+```json
+{
+  "forecast_id": 1,
+  "product_id": 5, "branch_id": 2,
+  "forecast_date": "2026-07-20",
+  "forecast_horizon": 30,
+  "daily_avg": 2.5,
+  "trend_per_day": 0.05,
+  "seasonality_factor": 1.15,
+  "projected_demand": 85.3,
+  "stockout_date": "2026-08-15?",
+  "days_of_cover": 12.4,
+  "method": "exp_smoothing",
+  "computed_at": "ISO"
+}
+```
+
+Invariants: forecast runs nightly (scheduler) per product×branch; day-of-week seasonality applied (weekends often higher for OTC); Holt-style double exponential smoothing (α=0.2, β=0.1); stockout_date = null if trend flat/negative; safe to re-run (idempotent by truncating daily and re-populating).
+
+### Decision Cards (Phase 5) — `decision_cards` table
+
+Daily briefing items: actionable insights requiring manager approval or review:
+
+```json
+{
+  "card_id": 1,
+  "branch_id": 1, "created_at": "ISO",
+  "card_type": "stockout_risk | below_min | expiry_warning | overstocked | out_of_bounds",
+  "severity": "critical | warning | info",
+  "title_ar": "…", "title_en": "…",
+  "body_ar": "…", "body_en": "…",
+  "action_type": "create_po | create_transfer | promote | adjust_min | review",
+  "ref_product_id": 5?, "ref_purchase_id": null?,
+  "status": "open | dismissed | actioned",
+  "actioned_at": "ISO?", "actioned_by": "employee_id?"
+}
+```
+
+Invariants: cards created daily (nightly job) from forecast/inventory state; action buttons in UI trigger the actual operation; manager can dismiss without action (audit trail); cards auto-archive after 7 days of no interaction.
+
+### Sales-rep commissions (Phase 6) — `commission_runs` / `commission_run_lines`
+
+حاسبة عمولة مندوب البيع: total each rep's **net** sales in a period, apply a
+percentage, then post the payout as an auditable run.
+
+```json
+{
+  "run_id": 1,
+  "branch_id": 0,                     // 0/NULL = consolidated (all branches)
+  "period_start": "2026-06-01", "period_end": "2026-06-30",
+  "default_rate_pct": 5.0,
+  "total_sales": 0.0, "total_commission": 0.0,
+  "status": "posted | void",
+  "note": "string?", "created_at": "ISO", "posted_by": "employee_id?",
+  "voided_at": "ISO?",
+  "lines": [{
+    "line_id": 1, "employee_id": 2, "name_ar": "…", "name_en": "…",
+    "sales_value": 0.0,               // NET: non-return invoices − return invoices
+    "bills_count": 0,                 // non-return invoices only
+    "rate_pct": 5.0,
+    "commission": 0.0                 // sales_value × rate_pct / 100
+  }]
+}
+```
+
+Endpoints (CEO/manager): `GET /api/commissions/preview?period_start&period_end&
+branch_id&default_rate_pct` (read-only), `POST /api/commissions/runs` (persist),
+`GET /api/commissions/runs`, `GET /api/commissions/runs/{id}`,
+`POST /api/commissions/runs/{id}/void`.
+
+Invariants: sales attributed to a rep via `sales.cashier_id` (ETL-mirrored);
+`sales_value` nets returns in a single grouped scan (dialect-portable `case`,
+no SQL Server `TRIM`/`LENGTH`); NULL-cashier sales are excluded (no rep to pay);
+preview is read-only, posting **recomputes** from live sales inside the txn
+(never trusts a client preview) and is atomic; re-posting the same window is
+allowed (new run — history preserved, no silent dedupe); voiding keeps the row +
+lines (`status='void'`, audit trail) and is idempotent; commission math never
+blocks sales. Tables added idempotently via `ensure_commission_tables`.
+
+### Shareholders (Phase 6) — `shareholders` / `dividend_payments`
+
+Mirror of eStock `company_Owner` + `Gedo_Dividends_paied` (owner's register):
+each shareholder's capital (starting → current) and dividends paid per year.
+
+Invariants: ETL `_load_shareholders` is `has_table`-guarded (absent source →
+skipped, never an error); shareholders **upsert by `source_id`** (eStock
+`coow_id`) so re-syncing from either branch server keeps ONE owners register —
+they are deliberately NOT in the destructive `_WIPE_ORDER`; deleted owners
+(`company_Owner.deleted`) are skipped; dividends upsert by `source_id` and any
+dividend whose owner is unknown/deleted is dropped. `GET /api/shareholders`
+(register + ownership `share_pct` + dividend totals) and `/{id}` (annual
+dividend history) are **CEO-only**, read-only. Tables added idempotently via
+`ensure_shareholder_tables`.
+
+### Payroll depth (Phase 6) — `payroll_records`
+
+Mirror of eStock `Employee_salary` (monthly payroll). One row per source
+payroll record: `basic_salary`, `commission`, `over_commission`, `deduction`,
+`absence_money`, `cash_advance`, `source_total`, and a recomputed `net`.
+
+Invariants: `net = basic + commission + over_commission − deduction −
+absence_money − cash_advance` (recomputed in ETL + on any read, independent of
+the source's own `total`); ETL `_load_payroll` is `has_table`-guarded and
+resolves `Employee_salary.emp_id` → username (via the source `Employee` master)
+→ ProCare `employee_id` because ProCare employees carry no source id — rows for
+unknown employees are skipped; **upsert by `source_id`** (`salary_id`), NOT in
+the destructive `_WIPE_ORDER` (employees are never wiped). `GET /api/employees/
+{id}/payroll` (CEO-only, via the employees router) returns the latest record's
+panel (base / commission[+over] / deductions[deduction+absence] / advances /
+net) + full monthly history, with a `base_salary_on_file` fallback when no
+record is mirrored yet. Table added idempotently via `ensure_payroll_table`.
+
+Salary advances (سلف) are a **separate** ledger — `salary_advances` (mirror of
+`Employee_cash_advance`: `source_id`=`cash_advance_id`, `employee_id`, `amount`,
+`advance_type`) — distinct from the monthly `payroll_records.cash_advance`
+roll-up. ETL `_load_salary_advances` shares the `_estock_empid_to_pk`
+(emp_id→username→employee) resolver, upserts by `cash_advance_id`, and is
+`has_table`-guarded. The `/payroll` panel returns the advances ledger (newest
+first) + `advances_total` alongside the monthly panel. Idempotent
+`ensure_salary_advance_table`.
+
+---
+
+## Operations Monitoring (SRE) — watchdog · digest · db_health
+
+**Watchdog (external, no DB):** `deploy/procare-watchdog.{sh,bat}` polls
+`GET /api/health` every `INTERVAL` (60s); after `FAIL_THRESHOLD` (3) consecutive
+failures — a non-200, or (when `REQUIRE_SQLSERVER=1`) a 200 whose `procare_db`
+is not `sqlserver` (silent SQLite fallback) — it restarts the stack via
+`deploy/procare.sh restart` and sleeps `COOLDOWN`. Also restarts on
+`docker inspect .State.OOMKilled`. `--once` exits 0 (healthy) / 1 (unhealthy)
+for cron/systemd/Task Scheduler. Belt-and-suspenders in-process check:
+`scheduler._run_health_selfping` (`db_health.ping()`, every 5 min).
+
+**8am CEO digest** — `dashboard.ceo_digest(session, branch_id=None)`:
+
+```json
+{
+  "as_of": "2026-06-25", "branch_id": 0,
+  "revenue_yesterday": 0.0, "bills_yesterday": 0,
+  "top_sellers": [{"product_id": 5, "name_ar": "…", "name_en": "…", "units": 0.0, "revenue": 0.0}],
+  "low_stock": 0, "expiring_7d": 0,
+  "debtors_count": 0, "debtors_over_limit_total": 0.0
+}
+```
+
+Reports on **yesterday** (a closed trading day), reuses `dashboard._revenue_between`
++ `dashboard.top_products(start=yday, end=yday, limit=3)`. Sent by
+`scheduler._run_ceo_digest` on a **branch-local** 08:00 cron
+(`CronTrigger(timezone=ZoneInfo(BRANCH_TIMEZONE))`, empty → server-local) via
+`whatsapp.ceo_digest_message`. Gated on `AUTOMATION_ENABLED` + APScheduler;
+`notify_manager` self-gates on `manager_phone` + WhatsApp creds.
+
+**Disk + DB-size monitor** — `services/db_health.py`, `db_health.check()`:
+
+```json
+{
+  "severity": "ok | info | warning | critical",
+  "alerts": ["…"],
+  "db": {"engine": "sqlite|sqlserver", "data_mb": 0.0, "log_mb": 0.0,
+         "total_mb": 0.0, "cap_mb": 10240.0, "pct_of_cap": 0.0},
+  "disk": {"path": "…", "total_gb": 0.0, "used_gb": 0.0, "free_gb": 0.0, "free_pct": 0.0},
+  "checked_at": "ISO"
+}
+```
+
+Invariants: DB size vs the SQL Server Express **10 GB cap** (`DB_SIZE_CAP_MB`,
+default 10240) at 80/90/95 %; disk free at <20/10/5 %; grading lives in the
+**pure** `evaluate()` (unit-testable, no I/O); `sys.database_files` path is
+`IS_SQLITE`-guarded; hourly `scheduler._run_db_health` alerts only when severity
+**rises** (`alert_if_worse`, no hourly spam); all I/O fail-soft (never raises
+into a request/scheduler). Exposed at `GET /api/automation/db-health` (CEO/manager).
+Env: `BRANCH_TIMEZONE` (IANA name), `DB_SIZE_CAP_MB`.
 
 ---
 

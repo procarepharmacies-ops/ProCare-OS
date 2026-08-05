@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, clinical, crm, dashboard, employees, footfall, insights, inventory, knowledge, parties, performance, prescriptions, purchasing, reports, sales, shortages, stocktaking, tasks, transfers, treasury, vendors
+from app.api import accounting, agents, ai, alerts, audit, auth, automation, cashdesk, catalogue, clinical, commissions, crm, dashboard, decisions, employees, footfall, forecast, incentives, insights, inventory, knowledge, marketing, notifications, parties, performance, permissions, prescriptions, purchasing, reports, reorder, sales, shareholders, shortages, stocktaking, tasks, transfers, treasury, vendors
 from app.api.auth import auth_guard
 from app.config import settings
 from app.db import models as m
@@ -57,7 +57,7 @@ def health(session: Session = Depends(get_session)):
     }
 
 
-@router.get("/branches", tags=["branches"])
+@router.get("/branches", tags=["branches"], dependencies=[Depends(auth_guard())])
 def branches(session: Session = Depends(get_session)):
     """The branches from ProCare's own DB (falls back to config if unseeded)."""
     rows = session.scalars(select(m.Branch).order_by(m.Branch.branch_id)).all()
@@ -77,13 +77,13 @@ def branches(session: Session = Depends(get_session)):
     return {"branches": settings.branch_list()}
 
 
-@router.get("/etl/status", tags=["etl"])
+@router.get("/etl/status", tags=["etl"], dependencies=[Depends(auth_guard())])
 def etl_status():
     """Read-only eStock mirror status (live vs offline) + the table mapping plan."""
     return etl.status()
 
 
-@router.post("/etl/run", tags=["etl"])
+@router.post("/etl/run", tags=["etl"], dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def etl_run():
     """Trigger the Phase-1 full mirror from the live eStock DB into ProCare.
 
@@ -93,19 +93,19 @@ def etl_run():
     return etl.run_full_load()
 
 
-@router.get("/sync/status", tags=["sync"])
+@router.get("/sync/status", tags=["sync"], dependencies=[Depends(auth_guard())])
 def sync_status():
     """Continuous eStock→ProCare sync status (enabled, interval, last run)."""
     return sync.status()
 
 
-@router.post("/sync/run", tags=["sync"])
+@router.post("/sync/run", tags=["sync"], dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def sync_run():
     """Run one sync cycle now (in addition to the background interval)."""
     return sync.run_once()
 
 
-@router.get("/sync/preflight", tags=["sync"])
+@router.get("/sync/preflight", tags=["sync"], dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def sync_preflight():
     """Check the eStock connection: reachable, read-only, and which store_ids
     (branches) it exposes. Safe to run before the first sync."""
@@ -131,25 +131,42 @@ def backup_list():
 
 # Feature routers, all under /api.
 router.include_router(auth.router)
-router.include_router(dashboard.router)
-router.include_router(inventory.router)
-router.include_router(stocktaking.router)
-router.include_router(parties.router)
-router.include_router(sales.router)
-router.include_router(cashdesk.router)
-router.include_router(alerts.router)
-router.include_router(clinical.router)
-router.include_router(ai.router)
-router.include_router(purchasing.router)
+router.include_router(dashboard.router, dependencies=[Depends(auth_guard())])
+router.include_router(inventory.router, dependencies=[Depends(auth_guard())])
+router.include_router(stocktaking.router, dependencies=[Depends(auth_guard())])
+router.include_router(parties.router, dependencies=[Depends(auth_guard())])
+router.include_router(sales.router, dependencies=[Depends(auth_guard())])
+router.include_router(cashdesk.router, dependencies=[Depends(auth_guard())])
+router.include_router(alerts.router, dependencies=[Depends(auth_guard())])
+router.include_router(forecast.router, dependencies=[Depends(auth_guard())])
+router.include_router(decisions.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+router.include_router(reorder.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+router.include_router(clinical.router, dependencies=[Depends(auth_guard())])
+router.include_router(ai.router, dependencies=[Depends(auth_guard())])
+router.include_router(purchasing.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # CRM: loyalty points, per-invoice WhatsApp, marketing campaigns.
-router.include_router(crm.router)
+router.include_router(crm.router, dependencies=[Depends(auth_guard())])
 # Financial + salary data — CEO only once AUTH_ENABLED=true (no-op otherwise).
 router.include_router(accounting.router, dependencies=[Depends(auth_guard(("ceo",)))])
+# Shareholders / owners register + dividends (company_Owner mirror) — CEO only.
+router.include_router(shareholders.router, dependencies=[Depends(auth_guard(("ceo",)))])
 router.include_router(employees.router, dependencies=[Depends(auth_guard(("ceo",)))])
-router.include_router(transfers.router)
-router.include_router(vendors.router)
+router.include_router(transfers.router, dependencies=[Depends(auth_guard())])
+router.include_router(vendors.router, dependencies=[Depends(auth_guard())])
 # Daily staff tasks (role checks live on the endpoints themselves).
-router.include_router(tasks.router)
+router.include_router(tasks.router, dependencies=[Depends(auth_guard())])
+# Employee incentives: points for selling OTC items, leaderboard.
+router.include_router(incentives.router)
+# Sales-rep commission calculator: net sales × % per rep, post + audit — mgmt only.
+router.include_router(commissions.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
+# Notification center + ticker: live expiry/low-stock/shortage feed (News_bar parity).
+router.include_router(notifications.router, dependencies=[Depends(auth_guard())])
+# Permissions discovery: the current user's own flags/limits/role access.
+router.include_router(permissions.router, dependencies=[Depends(auth_guard())])
+# Marketing & social studio: content calendar, AI copywriting, promo codes.
+router.include_router(marketing.router, dependencies=[Depends(auth_guard())])
+# Catalogue quality: duplicate detection + Titan enrichment review (read-only).
+router.include_router(catalogue.router)
 # NVR door-counter ingestion + visitor analytics (POST is key-protected via
 # FOOTFALL_KEY, not bearer auth — the NVR can't do a login flow).
 router.include_router(footfall.router)
@@ -158,16 +175,16 @@ router.include_router(insights.router, dependencies=[Depends(auth_guard(("ceo", 
 # Performance-over-time, audit report + supplier purchasing — management only.
 router.include_router(performance.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # Prescription reader (phone camera → Gemini) + doctor-habits analytics.
-router.include_router(prescriptions.router)
+router.include_router(prescriptions.router, dependencies=[Depends(auth_guard())])
 # Stock-shortage sheet — any logged-in employee can add to it.
-router.include_router(shortages.router)
+router.include_router(shortages.router, dependencies=[Depends(auth_guard())])
 # Branch treasuries: vouchers, money transfers, balances — management only.
 router.include_router(treasury.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # Stock report suite with CSV export.
-router.include_router(reports.router)
+router.include_router(reports.router, dependencies=[Depends(auth_guard())])
 # In-system cash-flow & inventory audit — management only.
 router.include_router(audit.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 router.include_router(automation.router, dependencies=[Depends(auth_guard(("ceo", "manager")))])
 # AgenticOS unified capabilities
-router.include_router(agents.router)
-router.include_router(knowledge.router)
+router.include_router(agents.router, dependencies=[Depends(auth_guard())])
+router.include_router(knowledge.router, dependencies=[Depends(auth_guard())])

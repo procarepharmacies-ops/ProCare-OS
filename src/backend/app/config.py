@@ -196,10 +196,15 @@ class Settings:
         or "http://localhost:11434"
     )
 
-    # Login gate (CEO/manager/assistant roles). Opt-in via env so existing
-    # deployments and the test suite are unaffected until a pharmacy turns it
-    # on after setting up real employee accounts.
-    auth_enabled: bool = os.environ.get("AUTH_ENABLED", "").lower() in ("1", "true", "yes", "on")
+    # Login gate (CEO/manager/assistant roles). AUTH_ENABLED env wins when set
+    # (either way). When unset: ON automatically for a production deployment
+    # (real eStock source or SQL Server configured — a live pharmacy must not
+    # run open), OFF for dev/demo/tests so the seeded stack stays frictionless.
+    auth_enabled: bool = (
+        os.environ.get("AUTH_ENABLED", "").lower() in ("1", "true", "yes", "on")
+        if os.environ.get("AUTH_ENABLED") is not None
+        else (estock_configured or procare_configured)
+    )
 
     # Loyalty programme rates (overridable per pharmacy via env):
     #   earn : every LOYALTY_EGP_PER_POINT EGP of net spend = 1 point;
@@ -216,6 +221,12 @@ class Settings:
         if _is_real(os.environ.get("MANAGER_PHONE") or _notify.get("manager_phone") or "")
         else ""
     )
+
+    # Branch-local timezone (IANA name, e.g. "Africa/Cairo") for time-of-day
+    # scheduled jobs — most importantly the 08:00 CEO digest, which must land
+    # before the pharmacy opens regardless of the server's clock. Empty = use
+    # the server's local time (existing behaviour). Read by services.scheduler.
+    branch_timezone: str = (os.environ.get("BRANCH_TIMEZONE") or _notify.get("branch_timezone") or "").strip()
 
     @staticmethod
     def procare_sqlalchemy_url() -> str | None:

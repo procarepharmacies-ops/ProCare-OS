@@ -111,6 +111,25 @@ def list_products(
                     {"branch_id": bid, "branch": bname, "on_hand": money(qty)}
                 )
 
+    # Nearest (earliest) sellable expiry per product at the scoped branch — the
+    # POS shows it so the cashier sees an approaching-expiry item at a glance.
+    nearest: dict[int, str] = {}
+    if rows:
+        ids = [p.product_id for p, _ in rows]
+        exp_rows = session.execute(
+            select(m.StockBatch.product_id, func.min(m.StockBatch.exp_date))
+            .where(
+                m.StockBatch.product_id.in_(ids),
+                m.StockBatch.exp_date.is_not(None),
+                available_stock_filter(),
+                branch_filter(m.StockBatch, branch_id),
+            )
+            .group_by(m.StockBatch.product_id)
+        ).all()
+        for pid, exp in exp_rows:
+            if exp is not None:
+                nearest[pid] = exp.isoformat()
+
     out = []
     for p, qty in rows:
         on_hand_qty = money(qty)
@@ -134,6 +153,7 @@ def list_products(
                 "is_otc": p.is_otc,
                 "uses": p.uses,
                 "other_branches": others.get(p.product_id, []),
+                "nearest_expiry": nearest.get(p.product_id),
                 "low": on_hand_qty < float(p.min_stock or 0),
             }
         )
@@ -174,6 +194,43 @@ def create_product(session: Session, data: dict) -> dict:
     session.add(p)
     session.commit()
     return {"product_id": p.product_id, "name_ar": p.name_ar}
+
+
+def update_product_pricing(
+    session: Session,
+    product_id: int,
+    *,
+    sell_price: float | None = None,
+    buy_price: float | None = None,
+    min_stock: float | None = None,
+    employee_id: int | None = None,
+) -> dict:
+    """Edit a product's sell/buy price or minimum stock, logging every changed
+    field to ``product_changes`` (who/from/to/when) atomically with the edit.
+    Only provided fields are touched; a no-op change is not logged."""
+    from app.services import changelog
+    from app.services.pos import POSError
+
+    p = session.get(m.Product, product_id)
+    if p is None or p.is_deleted:
+        raise POSError("product_not_found", f"صنف غير موجود #{product_id}")
+
+    changed = []
+    for field, new in (("sell_price", sell_price), ("buy_price", buy_price), ("min_stock", min_stock)):
+        if new is None:
+            continue
+        new = float(new)
+        if new < 0:
+            raise POSError("bad_value", "القيمة يجب ألا تكون سالبة / value must be non-negative")
+        old = float(getattr(p, field) or 0)
+        if abs(old - new) < 1e-9:
+            continue  # no change — don't log a phantom edit
+        changelog.log_product_change(session, product_id, field, old, new, employee_id)
+        setattr(p, field, new)
+        changed.append({"field": field, "old": round(old, 3), "new": round(new, 3)})
+
+    session.commit()
+    return {"product_id": product_id, "changed": changed}
 
 
 def filter_values(session: Session) -> dict:

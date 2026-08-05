@@ -26,8 +26,30 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 
 from app.config import settings
+from app.db import models as m
 from app.db.base import SessionLocal
 from app.services import etl
+
+
+def _record_cycle(source_name: str, mode: str) -> None:
+    """Persist the cycle outcome so the incremental gate survives restarts.
+
+    Fail-soft: bookkeeping must never fail a cycle that already mirrored fine.
+    """
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with SessionLocal() as st:
+            row = st.get(m.SyncState, source_name)
+            if row is None:
+                row = m.SyncState(source_name=source_name)
+                st.add(row)
+            if not mode.startswith("incremental"):
+                row.full_synced_at = now
+            row.last_cycle_at = now
+            row.last_mode = mode or None
+            st.commit()
+    except Exception:  # noqa: BLE001
+        pass
 
 _DEFAULT_INTERVAL = 30
 
@@ -56,6 +78,17 @@ def interval_seconds() -> int:
 def is_configured() -> bool:
     """True when at least one eStock source is configured to sync from."""
     return bool(settings.estock_sources())
+
+
+def incremental_days() -> int:
+    """Trailing re-pull window (days) for the incremental sync. Once a branch
+    is filled, each cycle re-pulls only this window instead of all history —
+    what makes a short cadence viable over the flaky Elsanta WAN and keeps
+    SQL Server write transactions small. 0 disables (always full reload)."""
+    try:
+        return max(0, int(os.environ.get("SYNC_INCREMENTAL_DAYS", "7")))
+    except (TypeError, ValueError):
+        return 7
 
 
 def is_enabled() -> bool:
@@ -106,11 +139,20 @@ def run_once(source_engine=None) -> dict:
     try:
         for s in sources:
             try:
+                # Incremental only after this source has completed a FULL load
+                # (recorded in sync_state) — a fresh/reset database, or demo
+                # data sitting in the branch, must never suppress the initial
+                # history pull.
+                with SessionLocal() as st:
+                    state = st.get(m.SyncState, s["name"])
+                    inc = incremental_days() if (state and state.full_synced_at) else 0
                 with SessionLocal() as dst:
                     counts = etl.mirror(
-                        s["engine"], dst, s["store_branch_map"], branch_scoped=True
+                        s["engine"], dst, s["store_branch_map"], branch_scoped=True,
+                        incremental_days=inc or None,
                     )
                 all_counts[s["name"]] = counts
+                _record_cycle(s["name"], counts.get("sync_mode", ""))
             except Exception as e:  # noqa: BLE001 — soft-fail per source
                 errors[s["name"]] = f"{type(e).__name__}: {e}"
         ok = not errors
@@ -169,5 +211,6 @@ def status() -> dict:
         s = dict(_state)
     s["configured"] = is_configured()
     s["interval_seconds"] = interval_seconds()
+    s["incremental_days"] = incremental_days()
     s["mode"] = "live read-only eStock mirror" if is_configured() else "offline (own seeded data)"
     return s

@@ -98,6 +98,27 @@ def _build_estock_source(path):
             "back_amount REAL, back_price REAL, buy_price REAL, total_sell REAL, back TEXT)"
         ))
         c.execute(text("INSERT INTO Back_Sales_details VALUES (1,2001,101,1,12,7,12,'Y')"))
+
+        # Shareholders + dividends (company_Owner / Gedo_Dividends_paied).
+        c.execute(text(
+            "CREATE TABLE company_Owner (coow_id INT, coow_code TEXT, coow_name_ar TEXT, "
+            "coow_name_en TEXT, tel TEXT, mobile TEXT, address TEXT, coow_current_money REAL, "
+            "coow_start_money REAL, active INT, deleted INT)"
+        ))
+        c.execute(text(
+            "INSERT INTO company_Owner VALUES "
+            "(1,'O1','أحمد المالك','Ahmed','02','010','طنطا',600000,500000,1,0),"
+            "(2,'O2','سارة الشريك','Sara','02','011','المحلة',400000,400000,1,0),"
+            "(3,'O3','شريك محذوف','Gone',NULL,NULL,NULL,0,0,1,1)"
+        ))
+        c.execute(text(
+            "CREATE TABLE Gedo_Dividends_paied (dividends_id INT, coow_id INT, yaer_id INT, "
+            "gf_id INT, paied_money REAL)"
+        ))
+        c.execute(text(
+            "INSERT INTO Gedo_Dividends_paied VALUES "
+            "(1,1,2025,900,50000),(2,1,2026,950,60000),(3,2,2026,951,40000),(4,99,2026,0,999)"
+        ))
     return eng
 
 
@@ -241,3 +262,206 @@ def test_run_full_load_refuses_without_credentials():
     result = etl.run_full_load()
     assert result["ran"] is False
     assert "credentials" in result["reason"].lower()
+
+
+# Phase 7: High-value mirrors (Branches_Product_Amount, Cash_disk_close, Branch_order_*)
+
+
+def test_load_branch_product_amount(estock_source):
+    """Mirror Branches_Product_Amount (per-branch batch stock) alongside Product_Amount."""
+    try:
+        with estock_source.begin() as c:
+            # Inferred schema: product_id, amount, buy_price, sell_price, tax_price, exp_date, store_id
+            c.execute(text(
+                "CREATE TABLE Branches_Product_Amount ("
+                "counter_id INT, product_id INT, amount REAL, buy_price REAL, sell_price REAL, "
+                "tax_price REAL, exp_date TEXT, store_id INT)"
+            ))
+            # Store 2 (MASHALA) branch stock
+            c.execute(text(
+                "INSERT INTO Branches_Product_Amount VALUES "
+                "(201,101,50,7,12,0,'2027-06-01',2),"
+                "(202,102,10,40,60,0,'2027-08-15',2)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            # Check that branch stock was loaded alongside main stock
+            mashala_stock = s.query(m.StockBatch).filter(m.StockBatch.branch_id == 2).all()
+            assert len(mashala_stock) >= 2  # includes Branches_Product_Amount rows
+            # Verify a batch from Branches_Product_Amount
+            batch = next((b for b in mashala_stock if b.amount == 50), None)
+            assert batch is not None
+            prod_a = s.query(m.Product).filter(m.Product.code == "A").one()
+            assert batch.product_id == prod_a.product_id
+    finally:
+        reset_and_seed()
+
+
+def test_load_cash_shift_closes(estock_source):
+    """Mirror Cash_disk_close (shift reconciliation history)."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Cash_disk_close ("
+                "cdc_id INT, store_id INT, cdc_emp_id INT, cdc_shift_start_time TEXT, "
+                "cdc_start_cash REAL, cdc_curr_cash REAL, cdc_act_cash REAL, "
+                "cdc_trans_value REAL, cdc_notice TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Cash_disk_close VALUES "
+                "(1,1,1,'2026-07-24 08:00:00',0,5000,5050,0,'OK'),"
+                "(2,1,1,'2026-07-24 16:00:00',5050,10200,10200,0,'Balanced')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            shifts = s.query(m.CashShiftClose).filter(m.CashShiftClose.branch_id == 1).all()
+            assert len(shifts) >= 2
+            shift = shifts[0]
+            assert shift.start_cash == 0
+            assert shift.current_cash == 5000
+            assert shift.actual_cash == 5050
+    finally:
+        reset_and_seed()
+
+
+def test_load_branch_orders(estock_source):
+    """Mirror Branch_order_header/details (inter-branch transfer history)."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branch_order_header ("
+                "bo_id INT, from_store_id INT, to_store_id INT, "
+                "order_date TEXT, received_date TEXT, status TEXT, notice TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_header VALUES "
+                "(1,1,2,'2026-07-20','2026-07-21','received','Transfer OK')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branch_order_details ("
+                "bol_id INT, bo_id INT, product_id INT, qty REAL, received_qty REAL, notice TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_details VALUES "
+                "(1,1,101,20,20,NULL),"
+                "(2,1,102,5,5,NULL)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            orders = s.query(m.BranchOrderHeader).all()
+            assert len(orders) == 1
+            order = orders[0]
+            assert order.from_branch_id == 1 and order.to_branch_id == 2
+            assert order.status == "received"
+
+            lines = s.query(m.BranchOrderLine).filter(m.BranchOrderLine.order_id == order.order_id).all()
+            assert len(lines) == 2
+            assert lines[0].quantity == 20
+            assert lines[0].received_qty == 20
+    finally:
+        reset_and_seed()
+
+
+def test_load_gl_accounts(estock_source):
+    """Mirror Account_Tree (chart of accounts) verbatim, upserted by source id."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Account_Tree ("
+                "account_id INT, account_code TEXT, account_name_ar TEXT, account_name_en TEXT, "
+                "account_major INT, account_start_money REAL)"
+            ))
+            c.execute(text(
+                "INSERT INTO Account_Tree VALUES "
+                "(1,'1000','الأصول','Assets',NULL,0),"
+                "(2,'1100','النقدية','Cash',1,5000)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            accounts = s.query(m.GlAccount).order_by(m.GlAccount.source_id).all()
+            assert len(accounts) == 2
+            assets, cash = accounts
+            assert assets.code == "1000" and assets.parent_source_id is None
+            assert cash.code == "1100" and cash.parent_source_id == 1
+            assert cash.start_money == 5000
+
+        # Re-run to prove upsert-by-source-id doesn't duplicate.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlAccount).count() == 2
+    finally:
+        reset_and_seed()
+
+
+def test_load_gl_journal(estock_source):
+    """Mirror Gedo_Financial (central journal) verbatim, upserted by source id."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Gedo_Financial ("
+                "gf_id INT, gf_code TEXT, gf_gedo_type TEXT, gf_value REAL, "
+                "gf_from_type TEXT, gf_from_id INT, gf_to_type TEXT, gf_to_id INT, "
+                "gf_notes TEXT, gf_computer TEXT, gf_actual_cashier TEXT, gf_form_type TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_Financial VALUES "
+                "(1,'GF-1','sale',500,'customer',10,'cash',1,'Invoice #1','PC1','admin','sale'),"
+                "(2,'GF-2','purchase',-300,'cash',1,'vendor',20,'PO #1','PC1','admin','purchase')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            entries = s.query(m.GlJournalEntry).order_by(m.GlJournalEntry.source_id).all()
+            assert len(entries) == 2
+            e1 = entries[0]
+            assert e1.code == "GF-1" and e1.value == 500
+            assert e1.from_type == "customer" and e1.from_id == 10
+            assert e1.to_type == "cash" and e1.to_id == 1
+            assert e1.notes == "Invoice #1"
+
+        # Re-run: journal is append-only/immutable — must not duplicate existing source_ids.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlJournalEntry).count() == 2
+    finally:
+        reset_and_seed()
+
+
+def test_load_gl_adjustments(estock_source):
+    """Mirror Tuning_accounts (manual GL adjustments) verbatim, upserted by source id."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Tuning_accounts ("
+                "Tuning_accounts_id INT, class TEXT, who_class TEXT, who_id INT, "
+                "Tuning_accounts_reason_id INT, Tuning_accounts_money REAL, notes TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Tuning_accounts VALUES "
+                "(1,'debit','customer',10,3,150.5,'Discount correction'),"
+                "(2,'credit','vendor',20,7,-200,'Overpayment refund')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            adjustments = s.query(m.GlAdjustment).order_by(m.GlAdjustment.source_id).all()
+            assert len(adjustments) == 2
+            a1 = adjustments[0]
+            assert a1.class_code == "debit" and a1.who_class == "customer" and a1.who_id == 10
+            assert a1.reason_source_id == 3
+            assert a1.amount == 150.5
+            assert a1.notes == "Discount correction"
+
+        # Re-run to prove upsert-by-source-id doesn't duplicate.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlAdjustment).count() == 2
+    finally:
+        reset_and_seed()

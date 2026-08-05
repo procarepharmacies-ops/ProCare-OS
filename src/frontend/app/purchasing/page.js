@@ -135,6 +135,7 @@ export default function PurchasingPage() {
         bonus: 0,
         buy_price: p.sell_price ? Math.round(p.sell_price * 0.8 * 100) / 100 : 0,
         sell_price: p.sell_price || 0,
+        disc_money: 0,
         exp_date: "",
       },
     ]);
@@ -157,6 +158,7 @@ export default function PurchasingPage() {
           bonus: Number(l.bonus) || 0,
           buy_price: Number(l.buy_price),
           sell_price: Number(l.sell_price) || null,
+          disc_money: Number(l.disc_money) || 0,
           exp_date: l.exp_date || null,
         })),
       });
@@ -331,6 +333,7 @@ export default function PurchasingPage() {
                     <th className="num">{L("qty")}</th>
                     <th className="num">{L("bonus")}</th>
                     <th className="num">{L("buy_price_label")}</th>
+                    <th className="num">{L("pur_line_disc")}</th>
                     <th className="num">{L("price")}</th>
                     <th>{L("exp_date")}</th>
                     <th></th>
@@ -343,6 +346,7 @@ export default function PurchasingPage() {
                       <td className="num"><input className="input" type="number" min={1} value={l.amount} onChange={(e) => setLine(i, "amount", e.target.value)} style={{ width: 64 }} /></td>
                       <td className="num"><input className="input" type="number" min={0} value={l.bonus} onChange={(e) => setLine(i, "bonus", e.target.value)} style={{ width: 56 }} /></td>
                       <td className="num"><input className="input" type="number" min={0} step="0.01" value={l.buy_price} onChange={(e) => setLine(i, "buy_price", e.target.value)} style={{ width: 84 }} /></td>
+                      <td className="num"><input className="input" type="number" min={0} step="0.01" value={l.disc_money} onChange={(e) => setLine(i, "disc_money", e.target.value)} style={{ width: 72 }} /></td>
                       <td className="num"><input className="input" type="number" min={0} step="0.01" value={l.sell_price} onChange={(e) => setLine(i, "sell_price", e.target.value)} style={{ width: 84 }} /></td>
                       <td><input className="input" type="date" value={l.exp_date} onChange={(e) => setLine(i, "exp_date", e.target.value)} /></td>
                       <td><button className="btn icon" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}>✕</button></td>

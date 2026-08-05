@@ -19,6 +19,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -86,6 +87,10 @@ class Product(Base):
     name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     titan_drug_id: Mapped[int | None] = mapped_column(nullable=True)
+    # How that Titan link was resolved (tools/titan_extract.py): exact_name /
+    # name_no_pack / name_tokens, with its confidence score. NULL = unmapped.
+    titan_match_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    titan_match_score: Mapped[int | None] = mapped_column(nullable=True)
 
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.company_id"), nullable=True)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("product_groups.group_id"), nullable=True)
@@ -116,6 +121,8 @@ class Product(Base):
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
     shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Incentive points earned per unit sold (for OTC incentive list).
+    incentive_points: Mapped[float] = mapped_column(Qty, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -140,11 +147,17 @@ class TitanDrug(Base):
     __tablename__ = "titan_drugs"
 
     titan_drug_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
-    name_en: Mapped[str] = mapped_column(String(60))
+    # Nullable: the TITAN.349 build carries drugs with an Arabic name only.
+    name_en: Mapped[str | None] = mapped_column(String(60), nullable=True)
     name_ar: Mapped[str | None] = mapped_column(String(60), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(40), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Derived in tools/titan_extract.py — Titan stores no such flags directly.
+    # origin: 'local' | 'import' | NULL (from manufacturer nationality).
+    origin: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # is_medicine: from the therapeutic category (NULL = undetermined).
+    is_medicine: Mapped[bool | None] = mapped_column(nullable=True)
     # Pre-computed normalised join keys (see tools/titan_extract.py `norm`).
     name_norm: Mapped[str] = mapped_column(String(80))
     sci_norm: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -172,6 +185,15 @@ class Customer(Base):
     opening_balance: Mapped[float] = mapped_column(Money, default=0)
     # Loyalty programme: whole points, earned on sales, spent via redemption.
     loyalty_points: Mapped[float] = mapped_column(Qty, default=0)
+    # Phase 3: Loyalty tiers (silver/gold/platinum) computed nightly from 12-month spend.
+    tier: Mapped[str] = mapped_column(String(20), default="silver")
+    tier_spend_12m: Mapped[float] = mapped_column(Money, default=0)
+    # CRM: Birthday (optional, captured at POS) + WhatsApp opt-out.
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    wa_opt_out: Mapped[bool] = mapped_column(default=False)
+    # RFM segmentation (vip/regular/at_risk/dormant) computed daily.
+    rfm_segment: Mapped[str] = mapped_column(String(20), default="regular")
+    last_purchase_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -278,6 +300,7 @@ class StockMovement(Base):
             name="CK_movements_reason",
         ),
         Index("IX_movements_ref", "reason", "ref_id"),
+        Index("IX_movements_batch", "batch_id"),  # FK-check index (batch wipes)
     )
 
 
@@ -300,6 +323,8 @@ class Sale(Base):
     # Return invoices point back at the sale they reverse (eStock's
     # Back_sales_header -> Sales_header link).
     original_sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
+    # Free-text note the cashier typed during the sale (prints on the receipt).
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     lines: Mapped[list["SaleLine"]] = relationship(back_populates="sale", cascade="all, delete-orphan")
@@ -311,6 +336,9 @@ class Sale(Base):
         # totals for ProCare-created sales are enforced in services/pos.py.
         Index("IX_sales_date", "sale_date"),
         Index("IX_sales_branch_date", "branch_id", "sale_date"),
+        # FK-check index for the self-reference: deleting sales must not scan
+        # the whole table per row to prove no return points at it.
+        Index("IX_sales_original", "original_sale_id"),
     )
 
 
@@ -337,6 +365,10 @@ class SaleLine(Base):
         CheckConstraint("amount >= 0", name="CK_saleline_amount"),
         Index("IX_sale_lines_sale", "sale_id"),
         Index("IX_sale_lines_product", "product_id"),
+        # FK-check index: without it, every stock_batches DELETE full-scans
+        # this table per deleted row (35K batches x 190K lines took ~500s on
+        # the dev SQLite before this index; 0.1s after).
+        Index("IX_sale_lines_batch", "batch_id"),
     )
 
 
@@ -368,9 +400,19 @@ class PurchaseLine(Base):
     bonus: Mapped[float] = mapped_column(Qty, default=0)
     buy_price: Mapped[float] = mapped_column(Money)
     sell_price: Mapped[float] = mapped_column(Money)
+    # Per-line cash discount from the supplier (خصم نقدي على السطر), separate
+    # from bonus free units. Reduces the line's landed cost.
+    disc_money: Mapped[float] = mapped_column(Money, default=0)
     exp_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     purchase: Mapped[Purchase] = relationship(back_populates="lines")
+
+    __table_args__ = (
+        # FK-check indexes: purchase wipes delete by purchase_id; batch wipes
+        # FK-check batch_id per deleted stock_batches row.
+        Index("IX_purchase_lines_purchase", "purchase_id"),
+        Index("IX_purchase_lines_batch", "batch_id"),
+    )
 
 
 class StockTransfer(Base):
@@ -409,7 +451,13 @@ class StockTransferLine(Base):
 
     transfer: Mapped[StockTransfer] = relationship(back_populates="lines")
 
-    __table_args__ = (CheckConstraint("amount > 0", name="CK_transferline_amount"),)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_transferline_amount"),
+        # FK-check indexes (batch/transfer wipes).
+        Index("IX_transfer_lines_transfer", "transfer_id"),
+        Index("IX_transfer_lines_from", "from_batch_id"),
+        Index("IX_transfer_lines_to", "to_batch_id"),
+    )
 
 
 class LedgerEntry(Base):
@@ -424,6 +472,9 @@ class LedgerEntry(Base):
     ref_id: Mapped[int | None] = mapped_column(nullable=True)
     debit: Mapped[float] = mapped_column(Money, default=0)
     credit: Mapped[float] = mapped_column(Money, default=0)
+    # Named adjustment reason (eStock Tuning_accounts parity) — only set on
+    # manual adjustment entries (ref_type='adjust'); NULL for machine postings.
+    reason_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -454,6 +505,77 @@ class PurchaseOrderDraft(Base):
     reason: Mapped[str] = mapped_column(String(40), default="below_min")
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/approved/rejected
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class CashShiftClose(Base):
+    """Cashier shift reconciliation history — mirrors eStock's Cash_disk_close.
+
+    Per-shift open/close record: start time, starting cash, current, actual,
+    and any over/short amount. Read-only history from eStock; ProCare cashier
+    shifts are separate.
+    """
+
+    __tablename__ = "cash_shift_closes"
+
+    shift_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    source_shift_id: Mapped[int | None] = mapped_column(nullable=True)  # eStock cdc_id
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    cash_depot_id: Mapped[int | None] = mapped_column(nullable=True)  # eStock cash_depot_id
+    shift_start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    shift_end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    start_cash: Mapped[float] = mapped_column(Money, default=0)
+    current_cash: Mapped[float] = mapped_column(Money, default=0)
+    actual_cash: Mapped[float] = mapped_column(Money, default=0)
+    transferred_to_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    transfer_amount: Mapped[float] = mapped_column(Money, default=0)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_shift_close_branch_time", "branch_id", "shift_start_time"),
+    )
+
+
+class BranchOrderHeader(Base):
+    """Inter-branch transfer request header — mirrors eStock's Branch_order_header.
+
+    One requisition per branch-to-branch stock request. Read-only history mirror;
+    ProCare's own transfers are StockTransfer.
+    """
+
+    __tablename__ = "branch_order_headers"
+
+    order_id: Mapped[int] = mapped_column(primary_key=True)
+    source_order_id: Mapped[int | None] = mapped_column(nullable=True)  # eStock bo_id
+    from_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    to_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    received_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/received/cancelled
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_order_branches_date", "from_branch_id", "to_branch_id", "order_date"),
+    )
+
+
+class BranchOrderLine(Base):
+    """Inter-branch transfer request details — mirrors Branch_order_details."""
+
+    __tablename__ = "branch_order_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("branch_order_headers.order_id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    quantity: Mapped[float] = mapped_column(Qty, default=0)
+    received_qty: Mapped[float] = mapped_column(Qty, default=0)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    __table_args__ = (
+        Index("IX_orderline_product", "order_id", "product_id"),
+    )
 
 
 class EmployeeTask(Base):
@@ -577,6 +699,7 @@ class LoyaltyTransaction(Base):
     __table_args__ = (
         CheckConstraint("kind IN ('earn','redeem','clawback','adjust')", name="CK_loyalty_kind"),
         Index("IX_loyalty_customer", "customer_id", "created_at"),
+        Index("IX_loyalty_sale", "sale_id"),  # FK-check index (sale wipes)
     )
 
 
@@ -694,6 +817,71 @@ class Campaign(Base):
     )
 
 
+class SocialPost(Base):
+    """Social media content calendar post (فيسبوك/انستغرام/ستاتس واتس).
+
+    Tracks content drafts, approvals, and publishing to multiple channels
+    with bilingual captions and media refs. Phase 4: marketing studio.
+    """
+
+    __tablename__ = "social_posts"
+
+    post_id: Mapped[int] = mapped_column(primary_key=True)
+    channel: Mapped[str] = mapped_column(String(20))  # fb / ig / wa-status
+    title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    body_ar: Mapped[str] = mapped_column(String(2000))
+    body_en: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    image_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)  # URL or base64 ref
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/approved/published
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    promo_code: Mapped[str | None] = mapped_column(String(50), nullable=True)  # link to promotion
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("channel IN ('fb','ig','wa-status','tiktok','linkedin')", name="CK_social_channel"),
+        CheckConstraint("status IN ('draft','approved','published','scheduled')", name="CK_social_status"),
+        Index("IX_social_posts_channel_date", "channel", "scheduled_at"),
+        Index("IX_social_posts_promo", "promo_code"),
+    )
+
+
+class PromoCode(Base):
+    """Discount promotion code (كود الخصم) — redeemable at POS.
+
+    Tracks code, discount amount/percentage, validity window, usage limits.
+    Phase 4: campaign→sales ROI tracking.
+    """
+
+    __tablename__ = "promo_codes"
+
+    promo_code_id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True)
+    description_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    description_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    discount_type: Mapped[str] = mapped_column(String(10))  # percentage / fixed
+    discount_value: Mapped[float] = mapped_column(Money)  # % or EGP amount
+    valid_from: Mapped[datetime] = mapped_column(DateTime)
+    valid_until: Mapped[datetime] = mapped_column(DateTime)
+    max_uses: Mapped[int | None] = mapped_column(nullable=True)  # NULL = unlimited
+    current_uses: Mapped[int] = mapped_column(default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("discount_type IN ('percentage','fixed')", name="CK_promo_type"),
+        CheckConstraint("discount_value > 0", name="CK_promo_value"),
+        CheckConstraint("current_uses >= 0", name="CK_promo_uses"),
+        Index("IX_promo_codes_code", "code"),
+        Index("IX_promo_codes_valid", "valid_from", "valid_until"),
+    )
+
+
 class StockCount(Base):
     """Stocktaking session (الجرد) — eStock-style physical inventory count.
 
@@ -779,4 +967,532 @@ class AgentRun(Base):
         CheckConstraint("status IN ('running','done','error','blocked')", name="CK_agent_run_status"),
         Index("IX_agent_runs_agent", "agent"),
         Index("IX_agent_runs_created", "created_at"),
+    )
+
+
+class SyncState(Base):
+    """Per-source sync bookkeeping for the eStock mirror.
+
+    ``full_synced_at`` records that this source completed a FULL branch load —
+    the gate that lets later cycles run the fast incremental window instead of
+    re-pulling all history. Kept in the database (not process memory) so a
+    backend restart never silently re-triggers a multi-minute WAN full pull,
+    and cleared naturally whenever the database is reset.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "sync_state"
+
+    source_name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    full_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class AuthEvent(Base):
+    """Security audit trail: every login attempt, password reset and password
+    change, with outcome. ``employee_id`` is NULL for failed attempts against
+    unknown usernames (the attempted username is still recorded).
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "auth_events"
+
+    event_id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(80))
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    event: Mapped[str] = mapped_column(String(20))  # login_ok/login_fail/reset_request/reset_ok/password_change
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('login_ok','login_fail','reset_request','reset_ok','password_change')",
+            name="CK_auth_event_kind",
+        ),
+        Index("IX_auth_events_created", "created_at"),
+        Index("IX_auth_events_username", "username"),
+    )
+
+
+class ProductAffinity(Base):
+    """Co-purchase affinity matrix for POS upsell/cross-sell suggestions.
+
+    Nightly scheduler job computes lift (P(B|A) / P(B)) and support
+    (% of all baskets containing both) from 90-day sales history. Ranked by lift.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "product_affinity"
+
+    affinity_id: Mapped[int] = mapped_column(primary_key=True)
+    product_a_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    product_b_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    lift: Mapped[float] = mapped_column(default=1.0)
+    support: Mapped[float] = mapped_column(default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("lift > 0", name="CK_affinity_lift"),
+        CheckConstraint("support >= 0 AND support <= 1", name="CK_affinity_support"),
+        Index("IX_affinity_product_a", "product_a_id"),
+        Index("IX_affinity_product_b", "product_b_id"),
+        Index("IX_affinity_branch", "branch_id"),
+    )
+
+
+class IncentiveLedger(Base):
+    """Incentive points earned/clawed-back per sale line by cashier.
+
+    POS creates entries when incentivized items (``products.incentive_points > 0``)
+    are sold; returns auto-claw back via negative entries. Monthly leaderboard
+    aggregates per employee by summing over a calendar month.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "incentive_ledger"
+
+    entry_id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    sale_id: Mapped[int] = mapped_column(ForeignKey("sales.sale_id"))
+    sale_line_id: Mapped[int] = mapped_column(ForeignKey("sale_lines.line_id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    points: Mapped[float] = mapped_column(Qty)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_incentive_employee_created", "employee_id", "created_at"),
+        Index("IX_incentive_sale", "sale_id"),
+        Index("IX_incentive_branch_created", "branch_id", "created_at"),
+    )
+
+
+class Forecast(Base):
+    """Nightly pre-computed demand forecasts per product×branch.
+
+    Cached for <500ms dashboard queries. Generated by the scheduler via
+    services/forecast.py:forecast_demand(). Holt-style exponential smoothing
+    with day-of-week seasonality. Safe to re-run (idempotent).
+    """
+
+    __tablename__ = "forecasts"
+
+    forecast_id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    forecast_date: Mapped[date] = mapped_column(Date)
+    forecast_horizon: Mapped[int] = mapped_column(default=30)
+    daily_avg: Mapped[float] = mapped_column(Qty, default=0.0)
+    trend_per_day: Mapped[float] = mapped_column(Numeric(10, 4), default=0.0)
+    seasonality_factor: Mapped[float] = mapped_column(Numeric(5, 2), default=1.0)
+    projected_demand: Mapped[float] = mapped_column(Qty, default=0.0)
+    stockout_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    days_of_cover: Mapped[float] = mapped_column(Numeric(10, 1), default=0.0)
+    method: Mapped[str] = mapped_column(String(50), default="exp_smoothing")
+    computed_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("product_id", "branch_id", "forecast_date", name="UQ_forecast_uniq"),
+        Index("IX_forecast_product_branch_date", "product_id", "branch_id", "forecast_date"),
+        Index("IX_forecast_stockout_date", "stockout_date"),
+    )
+
+
+class DecisionCard(Base):
+    """Daily briefing items: actionable insights for manager review.
+
+    Created nightly by the scheduler from forecast/inventory state.
+    Manager can approve action (create PO, transfer, etc.) or dismiss.
+    Auto-archives after 7 days without action. Audit trail for all actions.
+    """
+
+    __tablename__ = "decision_cards"
+
+    card_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    card_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False
+    )
+    severity: Mapped[str] = mapped_column(String(20), default="info")
+    title_ar: Mapped[str] = mapped_column(String(256))
+    title_en: Mapped[str] = mapped_column(String(256))
+    body_ar: Mapped[str] = mapped_column(Text)
+    body_en: Mapped[str] = mapped_column(Text)
+    action_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ref_product_id: Mapped[int | None] = mapped_column(ForeignKey("products.product_id"), nullable=True)
+    ref_purchase_id: Mapped[int | None] = mapped_column(ForeignKey("purchases.purchase_id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    actioned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    actioned_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("card_type IN ('stockout_risk', 'below_min', 'expiry_warning', 'overstocked', 'out_of_bounds')", name="CK_card_type"),
+        CheckConstraint("severity IN ('critical', 'warning', 'info')", name="CK_card_severity"),
+        CheckConstraint("status IN ('open', 'dismissed', 'actioned', 'archived')", name="CK_card_status"),
+        Index("IX_card_branch_created", "branch_id", "created_at"),
+        Index("IX_card_status", "status"),
+        Index("IX_card_severity", "severity"),
+    )
+
+
+class CommissionRun(Base):
+    """A posted sales-rep commission payout batch (حاسبة عمولة مندوب البيع).
+
+    Mirrors eStock's rep-commission workflow: pick a period + a percentage,
+    the system totals each rep's net sales (``sales.cashier_id``) and pays
+    ``sales_value × rate``. A run is only written when the manager *posts* the
+    preview, so it doubles as the auditable payout record. Voiding keeps the
+    row (status='void') for the audit trail rather than deleting it.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "commission_runs"
+
+    run_id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL = consolidated across all branches (matches branch_filter's None).
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    # Fallback rate applied to reps without a per-rep override, in percent.
+    default_rate_pct: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    total_sales: Mapped[float] = mapped_column(Money, default=0)
+    total_commission: Mapped[float] = mapped_column(Money, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="posted")
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    lines: Mapped[list["CommissionRunLine"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('posted', 'void')", name="CK_commission_status"),
+        CheckConstraint("period_end >= period_start", name="CK_commission_period"),
+        Index("IX_commission_branch_period", "branch_id", "period_start", "period_end"),
+        Index("IX_commission_status", "status"),
+    )
+
+
+class CommissionRunLine(Base):
+    """One sales-rep's line within a posted commission run — a snapshot of the
+    net sales value, effective rate, and the resulting commission at post time.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "commission_run_lines"
+
+    line_id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("commission_runs.run_id"))
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    sales_value: Mapped[float] = mapped_column(Money, default=0)
+    bills_count: Mapped[int] = mapped_column(default=0)
+    rate_pct: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    commission: Mapped[float] = mapped_column(Money, default=0)
+
+    run: Mapped[CommissionRun] = relationship(back_populates="lines")
+
+    __table_args__ = (
+        Index("IX_commission_line_run", "run_id"),
+        Index("IX_commission_line_employee", "employee_id"),
+    )
+
+
+
+
+class NotificationDismissal(Base):
+    """Dismissed-notification log for the notification center (News_bar parity).
+
+    The notification feed is *computed live* from operational state (expiring
+    batches, low stock, open shortages), so there is no event row to delete —
+    instead each live event has a stable ``event_key`` and dismissing one writes
+    a row here. The feed then hides any event whose key has been dismissed, the
+    same way eStock's News_bar respects its ``deleted`` flag. Idempotent by key.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "notification_dismissals"
+
+    dismissal_id: Mapped[int] = mapped_column(primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(120), unique=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    dismissed_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_notif_dismissal_key", "event_key"),
+    )
+
+
+class ProductChange(Base):
+    """Price / min-stock change log for a product (eStock Product_Changes parity).
+
+    Written whenever ProCare edits a product's sell/buy price or minimum-stock
+    level, so the pharmacy has a "who changed this price, from what, to what,
+    and when" trail. One row per changed field. New table — ``create_all`` adds
+    it automatically on existing databases.
+    """
+
+    __tablename__ = "product_changes"
+
+    change_id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
+    field: Mapped[str] = mapped_column(String(30))  # sell_price | buy_price | min_stock
+    old_value: Mapped[float] = mapped_column(Money, default=0)
+    new_value: Mapped[float] = mapped_column(Money, default=0)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_product_change_product", "product_id", "created_at"),
+        Index("IX_product_change_created", "created_at"),
+    )
+
+
+class Shareholder(Base):
+    """Company shareholder / owner (eStock ``company_Owner`` mirror, المساهمون).
+
+    Read-only mirror of the owners register: each shareholder's current and
+    starting capital. Dividends paid to them live in ``dividend_payments``.
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "shareholders"
+
+    shareholder_id: Mapped[int] = mapped_column(primary_key=True)
+    # eStock coow_id, kept so the ETL can upsert without duplicating on re-sync.
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)
+    code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    name_ar: Mapped[str] = mapped_column(String(150))
+    name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    tel: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    current_capital: Mapped[float] = mapped_column(Money, default=0)
+    start_capital: Mapped[float] = mapped_column(Money, default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    dividends: Mapped[list["DividendPayment"]] = relationship(
+        back_populates="shareholder", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("IX_shareholder_source", "source_id"),
+    )
+
+
+class DividendPayment(Base):
+    """A dividend paid to a shareholder for a year (eStock ``Gedo_Dividends_paied``).
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "dividend_payments"
+
+    dividend_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)
+    shareholder_id: Mapped[int] = mapped_column(ForeignKey("shareholders.shareholder_id"))
+    year: Mapped[int | None] = mapped_column(nullable=True)
+    # eStock Gedo_Financial journal link (gf_id) — kept for traceability.
+    gf_id: Mapped[int | None] = mapped_column(nullable=True)
+    amount: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    shareholder: Mapped[Shareholder] = relationship(back_populates="dividends")
+
+    __table_args__ = (
+        Index("IX_dividend_shareholder", "shareholder_id"),
+        Index("IX_dividend_year", "year"),
+    )
+
+
+class GlAccount(Base):
+    """Chart of accounts (eStock ``Account_Tree`` mirror, شجرة الحسابات).
+
+    Read-only verbatim mirror — a SEPARATE tree from ProCare's own synthetic
+    chart of accounts (``LedgerEntry`` in ``services/accounting.py``, built from
+    ProCare's own transactions). This is eStock's real, historical GL tree.
+    ``parent_source_id`` is eStock's own account_id (not resolved to a ProCare
+    PK) — a loose self-reference, sufficient for a read-only mirror. Upserted
+    by source_id so re-syncing never duplicates; not in ``_WIPE_ORDER`` (kept
+    across full refreshes, like shareholders/payroll).
+    """
+
+    __tablename__ = "gl_accounts"
+
+    gl_account_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Account_Tree.account_id
+    code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    name_ar: Mapped[str] = mapped_column(String(200))
+    name_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    parent_source_id: Mapped[int | None] = mapped_column(nullable=True)  # account_major, loose self-ref
+    start_money: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_account_source", "source_id"),
+        Index("IX_gl_account_parent", "parent_source_id"),
+    )
+
+
+class GlJournalEntry(Base):
+    """Central GL journal (eStock ``Gedo_Financial`` mirror) — every money
+    movement, verbatim and read-only.
+
+    ``from_type``/``to_type`` + ``from_id``/``to_id`` are eStock's own opaque
+    party-type codes (Customer/Vendor/Branch/Employee/Shareholder) — stored
+    as-is, NOT translated to ProCare's ``LedgerEntry.account_type`` strings,
+    since the type-code encoding is unconfirmed pending the schema-dump.
+    Upserted by source_id (gf_id); not in ``_WIPE_ORDER`` (append-only ledger,
+    survives full refreshes like shareholders/dividends).
+    """
+
+    __tablename__ = "gl_journal_entries"
+
+    gl_entry_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_Financial.gf_id
+    code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    gedo_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    value: Mapped[float] = mapped_column(Money, default=0)
+    from_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    from_id: Mapped[int | None] = mapped_column(nullable=True)
+    to_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_id: Mapped[int | None] = mapped_column(nullable=True)
+    form_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    computer_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    actual_cashier: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_journal_source", "source_id"),
+        Index("IX_gl_journal_from", "from_type", "from_id"),
+        Index("IX_gl_journal_to", "to_type", "to_id"),
+    )
+
+
+class GlAdjustment(Base):
+    """Manual GL adjustment (eStock ``Tuning_accounts`` mirror, تسويات).
+
+    Verbatim read-only mirror of eStock's own manual-adjustment log — DISTINCT
+    from ProCare's own ``ADJUSTMENT_REASONS`` catalogue in
+    ``services/accounting.py`` (that's ProCare's forward-looking reason list
+    for NEW adjustments made in ProCare going forward; this is eStock's
+    historical record of adjustments already made there). ``who_class`` +
+    ``reason_source_id`` are eStock's own opaque codes, stored as-is — same
+    posture as ``GlJournalEntry.from_type``/``to_type``, not translated
+    pending the schema-dump. Upserted by source_id; not in ``_WIPE_ORDER``.
+    """
+
+    __tablename__ = "gl_adjustments"
+
+    gl_adjustment_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Tuning_accounts_id
+    class_code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # class
+    who_class: Mapped[str | None] = mapped_column(String(20), nullable=True)  # party-type code
+    who_id: Mapped[int | None] = mapped_column(nullable=True)  # party's eStock source id
+    reason_source_id: Mapped[int | None] = mapped_column(nullable=True)  # Tuning_accounts_reason_id
+    amount: Mapped[float] = mapped_column(Money, default=0)  # Tuning_accounts_money
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_adjustment_source", "source_id"),
+        Index("IX_gl_adjustment_who", "who_class", "who_id"),
+    )
+
+
+class PayrollRecord(Base):
+    """Monthly payroll record per employee (eStock ``Employee_salary`` mirror).
+
+    Read-only mirror of the payroll sub-table: basic salary + commission
+    (regular + over) − deductions − absence − advance = net. ``source_total`` is
+    eStock's own computed ``total``; ``net`` is recomputed here so the panel is
+    self-consistent even if the source total is stale. New table — ``create_all``
+    adds it automatically on existing databases.
+    """
+
+    __tablename__ = "payroll_records"
+
+    payroll_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Employee_salary.salary_id
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    period: Mapped[str | None] = mapped_column(String(20), nullable=True)  # month_salary
+    state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    basic_salary: Mapped[float] = mapped_column(Money, default=0)
+    commission: Mapped[float] = mapped_column(Money, default=0)
+    over_commission: Mapped[float] = mapped_column(Money, default=0)
+    deduction: Mapped[float] = mapped_column(Money, default=0)
+    absence_money: Mapped[float] = mapped_column(Money, default=0)
+    cash_advance: Mapped[float] = mapped_column(Money, default=0)
+    source_total: Mapped[float] = mapped_column(Money, default=0)
+    net: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_payroll_employee", "employee_id"),
+        Index("IX_payroll_source", "source_id"),
+    )
+
+
+class SalaryAdvance(Base):
+    """Salary advance / loan against salary (سلفة) — eStock
+    ``Employee_cash_advance`` mirror. A detail ledger of individual advances,
+    separate from the monthly ``payroll_records.cash_advance`` roll-up.
+
+    New table — ``create_all`` adds it automatically on existing databases.
+    """
+
+    __tablename__ = "salary_advances"
+
+    advance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # cash_advance_id
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
+    amount: Mapped[float] = mapped_column(Money, default=0)
+    advance_type: Mapped[str | None] = mapped_column(String(30), nullable=True)  # eStock 'type'
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_salary_advance_employee", "employee_id"),
+        Index("IX_salary_advance_source", "source_id"),
+    )
+
+
+class HeldInvoice(Base):
+    """A parked POS cart (فاتورة معلّقة) — the customer steps away, the cashier
+    holds the sale, serves others, and resumes it later to complete + print.
+
+    A held invoice is JUST a saved cart: it touches NO stock and runs NO credit
+    check — all of that happens at completion when it's resumed into the POS and
+    sold normally. Auto-expires after ``HOLD_EXPIRE_DAYS`` so stale holds don't
+    pile up. New table — ``create_all`` adds it automatically on existing DBs.
+    """
+
+    __tablename__ = "held_invoices"
+
+    held_id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
+    cashier_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(80), nullable=True)  # e.g. customer name / ticket
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    cart_json: Mapped[str] = mapped_column(Text)  # the cart lines, verbatim
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("IX_held_branch_created", "branch_id", "created_at"),
     )
