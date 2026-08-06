@@ -47,9 +47,26 @@ def _is_real(value) -> bool:
     return not any(marker in v for marker in _PLACEHOLDER_MARKERS)
 
 
+def _is_trusted(block) -> bool:
+    """True when the block asks for Windows (integrated) authentication."""
+    if not isinstance(block, dict):
+        return False
+    value = block.get("trusted_connection")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _source_configured(block) -> bool:
     if not isinstance(block, dict):
         return False
+    if _is_trusted(block):
+        # Windows auth: the signed-in account IS the credential, so there is no
+        # username/password pair to check. Require server + database instead,
+        # otherwise an empty block with one stray flag would read as configured
+        # and the app would try (and fail) to reach SQL Server rather than
+        # falling back to SQLite.
+        return _is_real(block.get("server")) and _is_real(block.get("database"))
     return _is_real(block.get("username")) and _is_real(block.get("password"))
 
 
@@ -67,18 +84,34 @@ def _odbc_url(block: dict) -> str | None:
     server = block.get("server", "")
     # Port forwarding: "SERVER=host,1433". Accept an explicit port (default 1433
     # only when the server has no port baked in already).
+    #
+    # A NAMED instance ("host\SQLEXPRESS", the SQL Server Express default) is
+    # resolved by the SQL Browser service, which hands back a port that is
+    # dynamic unless someone pinned it. Appending a port there is contradictory:
+    # the driver honours the port and ignores the instance name, so a wrong port
+    # fails with a confusing "server not found" rather than naming the cause.
+    # Let the instance name win — pin the port in SQL Server Configuration
+    # Manager and drop the instance name if a fixed port is genuinely wanted.
     port = block.get("port")
-    if port and "," not in str(server):
+    if port and "," not in str(server) and "\\" not in str(server):
         server = f"{server},{port}"
     parts = [
         f"DRIVER={{{driver}}}",
         f"SERVER={server}",
         f"DATABASE={block.get('database', '')}",
-        f"UID={block.get('username', '')}",
-        f"PWD={block.get('password', '')}",
-        f"Encrypt={block.get('encrypt', 'yes')}",
-        f"TrustServerCertificate={block.get('trust_server_certificate', 'yes')}",
     ]
+    if _is_trusted(block):
+        # Windows auth — the process's own token authenticates. UID/PWD must be
+        # omitted entirely, not left blank: some drivers treat an empty UID as an
+        # attempted SQL login and fail before trying integrated auth.
+        parts.append("Trusted_Connection=yes")
+    else:
+        parts.append(f"UID={block.get('username', '')}")
+        parts.append(f"PWD={block.get('password', '')}")
+    parts.append(f"Encrypt={block.get('encrypt', 'yes')}")
+    parts.append(
+        f"TrustServerCertificate={block.get('trust_server_certificate', 'yes')}"
+    )
     return "mssql+pyodbc:///?odbc_connect=" + quote_plus(";".join(parts))
 
 
