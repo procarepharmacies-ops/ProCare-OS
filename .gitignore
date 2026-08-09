@@ -59,6 +59,8 @@ Thumbs.db
 !src/frontend/public/maskable-192.png
 !src/frontend/public/maskable-512.png
 !src/frontend/public/apple-touch-icon.png
+# ProCare RX (the staff الجرد app) installs as its own PWA with its own icons.
+!src/frontend/public/rx/*.png
 data/
 exports/
 logs/

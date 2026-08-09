@@ -1,0 +1,219 @@
+/* ProCare RX — phone-first styles.
+ *
+ * Deliberately scoped under .rx so nothing here can leak into the desktop app.
+ * Colours come from globals.css variables, so dark mode works for free.
+ *
+ * Two rules here are load-bearing rather than cosmetic:
+ *  - inputs are >= 16px: below that, iOS Safari zooms the viewport on focus,
+ *    which throws the counter out of the scan frame mid-count.
+ *  - the tab bar and content padding use env(safe-area-inset-bottom), which
+ *    only reports a real value because the layout sets viewportFit:"cover".
+ */
+
+.rx {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #f6f8fa);
+}
+
+.rx-main {
+  flex: 1;
+  padding: 12px;
+  /* Clear the fixed tab bar plus the home indicator. */
+  padding-bottom: calc(64px + env(safe-area-inset-bottom) + 16px);
+}
+
+.rx-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  background: var(--bg-secondary, #fff);
+  border-bottom: 1px solid var(--border-color, #e3e8ee);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.rx-title {
+  font-weight: 700;
+  font-size: 17px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bottom tabs — thumb-reachable, one-handed. Logical properties only, so RTL
+   flips correctly without a second stylesheet. */
+.rx-tabs {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--bg-secondary, #fff);
+  border-top: 1px solid var(--border-color, #e3e8ee);
+  height: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.rx-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 48px; /* touch target floor */
+  font-size: 12px;
+  color: var(--text-secondary, #667);
+  text-decoration: none;
+  background: none;
+  border: 0;
+}
+
+.rx-tab .ico {
+  font-size: 21px;
+  line-height: 1;
+}
+
+.rx-tab[data-active="true"] {
+  color: var(--accent, #0a7d5a);
+  font-weight: 700;
+}
+
+/* Cards and primary actions */
+.rx-card {
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e3e8ee);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.rx-card.accent {
+  border: 2px solid var(--accent, #0a7d5a);
+}
+
+.rx-btn {
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, #e3e8ee);
+  background: var(--bg-tertiary, #eef2f5);
+  color: var(--text-primary, #111);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0 16px;
+  width: 100%;
+}
+
+.rx-btn.primary {
+  background: var(--accent, #0a7d5a);
+  border-color: var(--accent, #0a7d5a);
+  color: #fff;
+}
+
+.rx-btn.danger {
+  background: var(--danger, #c0392b);
+  border-color: var(--danger, #c0392b);
+  color: #fff;
+}
+
+.rx-btn:disabled {
+  opacity: 0.5;
+}
+
+.rx-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Never below 16px — see the note at the top of this file. */
+.rx input,
+.rx select,
+.rx textarea {
+  font-size: 16px;
+  min-height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, #e3e8ee);
+  background: var(--bg, #fff);
+  color: var(--text-primary, #111);
+  padding: 0 12px;
+  width: 100%;
+}
+
+/* The quantity field is the single most-used control in the app. */
+.rx-qty {
+  font-size: 26px !important;
+  font-weight: 700;
+  text-align: center;
+  min-height: 60px !important;
+}
+
+.rx-muted {
+  color: var(--text-secondary, #667);
+  font-size: 13px;
+}
+
+.rx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--bg-tertiary, #eef2f5);
+}
+
+.rx-chip.ok { background: rgba(10, 125, 90, 0.14); color: var(--ok, #0a7d5a); }
+.rx-chip.warn { background: rgba(200, 140, 10, 0.16); color: #a2740a; }
+.rx-chip.danger { background: rgba(192, 57, 43, 0.14); color: var(--danger, #c0392b); }
+
+.rx-offline {
+  background: #a2740a;
+  color: #fff;
+  text-align: center;
+  padding: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rx-scanbox {
+  position: relative;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+}
+
+.rx-scanbox video {
+  width: 100%;
+  display: block;
+}
+
+.rx-scanline {
+  position: absolute;
+  top: 42%;
+  inset-inline: 8%;
+  height: 2px;
+  background: var(--accent, #0a7d5a);
+  box-shadow: 0 0 10px var(--accent, #0a7d5a);
+}
+
+.rx-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--border-color, #e3e8ee);
+  min-height: 56px;
+}
+
+.rx-list-item:last-child { border-bottom: 0; }

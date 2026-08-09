@@ -19,38 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-
-// Order matters only for readability; detection is format-agnostic.
-const WANTED_FORMATS = [
-  "data_matrix", // GS1 2D on pharma packs (GTIN + batch + expiry)
-  "qr_code",
-  "ean_13",
-  "ean_8",
-  "code_128",
-  "code_39",
-  "upc_a",
-  "upc_e",
-];
-
-// `new BarcodeDetector({formats})` THROWS if any format is unknown to the
-// device, which would kill scanning entirely. Always intersect with what the
-// device actually reports.
-async function makeDetector() {
-  if (typeof window === "undefined" || !("BarcodeDetector" in window)) return null;
-  let supported = [];
-  try {
-    supported = await window.BarcodeDetector.getSupportedFormats();
-  } catch {
-    return null;
-  }
-  const formats = WANTED_FORMATS.filter((f) => supported.includes(f));
-  if (!formats.length) return null;
-  try {
-    return new window.BarcodeDetector({ formats });
-  } catch {
-    return null;
-  }
-}
+import { makeDetector, detectFromFile } from "../lib/scanner";
 
 export default function StockScanMode({ countId, lang, L, onSaved }) {
   const videoRef = useRef(null);
@@ -169,15 +138,9 @@ export default function StockScanMode({ countId, lang, L, onSaved }) {
       return;
     }
     detectorRef.current = detector;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const codes = await detector.detect(bitmap);
-      bitmap.close?.();
-      if (codes && codes.length && codes[0].rawValue) onDetected(codes[0].rawValue);
-      else setMsg({ kind: "warn", text: L("stk_scan_no_code_in_photo") });
-    } catch {
-      setMsg({ kind: "warn", text: L("stk_scan_no_code_in_photo") });
-    }
+    const value = await detectFromFile(detector, file);
+    if (value) onDetected(value);
+    else setMsg({ kind: "warn", text: L("stk_scan_no_code_in_photo") });
   }
 
   async function saveLine(line) {
