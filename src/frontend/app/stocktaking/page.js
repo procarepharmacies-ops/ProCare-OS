@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Shell from "../components/Shell";
+import StockScanMode from "../components/StockScanMode";
 import { useUI } from "../providers";
 import { t } from "../i18n";
 import { api } from "../api";
@@ -20,6 +21,7 @@ export default function StocktakingPage() {
   const [sheet, setSheet] = useState(null); // count sheet detail
   const [drafts, setDrafts] = useState({}); // line_id -> input value
   const [varianceOnly, setVarianceOnly] = useState(false);
+  const [scanMode, setScanMode] = useState(false);
   const [newType, setNewType] = useState("full");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -203,6 +205,11 @@ export default function StocktakingPage() {
           {L("stk_variance_only")}
         </label>
         <span style={{ flex: 1 }} />
+        {sheet?.status === "open" && (
+          <button className="btn" onClick={() => setScanMode((v) => !v)}>
+            {scanMode ? L("stk_sheet_mode") : L("stk_scan_mode")}
+          </button>
+        )}
         <button className="btn" onClick={() => window.print()}>{L("stk_print")}</button>
         {sheet?.status === "open" && (
           <>
@@ -242,6 +249,16 @@ export default function StocktakingPage() {
         </div>
       )}
 
+      {scanMode && sheet?.status === "open" && (
+        <StockScanMode
+          countId={openId}
+          lang={lang}
+          L={L}
+          onSaved={() => loadSheet(openId)}
+        />
+      )}
+
+      {!scanMode && (
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <table className="tbl">
           <thead>
@@ -301,6 +318,7 @@ export default function StocktakingPage() {
         {sheet && lines.length === 0 && <p className="muted" style={{ padding: 16 }}>{L("none")}</p>}
         {!sheet && <p className="muted" style={{ padding: 16 }}>{L("loading")}</p>}
       </div>
+      )}
     </Shell>
   );
 }

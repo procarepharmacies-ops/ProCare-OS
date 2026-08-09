@@ -488,6 +488,14 @@ def mirror(
         dst.commit()
     finally:
         src.close()
+
+    # A full load deletes and recreates every product row, so the learned
+    # barcode map's product_id values go stale. product_code survives (it is
+    # what this mirror dedupes on), so re-resolve from it. Fail-soft by
+    # construction — bookkeeping must never fail a cycle that mirrored fine.
+    from app.services import gtin_map
+
+    counts["barcodes_relinked"] = gtin_map.relink(dst).get("relinked", 0)
     return counts
 
 

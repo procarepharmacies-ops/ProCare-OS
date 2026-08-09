@@ -1,0 +1,139 @@
+{
+  "_comment": "Golden GS1 parse vectors, shared by app/tests/test_gs1.py and the JS mirror at src/frontend/app/lib/__tests__/gs1.test.mjs so the two parsers cannot drift. \u001d is the GS (FNC1) separator, required only after a VARIABLE-length AI. expiry_raw is the YYMMDD source; the resolved date is asserted separately against an explicit anchor.",
+  "gtin14": "04006358001238",
+  "ean13": "4006358001238",
+  "vectors": [
+    {
+      "name": "gtin + expiry + trailing lot (fixed-length AIs need no separator)",
+      "payload": "01040063580012381727033110ABC123",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": "270331",
+        "lot": "ABC123",
+        "serial": null
+      }
+    },
+    {
+      "name": "lot before expiry, GS-terminated",
+      "payload": "010400635800123810ABC123\u001d17270331",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": "270331",
+        "lot": "ABC123",
+        "serial": null
+      }
+    },
+    {
+      "name": "leading symbology identifier ]d2 is stripped",
+      "payload": "]d2010400635800123817270331",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": "270331",
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "serial then lot, GS-separated",
+      "payload": "010400635800123821SN00042\u001d10L7",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": null,
+        "lot": "L7",
+        "serial": "SN00042"
+      }
+    },
+    {
+      "name": "leading FNC1 (GS) is stripped",
+      "payload": "\u001d010400635800123817261130",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": "261130",
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "day 00 means end of month",
+      "payload": "010400635800123817260800",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": "260800",
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "full pack: gtin, expiry, lot, serial",
+      "payload": "01040063580012381728022910B-77\u001d21SER-1",
+      "expect": {
+        "is_gs1": true,
+        "gtin": "04006358001238",
+        "expiry_raw": "280229",
+        "lot": "B-77",
+        "serial": "SER-1"
+      }
+    },
+    {
+      "name": "plain EAN-13 is NOT gs1 even though it starts with a valid AI prefix",
+      "payload": "4006358001238",
+      "expect": {
+        "is_gs1": false,
+        "gtin": null,
+        "expiry_raw": null,
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "internal product code is not gs1",
+      "payload": "P1000",
+      "expect": {
+        "is_gs1": false,
+        "gtin": null,
+        "expiry_raw": null,
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "short fast_code is not gs1 (must not parse as AI 10)",
+      "payload": "100",
+      "expect": {
+        "is_gs1": false,
+        "gtin": null,
+        "expiry_raw": null,
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "invalid gtin check digit inside AI 01 yields no gtin but still parses",
+      "payload": "010400635800123917270331",
+      "expect": {
+        "is_gs1": true,
+        "gtin": null,
+        "expiry_raw": "270331",
+        "lot": null,
+        "serial": null
+      }
+    },
+    {
+      "name": "empty payload",
+      "payload": "",
+      "expect": {
+        "is_gs1": false,
+        "gtin": null,
+        "expiry_raw": null,
+        "lot": null,
+        "serial": null
+      }
+    }
+  ]
+}

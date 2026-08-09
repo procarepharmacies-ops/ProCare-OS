@@ -268,6 +268,12 @@ export const api = {
   postStockCount: (countId, employee_id) =>
     http(`/stocktaking/${countId}/post`, { method: "POST", body: JSON.stringify({ employee_id }) }),
   cancelStockCount: (countId) => http(`/stocktaking/${countId}/cancel`, { method: "POST" }),
+  scanStockCount: (countId, code) =>
+    http(`/stocktaking/${countId}/scan?code=${encodeURIComponent(code)}`),
+  // Teach the catalogue which product an unrecognised barcode belongs to.
+  // Idempotent server-side, so a retry can never create a duplicate mapping.
+  linkScanBarcode: (countId, payload) =>
+    http(`/stocktaking/${countId}/scan/link`, { method: "POST", body: JSON.stringify(payload) }),
 
   // In-system cash-flow & inventory audit.
   auditReport: (months = 3, vendor = "") =>

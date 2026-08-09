@@ -1,5 +1,86 @@
 # Progress Log (B.L.A.S.T.)
 
+## 2026-07-25 · Mobile الجرد بالباركود (barcode-scan stocktaking)
+- Owner priority: use the app for الجرد on the phone — biggest productivity win.
+  Problem: current count sheet is a long scrollable table; on mobile finding each
+  held item is slow.
+- BUILT: scan-to-count flow.
+  - Backend: `stocktaking.scan_lookup(session, count_id, code)` (read-only) —
+    matches a scanned barcode / typed code against Product.code|fast_code
+    (is_deleted=False), returns the count line(s) for that product FEFO-ordered
+    (one line per batch). Outcomes: found / not_in_count / unknown (all HTTP 200).
+    Endpoint `GET /api/stocktaking/{count_id}/scan?code=` (2-segment path — no
+    collision with /{count_id} or /recent-alerts).
+  - Frontend: `components/StockScanMode.js` — native `BarcodeDetector` camera
+    (NO CDN/library dep, works in the Android PWA), environment-facing stream,
+    350ms detect loop, haptic on hit; big centered numeric qty field, save +
+    scan-next; running counted tally; manual code entry as fallback when camera/
+    BarcodeDetector unavailable. Toggled from the open count sheet (📷/📋).
+  - api.js `scanStockCount`; 18 i18n keys ×2 (AR/EN).
+- TESTS: test_stocktaking_scan.py (6) — found by code, found by fast_code,
+  unknown code, not_in_count (partial-count scope exclusion), API path,
+  recent-alerts not shadowed. `next build` clean.
+
+## 2026-07-25 (cont.) · GS1 DataMatrix + ProCare RX (branch feat/rx-mobile-jard)
+- RESEARCH that changed the design: Egypt's EDA track-and-trace (ePTTS) mandates
+  a GS1 DataMatrix on every saleable pack — imported since 2026-02-01, local from
+  2026-08-01 — carrying GTIN (01), expiry (17), lot (10), serial (21). The native
+  `BarcodeDetector` supports `data_matrix` on Chrome/Android, so reading it costs
+  ZERO new dependencies. The encoded expiry pins the exact BATCH, and count lines
+  are per-batch → a scan lands on one row instead of a four-expiry guess.
+- BUILT (Phase 0 — pre-existing bugs found while verifying):
+  - PWA could not install AT ALL: `.gitignore` had a blanket `*.png` (for DirectX
+    artifacts) that silently excluded the app icons, so the manifest and the SW
+    precache both pointed at files never committed. `addAll` is atomic → install
+    promise rejected → the service worker never registered. Icons generated +
+    un-ignored; precache switched to `allSettled`.
+  - `sw.js` activate() deleted every cache but its own → a second worker would be
+    evicted on every activation. Now an allow-list.
+  - `GET /api/stocktaking/recent-alerts` was declared AFTER `/{count_id}`, so
+    FastAPI parsed "recent-alerts" as an int → 422. The dashboard alert banner had
+    never worked. Moved above, with a regression test.
+  - `POST /{count_id}/post` and `/cancel` adjust real stock but were open to any
+    logged-in role (the manager gate was UI-only) — now auth_guard(ceo,manager).
+- BUILT (Phase 1 — GS1):
+  - `services/gs1.py`: pure, total parser (never raises). Fixed vs variable AIs,
+    FNC1/GS, symbology prefixes, GS-stripped recovery heuristic, DD=00 → month
+    end, GTIN-14↔EAN-13 + mod-10 validation, and a structural guard so a bare
+    EAN-13 (which starts "40", a valid AI prefix) is NOT parsed as element strings.
+    Century uses the GS1 ±50 window anchored on `common.today` → deterministic
+    under the frozen DEMO_TODAY instead of silently changing in 2077.
+  - `ProductBarcode` + `services/gtin_map.py`: GTIN→product map as a SIDE TABLE,
+    not a `products.gtin` column — `etl._WIPE_ORDER` deletes every product row on
+    a full mirror and Product has no `source_id`, so a column would be wiped with
+    it. `product_code` is the durable key; `relink()` runs at the end of
+    `mirror()`. `learn()` is idempotent (unique gtin index + same-product no-op) —
+    that is what will make an offline queue replay-safe with NO idempotency-key
+    machinery. `resolve()` falls back to Product.code and auto-learns, so the
+    catalogue self-heals through normal use.
+  - Linking is open to assistants: the person holding the box is the one who can
+    link it; a manager gate would just stop staff scanning. Safety = reversibility
+    (a wrong link is instantly visible, created_by logged, manager unlink/repoint).
+  - OPEN QUESTION deliberately not assumed — whether eStock `product_code` holds
+    real barcodes. `tools/gtin_audit.py` + `/catalogue/gtin-backfill/preview`
+    answer it read-only; the dev seed's "P1000" codes give valid_gtin == 0, which
+    is asserted in test_gtin_map so the assumption can't be made silently.
+- BUILT (Phase 2 — ProCare RX at `/rx`): a SECOND installable PWA from the same
+  origin (installability is per id/start_url/scope, not per origin) — own icon,
+  name, window, and a Bubblewrap APK later, with no repo fork. Honours
+  docs/12-android-app-plan.md. Tabs: جرد · مهامي · بدائل · المزيد. Reuses the
+  auth gate, i18n, api.js; never imports the desktop Shell (132 kB vs 145 kB).
+  `lib/scanner.js` shares detector setup: formats intersected with
+  `getSupportedFormats()` (the constructor THROWS on an unknown format), a photo
+  tier via `<input capture>` that still works over plain-HTTP LAN where
+  getUserMedia is blocked, and manual entry as the floor.
+- TESTS: +36 (20 gs1 incl. shared golden vectors + 200 random payloads that must
+  never raise; 9 gtin_map; 7 GS1 scan). Full suite 473 passed. `next build` clean.
+  Runtime smoke: link unknown GS1 → rescan → batch pinned to the exact line.
+- PRE-EXISTING FAILURE (not ours): `test_insights_daily_and_productivity`
+  reproduces on main with this branch stashed. Left alone.
+- NOT done (queued): offline outbox (IndexedDB + replay; the idempotency
+  groundwork is deliberately already in place), prescription capture in RX,
+  Bubblewrap APK, `POST /api/sales` double-submit gap (real, separate ticket).
+
 ## 2026-07-10 → 07-11 · Phase 0 (merged)
 - 7 feature areas built, tested, merged to main (PRs #13–#15): Windows 500 fix,
   LLM registry, WhatsApp automation, substitutions+transfers, prescriptions
@@ -919,225 +1000,3 @@
 - TESTS: test_schema_dump.py (3) — coverage flag + column/row extraction,
   case-insensitive matching (lowercase 'products' still covered), markdown gap
   section. Full suite 377 passed / 0. CLI smoke-tested end-to-end.
-
-## 2026-07-24 · Phase 7 PR 2b — high-value eStock mirrors — branch claude/phase-7-coverage-mirrors-high-value (PR #47)
-- Owner had not yet run the schema-dump tool on Elsanta, so proceeded on
-  inferred columns (from docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md) rather than
-  wait — flagged clearly in the PR body + code comments as pending
-  schema-dump confirmation. Flexible `_pick()` column aliasing (existing
-  pattern) tolerates the eventual real column names without a rewrite.
-- MODELS: `CashShiftClose` (shift_id PK, branch_id, source_shift_id,
-  employee_id, cash_depot_id, shift_start/end_time, start/current/actual_cash,
-  transfer fields, note) — mirrors Cash_disk_close/Branches_Cash_disk_close
-  shift reconciliation history. `BranchOrderHeader` + `BranchOrderLine` —
-  mirrors Branch_order_header/details inter-branch requisition history
-  (from/to branch, order/received dates, status, per-line qty/received_qty).
-- ETL: `_load_branch_product_amount` mirrors Branches_Product_Amount into
-  stock_batches alongside the existing Product_Amount loader (same shape:
-  product/store mapping, orphan-batch skip, CK_stock_amount clamp).
-  `_load_cash_shift_closes` reads BOTH Cash_disk_close and
-  Branches_Cash_disk_close (accumulates). `_load_branch_orders` loads headers
-  first (building a source-id→dest-id map), then details, skipping orphan
-  lines (no matching header) and orphan products (no matching product_map
-  entry) — same "skip, don't invent" rule as every other loader. All three
-  are `has_table`-guarded (no-op on a source that lacks them) and wired into
-  `mirror()` after the purchase loaders, before treasury.
-- `COVERED_SOURCE_TABLES` grew from 22 → 28 (added Branches_Product_Amount,
-  Cash_disk_close, Branches_Cash_disk_close, Branch_order_header,
-  Branch_order_details).
-- TESTS: test_etl.py +3 (branch product amount lands in the right branch,
-  shift close start/current/actual amounts round-trip, branch order
-  header+lines with product/branch mapping). test_schema_dump.py's fixture
-  swapped from Branches_Product_Amount (now covered) to Employee_daily_time
-  (still deliberately uncovered) as the "uncovered" example — updated 3
-  existing assertions to match. Full suite 380 passed / 0.
-- PR #47 opened as draft, subscribed to activity; no CI configured on this
-  repo (0 check runs) and no review comments yet — will re-check in ~1h per
-  the babysit protocol.
-- NEXT: PR 2c (GL verbatim: Gedo_Financial/Gedo_customers/Gedo_Vendors/
-  Gedo_branches/Account_Tree/Tuning_accounts, ~195K rows) is the largest and
-  riskiest remaining slice (double-entry GL — wrong column mapping there is
-  costlier than a stock/shift/order mirror) — genuinely worth waiting for the
-  schema-dump's confirmed columns before starting, unlike Slice 1.
-
-## 2026-07-24 · Phase 7 PR 2c — GL verbatim mirror — branch claude/phase-7-gl-verbatim-mirror (PR #49, stacked on #47)
-- Owner said "yes" to proceeding on both fronts: marked #47 ready for review
-  (no longer draft) AND started PR 2c on inferred columns — same posture as
-  2b, since the schema-dump still hasn't been run on Elsanta.
-- SCOPE DECISION: rather than take the full GL slice (6 tables) in one PR,
-  narrowed to the two best-documented, most central tables only —
-  `Account_Tree` (chart of accounts) and `Gedo_Financial` (the journal every
-  money movement posts to). The five `Gedo_*` sub-ledgers
-  (customers/vendors/branches/employee/installment) and `Tuning_accounts`
-  need the party-type discriminator encoding confirmed (how eStock tags a
-  balance row as belonging to a customer vs vendor vs branch vs employee)
-  which isn't documented anywhere — genuinely blocked on the schema-dump,
-  unlike Account_Tree/Gedo_Financial whose columns are enumerated in
-  docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md. Deferred to PR 2d.
-- MODELS: `GlAccount` (mirrors Account_Tree — code, name_ar/en,
-  `parent_source_id` as a loose self-reference to another row's source_id,
-  start_money) and `GlJournalEntry` (mirrors Gedo_Financial — code,
-  gedo_type, value, from_type/from_id, to_type/to_id, form_type, notes,
-  computer_name, actual_cashier). Both are DELIBERATELY a separate tree from
-  ProCare's own synthetic `chart_of_accounts` (services/accounting.py, built
-  from ProCare's own LedgerEntry transactions) — this PR mirrors eStock's
-  REAL historical GL, not a reconstruction.
-- KEY DESIGN CALL: `from_type`/`to_type` on GlJournalEntry are stored exactly
-  as eStock wrote them, NOT translated to ProCare's own
-  `LedgerEntry.account_type` vocabulary ('customer'/'vendor'/'cash'/'bank'/
-  'branch'/'general') — the party-type code encoding on the eStock side is
-  unconfirmed, and inventing a translation table without real data would be
-  worse than leaving it opaque.
-- ETL: `_load_gl_accounts` / `_load_gl_journal`, both `has_table`-guarded,
-  upserted by source_id, NOT in `_WIPE_ORDER` (survive full refresh, same
-  pattern as shareholders/payroll/salary_advances). Journal entries treated
-  as immutable once posted — re-sync skips existing source_ids rather than
-  updating in place (matches how a real append-only GL journal behaves).
-  Wired into `mirror()` right after the PR #47 slice-1 loaders.
-  `COVERED_SOURCE_TABLES` grew 28 → 30.
-- API: `GET /api/accounting/gl-accounts`, `GET /api/accounting/gl-journal?
-  limit=` — both CEO-only (same gate as the rest of /api/accounting/*),
-  read-only.
-- TESTS: test_etl.py +2 — Account_Tree parent/child + start_money round-trip
-  with upsert-by-source-id (re-run doesn't duplicate); Gedo_Financial field
-  round-trip + immutable-on-resync assertion. Full suite 382 passed / 0.
-- GIT: branched from #47's branch (stacked) via stash — kept #47 focused and
-  reviewable rather than scope-creeping it with GL work. PR #49 opened as
-  draft against #47's branch as base; subscribed to activity. No CI
-  configured on this repo for either PR (0 check runs on both) — nothing to
-  babysit on that front, will watch for review comments.
-- NEXT: PR 2d (Gedo_customers/Gedo_Vendors/Gedo_branches/Gedo_employee/
-  Gedo_installment sub-ledger balances + Tuning_accounts manual adjustments)
-  is now the only piece genuinely blocked on the owner's schema-dump run —
-  the party-type discriminator encoding has no documented fallback to infer
-  from.
-
-## 2026-07-24 · Phase 7 PR 2d — manual GL adjustments — branch claude/phase-7-gl-adjustments-mirror (PR #50, stacked on #49 -> #47)
-- Owner said "2PROCEED" — before blindly proceeding on the previously-flagged
-  "genuinely blocked" sub-ledger slice, re-checked the docs rather than just
-  pushing forward on a guess. Re-reading
-  docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md's Accounting section (§5) found that
-  `Tuning_accounts`' columns ARE fully enumerated
-  (`Tuning_accounts_id, class, who_class, who_id, Tuning_accounts_reason_id,
-  Tuning_accounts_money, notes`) — only the five `Gedo_*` sub-ledgers
-  (customers/vendors/branches/employee/installment) are actually
-  under-specified ("for_him / for_me balances" with zero column names). So
-  split the originally-deferred PR 2d into two: this PR ships
-  Tuning_accounts now (real documented columns, real value); the five
-  Gedo_* sub-ledgers move to a renamed PR 2e, kept genuinely deferred.
-- WHY the Gedo_* sub-ledgers stay blocked even with the `_pick`-tolerant
-  pattern that's carried every other Phase-7 mirror on inferred columns: for
-  every other table (stock, shifts, orders, journal), a wrong column guess
-  makes `_pick` return None and the loader skips that field — a visibly
-  incomplete but honest row. For a sub-ledger BALANCE table, the balance IS
-  the entire value of the row; guessing the for_him/for_me column name wrong
-  produces a row that looks complete (has party_id, has date) but silently
-  carries a zeroed or wrong balance — indistinguishable from real data until
-  someone reconciles it against eStock. That crosses from "safely inferred"
-  to "actively risky to ship as if functional," which is why this one
-  specific slice keeps waiting on the schema-dump while everything else in
-  Phase 7 didn't.
-- MODEL: `GlAdjustment` (mirrors Tuning_accounts — class_code, who_class,
-  who_id, reason_source_id, amount, notes). `who_class`/`reason_source_id`
-  kept as eStock's own opaque codes (not translated), same posture as
-  `GlJournalEntry.from_type`/`to_type` — explicitly DISTINCT from ProCare's
-  own forward-looking `ADJUSTMENT_REASONS` catalogue in
-  services/accounting.py (that one is for NEW adjustments made in ProCare;
-  this mirrors eStock's historical adjustment log).
-- ETL: `_load_gl_adjustments`, has_table-guarded, upserted by source_id, not
-  in `_WIPE_ORDER`. Wired into `mirror()` right after `_load_gl_journal`.
-  `COVERED_SOURCE_TABLES` grew 30 -> 31.
-- API: `GET /api/accounting/gl-adjustments?limit=` — CEO-only, read-only,
-  newest first.
-- TESTS: test_etl.py +1 — full field round-trip (class/who_class/who_id/
-  reason/amount/notes) + upsert-by-source-id re-run doesn't duplicate. Full
-  suite 383 passed / 0.
-- GIT: stacked on PR #49's branch (claude/phase-7-gl-verbatim-mirror), same
-  pattern as #49 on #47 — each PR stays focused and independently
-  reviewable. PR #50 opened as draft against #49's branch; subscribed to
-  activity.
-- NEXT: PR 2e (the five Gedo_* sub-ledger balance tables) is the one
-  remaining piece of Phase 7's coverage work that should wait for the
-  owner's `python -m tools.estock_schema_dump --counts` run on Elsanta
-  rather than proceed on inferred columns.
-
-## 2026-08-04 · PRODUCTION FINALIZATION — All Phases Complete, Ready for Deployment
-
-**MAJOR MILESTONE**: All 6 development phases merged to main; system production-ready.
-
-**Test Coverage**: 382 backend tests passing (1 pre-existing unrelated failure: test_tasks_insights.py::test_insights_daily_and_productivity).
-**Frontend Build**: 43 routes compiled clean, 154 kB JS, all bilingual (AR/EN).
-**Backend**: FastAPI + SQLAlchemy, zero-dependency deployable.
-
-### Completed Phases Summary:
-
-- ✅ **Phase 1** (Security Foundation): PBKDF2-HMAC-SHA256, auth-enabled-by-default, role-based guards (CEO/manager/cashier/assistant), audit trails
-- ✅ **Phase 2** (POS Revenue Engine): Upsell/cross-sell suggestions, OTC incentive list, product affinity, merchandising reports
-- ✅ **Phase 3** (Loyalty & CRM): Tier system (Silver/Gold/VIP), RFM segmentation, WhatsApp engagement automation
-- ✅ **Phase 4** (Marketing & Social): Content calendar (FB/IG/WhatsApp), AI copywriter, promo codes, campaign manager
-- ✅ **Phase 5** (AI Decision Center): Forecasting (Holt + seasonality), reorder proposals 2.0, decision cards, daily briefing, AI assistant tools
-- ✅ **Phase 6** (Modern Charts & Executive Dashboards): 6 SVG chart components (BarChart, Sparkline, Donut, StackedBar, BulletBar, Heatmap), 3 executive dashboards (Analytics & Insights, Employee Performance, Demand Forecast)
-
-### Additional Features (Phase 7+ / Operations):
-
-- ✅ Multi-provider LLM registry (Anthropic, Gemini, Ollama, Claude CLI)
-- ✅ WhatsApp automation (manager alerts, invoices, confirmations)
-- ✅ Continuous eStock sync (incremental + full mirror, FEFO compliance)
-- ✅ Stocktaking (جرد) module (full/periodic count, adjustments, variance reports)
-- ✅ Units system (علبة/شريط, big/small, conversion factors)
-- ✅ Stagnant items (الأصناف الراكدة) reporting + جرد scope
-- ✅ Cross-branch availability in POS
-- ✅ Item movement report (daily opening→purchases→sales→returns→closing)
-- ✅ Sales-rep commission calculator (حاسبة العمولة)
-- ✅ Accounting mirror (statement, tuning adjustments, GL)
-- ✅ Notification center + ticker (expiry, low-stock, shortage alerts)
-- ✅ POS partial-fill + hold invoice + batch picker + note/dosage capture
-- ✅ Permissions discovery screen
-- ✅ Payroll mirror (salaries, advances ledger)
-- ✅ Shareholders register + dividend history
-- ✅ Change history (price/stock/login audit trail)
-- ✅ Watchdog + CEO digest + DB health monitoring
-- ✅ SQL Server 2008 compatibility verified
-
-### Deployment Checklist Created:
-
-New file `PRODUCTION_SETUP.md` (comprehensive guide):
-
-1. **Configuration Setup** — connections.json template with real eStock/ProCare credentials
-2. **Environment Variables** — AUTH_ENABLED=true, SYNC_ENABLED=true, SYNC_INTERVAL_SECONDS=30, etc.
-3. **Database Setup** — SQL Server Express ProCare DB creation, read-only eStock login validation
-4. **Continuous Sync** — Background ETL thread, non-blocking on pharmacy ops
-5. **Authentication & Access Control** — Role-based permissions, user management
-6. **Monitoring & Health Checks** — /api/health endpoint, watchdog script, DB capacity alerts
-7. **Backup Strategy** — Nightly backups, pre-sync snapshots, restore testing
-8. **Docker Deployment** — docker compose build/up, service verification
-9. **Post-Deployment Verification** — Smoke tests, load testing, sanity checks
-10. **Troubleshooting** — Common issues + recovery procedures
-11. **Operations Runbook** — Daily/weekly/monthly tasks, escalation procedures
-
-### Final Status:
-
-ProCare OS is **production-ready** and **feature-complete** for a best-in-class pharmacy ERP + CRM:
-
-- **Real pharmacy data sync** from eStock (continuous, FEFO-safe, non-blocking)
-- **AI-driven decision-making** (forecasts, reorder suggestions, daily briefing)
-- **Executive dashboards** with real-time KPIs, employee performance, demand forecasting
-- **Multi-channel marketing** (social calendar, WhatsApp, promo campaigns)
-- **Employee incentives** (OTC list, leaderboard, commissions)
-- **Bilingual UI** (Arabic RTL + English LTR, full i18n coverage)
-- **Production security** (PBKDF2, role-based access, audit trails, permission gates)
-- **Operational monitoring** (watchdog, health checks, alerts, capacity planning)
-- **Backwards compatibility** (SQL Server 2008 Express supported; SQLite dev fallback)
-
-### Next Steps for Deployment:
-
-1. **Fill connections.json** with real eStock (Elsanta + Mashala) and ProCare database credentials
-2. **Configure .env** — set AUTH_ENABLED=true, SYNC_ENABLED=true, add ANTHROPIC_API_KEY (optional for AI features)
-3. **Set up SQL Server** — create ProCare DB, create read-write login for app, validate eStock read-only login
-4. **Run first sync** — `python run.py` will auto-create tables and perform initial full mirror
-5. **Deploy monitoring** — enable watchdog script, set up 8am CEO digest, configure DB health alerts
-6. **Test thoroughly** — run smoke tests, verify POS/dashboards/sync, test backup/restore
-7. **Go live** — lock down access, archive demo data, monitor first 24 hours closely
-
-**All code committed and merged to main. Ready for production deployment.**
-

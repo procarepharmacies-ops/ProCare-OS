@@ -1496,3 +1496,43 @@ class HeldInvoice(Base):
     __table_args__ = (
         Index("IX_held_branch_created", "branch_id", "created_at"),
     )
+
+
+class ProductBarcode(Base):
+    """Scanned barcode (GS1 GTIN or plain EAN/UPC) -> product mapping.
+
+    Deliberately **not** a ForeignKey to ``products``: a full eStock reload
+    deletes and recreates every product row (``etl._WIPE_ORDER`` ends with
+    ``StockBatch, Product, Customer, Vendor``) and ``Product`` carries no
+    ``source_id``, so ``product_id`` is not durable across a full sync. The
+    durable key is ``product_code`` — the eStock code the ETL itself dedupes on
+    — and ``gtin_map.relink()`` re-resolves ``product_id`` after a load. Same
+    reasoning as ``Product.titan_drug_id``, which also has no FK.
+
+    Kept OUT of ``_WIPE_ORDER`` so learned mappings survive a full mirror.
+
+    A side table rather than a ``products.gtin`` column because one drug
+    legitimately carries several GTINs (imported vs locally-packed, old vs new
+    artwork, repack sizes) — and because a column would be wiped with the row.
+    """
+
+    __tablename__ = "product_barcodes"
+
+    barcode_id: Mapped[int] = mapped_column(primary_key=True)
+    # String, not numeric: leading zeros are significant in a GTIN-14.
+    gtin: Mapped[str] = mapped_column(String(14))
+    product_id: Mapped[int | None] = mapped_column(nullable=True)  # no FK, on purpose
+    product_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="scan")  # scan|backfill|import
+    created_by: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    seen_count: Mapped[int] = mapped_column(default=0)
+
+    __table_args__ = (
+        # UNIQUE is what makes learn-on-scan idempotent, and therefore safe to
+        # replay from an offline queue.
+        Index("UX_product_barcodes_gtin", "gtin", unique=True),
+        Index("IX_product_barcodes_product", "product_id"),
+        Index("IX_product_barcodes_code", "product_code"),
+    )

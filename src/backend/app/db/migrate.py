@@ -483,6 +483,16 @@ def ensure_held_invoice_table(engine) -> None:
         Base.metadata.create_all(engine, tables=[HeldInvoice.__table__])
 
 
+def ensure_product_barcode_table(engine) -> None:
+    """Ensure the product_barcodes table exists (scanned GTIN -> product map).
+    Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "product_barcodes" not in inspector.get_table_names():
+        from app.db.models import Base, ProductBarcode
+
+        Base.metadata.create_all(engine, tables=[ProductBarcode.__table__])
+
+
 def ensure_sale_note_column(engine) -> None:
     """Add ``sales.note`` (cashier's free-text invoice note) if the table
     predates it. Existing sales keep a NULL note."""
