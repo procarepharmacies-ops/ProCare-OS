@@ -268,6 +268,8 @@ export const api = {
   postStockCount: (countId, employee_id) =>
     http(`/stocktaking/${countId}/post`, { method: "POST", body: JSON.stringify({ employee_id }) }),
   cancelStockCount: (countId) => http(`/stocktaking/${countId}/cancel`, { method: "POST" }),
+  scanStockCount: (countId, code) =>
+    http(`/stocktaking/${countId}/scan?code=${encodeURIComponent(code)}`),
 
   // In-system cash-flow & inventory audit.
   auditReport: (months = 3, vendor = "") =>

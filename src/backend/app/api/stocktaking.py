@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.auth import auth_guard
 from app.db.base import get_session
 from app.services import stocktaking
 from app.services.pos import POSError
@@ -34,10 +35,6 @@ def _log_stocktake_alert(branch_id: int, message: str) -> None:
     })
     # Keep only the last 20 events to avoid unbounded growth
     _RECENT_EVENTS = _RECENT_EVENTS[-20:]
-
-
-def _raise(e: POSError):
-    raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
 
 
 @router.get("")
@@ -92,6 +89,22 @@ def create(payload: CreateIn, session: Session = Depends(get_session)):
         _raise(e)
 
 
+# NOTE: every literal single-segment path MUST be declared above the
+# ``/{count_id}`` catch-all below. FastAPI matches in registration order, so a
+# literal registered after it never runs — "recent-alerts" would fail the int
+# parse and return 422 instead. (That was a live bug: the dashboard alert
+# banner never worked.)
+@router.get("/recent-alerts")
+def recent_alerts(minutes: int = 5):
+    """Return stocktaking events from the last N minutes (default 5).
+
+    Used by the dashboard to show an instant red alert banner whenever
+    any جرد session is opened, posted, or cancelled.
+    """
+    cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+    return {"alerts": [e for e in _RECENT_EVENTS if e["ts"] >= cutoff]}
+
+
 @router.get("/{count_id}")
 def detail(count_id: int, session: Session = Depends(get_session)):
     try:
@@ -124,7 +137,10 @@ class PostIn(BaseModel):
     employee_id: int | None = None
 
 
-@router.post("/{count_id}/post")
+# Posting and cancelling adjust real stock, so they are manager/CEO only. The
+# UI already hid the buttons (page.js canPost) but the endpoints were open to
+# any logged-in role — reachable once الجرد runs on staff phones.
+@router.post("/{count_id}/post", dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def post(count_id: int, payload: PostIn, session: Session = Depends(get_session)):
     """Apply all counted differences as stock adjustments and close the session."""
     try:
@@ -137,7 +153,7 @@ def post(count_id: int, payload: PostIn, session: Session = Depends(get_session)
         _raise(e)
 
 
-@router.post("/{count_id}/cancel")
+@router.post("/{count_id}/cancel", dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def cancel(count_id: int, session: Session = Depends(get_session)):
     try:
         count = stocktaking.get_count(session, count_id)
@@ -149,12 +165,16 @@ def cancel(count_id: int, session: Session = Depends(get_session)):
         _raise(e)
 
 
-@router.get("/recent-alerts")
-def recent_alerts(minutes: int = 5):
-    """Return stocktaking events from the last N minutes (default 5).
-
-    Used by the dashboard to show an instant red alert banner whenever
-    any جرد session is opened, posted, or cancelled.
-    """
-    cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
-    return {"alerts": [e for e in _RECENT_EVENTS if e["ts"] >= cutoff]}
+@router.get("/{count_id}/scan")
+def scan(
+    count_id: int,
+    code: str = Query(..., min_length=1),
+    session: Session = Depends(get_session),
+):
+    """Resolve a scanned barcode (or typed code/fast_code) to the count line(s)
+    for the mobile جرد scanner. Returns ``found`` / ``not_in_count`` / ``unknown``
+    so the app can jump straight to the item instead of scrolling the sheet."""
+    try:
+        return stocktaking.scan_lookup(session, count_id, code)
+    except POSError as e:
+        _raise(e)

@@ -296,6 +296,76 @@ def cancel_count(session: Session, count_id: int) -> dict:
     return {"count_id": count_id, "status": "cancelled"}
 
 
+def scan_lookup(session: Session, count_id: int, code: str) -> dict:
+    """Resolve a scanned barcode / typed code to the line(s) in this count.
+
+    The mobile جرد scanner sends whatever the camera read (an EAN barcode, or a
+    staff-typed ``code``/``fast_code``); this matches it to a product and returns
+    every count line for that product (a product can have several batches → one
+    line per expiry). Read-only — never mutates the session.
+
+    Outcomes (all HTTP 200 — the scanner decides what to show):
+    * ``found``: one or more lines in this count matched.
+    * ``not_in_count``: the product exists in the catalogue but is not in this
+      count's scope (e.g. a partial/periodic sheet) — the app can offer to add
+      or just warn.
+    * ``unknown``: no product carries that code at all.
+    """
+    c = session.get(m.StockCount, count_id)
+    if c is None:
+        raise POSError("count_not_found", f"جلسة الجرد غير موجودة #{count_id} / count not found")
+
+    code = (code or "").strip()
+    if not code:
+        raise POSError("bad_code", "لم يتم إدخال كود / no code provided")
+
+    # eStock keeps the scannable barcode in ``code``; ``fast_code`` is the short
+    # keyboard shortcut. Match either, exactly (a barcode scan is exact).
+    product = session.scalars(
+        select(m.Product).where(
+            (m.Product.code == code) | (m.Product.fast_code == code),
+            m.Product.is_deleted == False,  # noqa: E712
+        )
+    ).first()
+    if product is None:
+        return {"result": "unknown", "code": code}
+
+    prod_out = {
+        "product_id": product.product_id,
+        "code": product.code,
+        "fast_code": product.fast_code,
+        "name_ar": product.name_ar,
+        "name_en": product.name_en,
+        "shelf_location": product.shelf_location,
+        "unit_big": product.unit_big,
+        "unit_small": product.unit_small,
+    }
+
+    rows = session.execute(
+        select(m.StockCountLine, m.StockBatch)
+        .join(m.StockBatch, m.StockBatch.batch_id == m.StockCountLine.batch_id, isouter=True)
+        .where(
+            m.StockCountLine.count_id == count_id,
+            m.StockCountLine.product_id == product.product_id,
+        )
+        .order_by(m.StockBatch.exp_date)  # FEFO: soonest-expiry batch first
+    ).all()
+    if not rows:
+        return {"result": "not_in_count", "code": code, "product": prod_out}
+
+    lines = [
+        {
+            "line_id": line.line_id,
+            "batch_id": line.batch_id,
+            "exp_date": batch.exp_date.isoformat() if batch is not None and batch.exp_date else None,
+            "expected_qty": money(line.expected_qty),
+            "counted_qty": money(line.counted_qty) if line.counted_qty is not None else None,
+        }
+        for line, batch in rows
+    ]
+    return {"result": "found", "code": code, "product": prod_out, "lines": lines}
+
+
 def top_movers(session: Session, branch_id: int, limit: int = 30) -> list[int]:
     """Product ids of the fastest-selling items at a branch (last 30 days) —
     the default scope of a periodic count (الجرد الدوري)."""
