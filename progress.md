@@ -17,11 +17,69 @@
     scan-next; running counted tally; manual code entry as fallback when camera/
     BarcodeDetector unavailable. Toggled from the open count sheet (📷/📋).
   - api.js `scanStockCount`; 18 i18n keys ×2 (AR/EN).
-- TESTS: test_stocktaking_scan.py (5) — found by code, found by fast_code,
-  unknown code, not_in_count (partial-count scope exclusion), API path. Full
-  suite 382 passed / 0. `next build` clean.
-- NOT done (queued): dedicated /employee mobile portal shell, offline scan queue
-  (currently online-only), prescription mobile scan, drug-substitution mobile UI.
+- TESTS: test_stocktaking_scan.py (6) — found by code, found by fast_code,
+  unknown code, not_in_count (partial-count scope exclusion), API path,
+  recent-alerts not shadowed. `next build` clean.
+
+## 2026-07-25 (cont.) · GS1 DataMatrix + ProCare RX (branch feat/rx-mobile-jard)
+- RESEARCH that changed the design: Egypt's EDA track-and-trace (ePTTS) mandates
+  a GS1 DataMatrix on every saleable pack — imported since 2026-02-01, local from
+  2026-08-01 — carrying GTIN (01), expiry (17), lot (10), serial (21). The native
+  `BarcodeDetector` supports `data_matrix` on Chrome/Android, so reading it costs
+  ZERO new dependencies. The encoded expiry pins the exact BATCH, and count lines
+  are per-batch → a scan lands on one row instead of a four-expiry guess.
+- BUILT (Phase 0 — pre-existing bugs found while verifying):
+  - PWA could not install AT ALL: `.gitignore` had a blanket `*.png` (for DirectX
+    artifacts) that silently excluded the app icons, so the manifest and the SW
+    precache both pointed at files never committed. `addAll` is atomic → install
+    promise rejected → the service worker never registered. Icons generated +
+    un-ignored; precache switched to `allSettled`.
+  - `sw.js` activate() deleted every cache but its own → a second worker would be
+    evicted on every activation. Now an allow-list.
+  - `GET /api/stocktaking/recent-alerts` was declared AFTER `/{count_id}`, so
+    FastAPI parsed "recent-alerts" as an int → 422. The dashboard alert banner had
+    never worked. Moved above, with a regression test.
+  - `POST /{count_id}/post` and `/cancel` adjust real stock but were open to any
+    logged-in role (the manager gate was UI-only) — now auth_guard(ceo,manager).
+- BUILT (Phase 1 — GS1):
+  - `services/gs1.py`: pure, total parser (never raises). Fixed vs variable AIs,
+    FNC1/GS, symbology prefixes, GS-stripped recovery heuristic, DD=00 → month
+    end, GTIN-14↔EAN-13 + mod-10 validation, and a structural guard so a bare
+    EAN-13 (which starts "40", a valid AI prefix) is NOT parsed as element strings.
+    Century uses the GS1 ±50 window anchored on `common.today` → deterministic
+    under the frozen DEMO_TODAY instead of silently changing in 2077.
+  - `ProductBarcode` + `services/gtin_map.py`: GTIN→product map as a SIDE TABLE,
+    not a `products.gtin` column — `etl._WIPE_ORDER` deletes every product row on
+    a full mirror and Product has no `source_id`, so a column would be wiped with
+    it. `product_code` is the durable key; `relink()` runs at the end of
+    `mirror()`. `learn()` is idempotent (unique gtin index + same-product no-op) —
+    that is what will make an offline queue replay-safe with NO idempotency-key
+    machinery. `resolve()` falls back to Product.code and auto-learns, so the
+    catalogue self-heals through normal use.
+  - Linking is open to assistants: the person holding the box is the one who can
+    link it; a manager gate would just stop staff scanning. Safety = reversibility
+    (a wrong link is instantly visible, created_by logged, manager unlink/repoint).
+  - OPEN QUESTION deliberately not assumed — whether eStock `product_code` holds
+    real barcodes. `tools/gtin_audit.py` + `/catalogue/gtin-backfill/preview`
+    answer it read-only; the dev seed's "P1000" codes give valid_gtin == 0, which
+    is asserted in test_gtin_map so the assumption can't be made silently.
+- BUILT (Phase 2 — ProCare RX at `/rx`): a SECOND installable PWA from the same
+  origin (installability is per id/start_url/scope, not per origin) — own icon,
+  name, window, and a Bubblewrap APK later, with no repo fork. Honours
+  docs/12-android-app-plan.md. Tabs: جرد · مهامي · بدائل · المزيد. Reuses the
+  auth gate, i18n, api.js; never imports the desktop Shell (132 kB vs 145 kB).
+  `lib/scanner.js` shares detector setup: formats intersected with
+  `getSupportedFormats()` (the constructor THROWS on an unknown format), a photo
+  tier via `<input capture>` that still works over plain-HTTP LAN where
+  getUserMedia is blocked, and manual entry as the floor.
+- TESTS: +36 (20 gs1 incl. shared golden vectors + 200 random payloads that must
+  never raise; 9 gtin_map; 7 GS1 scan). Full suite 473 passed. `next build` clean.
+  Runtime smoke: link unknown GS1 → rescan → batch pinned to the exact line.
+- PRE-EXISTING FAILURE (not ours): `test_insights_daily_and_productivity`
+  reproduces on main with this branch stashed. Left alone.
+- NOT done (queued): offline outbox (IndexedDB + replay; the idempotency
+  groundwork is deliberately already in place), prescription capture in RX,
+  Bubblewrap APK, `POST /api/sales` double-submit gap (real, separate ticket).
 
 ## 2026-07-10 → 07-11 · Phase 0 (merged)
 - 7 feature areas built, tested, merged to main (PRs #13–#15): Windows 500 fix,
