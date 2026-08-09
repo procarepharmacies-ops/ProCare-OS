@@ -32,6 +32,7 @@ from app.db.migrate import (
     ensure_forecast_tables,
     ensure_ledger_reason_column,
     ensure_notification_table,
+    ensure_product_barcode_table,
     ensure_payroll_table,
     ensure_product_change_table,
     ensure_purchase_line_discount_column,
@@ -91,6 +92,7 @@ async def lifespan(_app: FastAPI):
     ensure_ledger_reason_column(engine)
     # Phase 6: notification center dismissals (News_bar parity)
     ensure_notification_table(engine)
+    ensure_product_barcode_table(engine)
     # Phase 6: product price/min-stock change log (Product_Changes parity)
     ensure_product_change_table(engine)
     # Phase 6: shareholders + dividends mirror (company_Owner parity)

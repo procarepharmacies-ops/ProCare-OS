@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import auth_guard
 from app.db.base import get_session
-from app.services import stocktaking
+from app.services import gs1, gtin_map, stocktaking
 from app.services.pos import POSError
 
 router = APIRouter(prefix="/stocktaking", tags=["stocktaking"])
@@ -176,5 +176,35 @@ def scan(
     so the app can jump straight to the item instead of scrolling the sheet."""
     try:
         return stocktaking.scan_lookup(session, count_id, code)
+    except POSError as e:
+        _raise(e)
+
+
+class ScanLinkIn(BaseModel):
+    code: str = Field(..., min_length=1)  # raw scan: GS1 payload or plain barcode
+    product_id: int
+    employee_id: int | None = None
+
+
+# Deliberately open to any logged-in role, assistants included: the person
+# holding the box in the stockroom is the one who can link it, and requiring a
+# manager would simply stop staff scanning. Safety comes from reversibility —
+# a wrong link is immediately visible (wrong drug name, box in hand),
+# created_by records who did it, and a manager can unlink in one tap.
+@router.post("/{count_id}/scan/link", dependencies=[Depends(auth_guard())])
+def scan_link(count_id: int, payload: ScanLinkIn, session: Session = Depends(get_session)):
+    """Teach the catalogue which product an unrecognised barcode belongs to.
+
+    Idempotent: re-linking the same barcode to the same product is a no-op, so
+    this is safe to replay from an offline queue.
+    """
+    parsed = gs1.parse_gs1(payload.code)
+    gtin = parsed["gtin"] or gs1.normalize_gtin(payload.code)
+    if not gtin:
+        _raise(POSError("bad_gtin", "الباركود غير صالح للربط / not a linkable barcode"))
+    try:
+        return gtin_map.learn(
+            session, gtin, payload.product_id, employee_id=payload.employee_id, source="scan"
+        )
     except POSError as e:
         _raise(e)

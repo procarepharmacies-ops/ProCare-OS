@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
+from app.services import gs1, gtin_map
 from app.services.common import money
 from app.services.pos import POSError
 
@@ -299,17 +300,22 @@ def cancel_count(session: Session, count_id: int) -> dict:
 def scan_lookup(session: Session, count_id: int, code: str) -> dict:
     """Resolve a scanned barcode / typed code to the line(s) in this count.
 
-    The mobile جرد scanner sends whatever the camera read (an EAN barcode, or a
-    staff-typed ``code``/``fast_code``); this matches it to a product and returns
-    every count line for that product (a product can have several batches → one
-    line per expiry). Read-only — never mutates the session.
+    Accepts either a plain 1D code (EAN/UPC, or a staff-typed ``code`` /
+    ``fast_code``) or a **GS1 DataMatrix** payload. Egyptian packs carry the
+    latter under the EDA track-and-trace mandate, and it is worth much more here:
+    the encoded expiry (AI 17) pins the exact **batch**, and count lines are
+    per-batch — so the scan lands on one row instead of leaving the counter to
+    pick between four expiries by hand.
 
     Outcomes (all HTTP 200 — the scanner decides what to show):
     * ``found``: one or more lines in this count matched.
-    * ``not_in_count``: the product exists in the catalogue but is not in this
-      count's scope (e.g. a partial/periodic sheet) — the app can offer to add
-      or just warn.
-    * ``unknown``: no product carries that code at all.
+    * ``not_in_count``: the product exists but is outside this count's scope
+      (e.g. a partial/periodic sheet).
+    * ``unknown``: nothing in the catalogue carries that code.
+
+    ``expiry_mismatch`` is set when the pack's expiry matches no booked batch.
+    That is a *signal*, not an error — it means an unbooked batch is on the
+    shelf — so the result stays ``found`` and the count is never blocked.
     """
     c = session.get(m.StockCount, count_id)
     if c is None:
@@ -319,16 +325,32 @@ def scan_lookup(session: Session, count_id: int, code: str) -> dict:
     if not code:
         raise POSError("bad_code", "لم يتم إدخال كود / no code provided")
 
-    # eStock keeps the scannable barcode in ``code``; ``fast_code`` is the short
-    # keyboard shortcut. Match either, exactly (a barcode scan is exact).
-    product = session.scalars(
-        select(m.Product).where(
-            (m.Product.code == code) | (m.Product.fast_code == code),
-            m.Product.is_deleted == False,  # noqa: E712
-        )
-    ).first()
+    parsed = gs1.parse_gs1(code)
+    scan_out = {
+        "kind": "gs1" if parsed["is_gs1"] else "plain",
+        "gtin": parsed["gtin"],
+        "expiry": parsed["expiry"].isoformat() if parsed["expiry"] else None,
+        "lot": parsed["lot"],       # echoed only: StockBatch has no lot column
+        "serial": parsed["serial"],
+    }
+
+    product = None
+    if parsed["gtin"]:
+        product = gtin_map.resolve(session, parsed["gtin"])
+    if product is None and not parsed["is_gs1"]:
+        # eStock keeps the scannable barcode in ``code``; ``fast_code`` is the
+        # short keyboard shortcut. Match either, exactly (a scan is exact).
+        product = session.scalars(
+            select(m.Product).where(
+                (m.Product.code == code) | (m.Product.fast_code == code),
+                m.Product.is_deleted == False,  # noqa: E712
+            )
+        ).first()
+        if product is None:
+            # A plain EAN that isn't in ``code`` may still be a learned GTIN.
+            product = gtin_map.resolve(session, code)
     if product is None:
-        return {"result": "unknown", "code": code}
+        return {"result": "unknown", "code": code, "scan": scan_out}
 
     prod_out = {
         "product_id": product.product_id,
@@ -351,19 +373,36 @@ def scan_lookup(session: Session, count_id: int, code: str) -> dict:
         .order_by(m.StockBatch.exp_date)  # FEFO: soonest-expiry batch first
     ).all()
     if not rows:
-        return {"result": "not_in_count", "code": code, "product": prod_out}
+        return {"result": "not_in_count", "code": code, "scan": scan_out, "product": prod_out}
 
-    lines = [
-        {
-            "line_id": line.line_id,
-            "batch_id": line.batch_id,
-            "exp_date": batch.exp_date.isoformat() if batch is not None and batch.exp_date else None,
-            "expected_qty": money(line.expected_qty),
-            "counted_qty": money(line.counted_qty) if line.counted_qty is not None else None,
-        }
-        for line, batch in rows
-    ]
-    return {"result": "found", "code": code, "product": prod_out, "lines": lines}
+    scanned_expiry = parsed["expiry"]
+    lines = []
+    matched_line_id = None
+    for line, batch in rows:
+        exp = batch.exp_date if batch is not None else None
+        batch_match = bool(scanned_expiry and exp and exp == scanned_expiry)
+        if batch_match and matched_line_id is None:
+            matched_line_id = line.line_id
+        lines.append(
+            {
+                "line_id": line.line_id,
+                "batch_id": line.batch_id,
+                "exp_date": exp.isoformat() if exp else None,
+                "expected_qty": money(line.expected_qty),
+                "counted_qty": money(line.counted_qty) if line.counted_qty is not None else None,
+                "batch_match": batch_match,
+            }
+        )
+    return {
+        "result": "found",
+        "code": code,
+        "scan": scan_out,
+        "product": prod_out,
+        "lines": lines,
+        "matched_line_id": matched_line_id,
+        # The pack carries an expiry that no booked batch has -> unbooked stock.
+        "expiry_mismatch": bool(scanned_expiry and matched_line_id is None),
+    }
 
 
 def top_movers(session: Session, branch_id: int, limit: int = 30) -> list[int]:
