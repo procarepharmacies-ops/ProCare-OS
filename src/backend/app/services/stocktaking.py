@@ -200,17 +200,48 @@ def get_count(session: Session, count_id: int) -> dict:
 
 def record_lines(session: Session, count_id: int, entries: list[dict]) -> dict:
     """Save physically-counted quantities: ``[{line_id, counted_qty}]``.
-    Re-recording a line overwrites it (recount) while the session is open."""
+
+    Writing an **absolute** quantity (not a delta) is what makes this safe to
+    replay from the offline queue: N replays land on the same number, so the
+    phone needs no idempotency key.
+
+    An entry may carry ``base_counted_qty`` — what that device last saw on the
+    server. When it differs from the line's current value, someone else counted
+    the same shelf meanwhile. The write still **applies** (last-write-wins;
+    never block a count in progress) and the line comes back in ``conflicts``
+    so the phone can tell the person. Same advisory shape as
+    ``held.resume_held``: report, don't refuse.
+    """
     c = session.get(m.StockCount, count_id)
     if c is None:
         raise POSError("count_not_found", f"جلسة الجرد غير موجودة #{count_id} / count not found")
     if c.status != "open":
         raise POSError("count_closed", "جلسة الجرد مغلقة / count session is closed")
     saved = 0
+    conflicts: list[dict] = []
     for e in entries:
-        line = session.get(m.StockCountLine, int(e["line_id"]))
+        line_id = int(e["line_id"])
+        line = session.get(m.StockCountLine, line_id)
         if line is None or line.count_id != count_id:
+            # The line vanished (a sync reload dropped the batch) — the same
+            # case post_count already tolerates as skipped_missing_batch.
+            conflicts.append({"line_id": line_id, "reason": "line_missing"})
             continue
+
+        if "base_counted_qty" in e:
+            base = e.get("base_counted_qty")
+            current = None if line.counted_qty is None else float(line.counted_qty)
+            base = None if base is None else float(base)
+            if current != base:
+                conflicts.append(
+                    {
+                        "line_id": line_id,
+                        "reason": "overwritten",
+                        "server_counted_qty": money(current) if current is not None else None,
+                        "expected_qty": money(line.expected_qty),
+                    }
+                )
+
         qty = e.get("counted_qty")
         if qty is None:
             line.counted_qty = None  # un-count (clear a mistake)
@@ -222,7 +253,76 @@ def record_lines(session: Session, count_id: int, entries: list[dict]) -> dict:
         line.counted_qty = qty
         saved += 1
     session.commit()
-    return {"count_id": count_id, "saved": saved}
+    return {"count_id": count_id, "saved": saved, "conflicts": conflicts}
+
+
+def scan_index(session: Session, count_id: int) -> dict:
+    """Everything the phone needs to resolve a scan with no network.
+
+    One row per product in the count, carrying every code it can be scanned by
+    (``code``, ``fast_code``, and any learned GTINs) plus its per-batch lines.
+    The client matches a scanned payload against ``codes`` and then pins the
+    batch by the GS1 expiry, exactly as ``scan_lookup`` does server-side.
+
+    Sized for cycle counts (periodic / partial / stagnant → tens to hundreds of
+    items). A full count of a whole branch will be large; that is why RX offers
+    the scoped counts first.
+    """
+    c = session.get(m.StockCount, count_id)
+    if c is None:
+        raise POSError("count_not_found", f"جلسة الجرد غير موجودة #{count_id} / count not found")
+
+    rows = session.execute(
+        select(m.StockCountLine, m.StockBatch)
+        .join(m.StockBatch, m.StockBatch.batch_id == m.StockCountLine.batch_id, isouter=True)
+        .where(m.StockCountLine.count_id == count_id)
+        .order_by(m.StockBatch.exp_date)  # FEFO within each product
+    ).all()
+    if not rows:
+        return {"count_id": count_id, "status": c.status, "items": []}
+
+    product_ids = {line.product_id for line, _ in rows}
+    products = {
+        p.product_id: p
+        for p in session.scalars(
+            select(m.Product).where(m.Product.product_id.in_(product_ids))
+        ).all()
+    }
+    # Learned barcodes, so a GS1 scan resolves offline too.
+    gtins: dict[int, list[str]] = {}
+    for b in session.scalars(
+        select(m.ProductBarcode).where(m.ProductBarcode.product_id.in_(product_ids))
+    ).all():
+        gtins.setdefault(b.product_id, []).append(b.gtin)
+
+    items: dict[int, dict] = {}
+    for line, batch in rows:
+        item = items.get(line.product_id)
+        if item is None:
+            p = products.get(line.product_id)
+            codes = [c for c in ((p.code if p else None), (p.fast_code if p else None)) if c]
+            codes.extend(gtins.get(line.product_id, []))
+            item = {
+                "product_id": line.product_id,
+                "name_ar": p.name_ar if p is not None else line.name_ar,
+                "name_en": p.name_en if p is not None else None,
+                "shelf_location": p.shelf_location if p is not None else None,
+                "unit_big": p.unit_big if p is not None else None,
+                "codes": codes,
+                "lines": [],
+            }
+            items[line.product_id] = item
+        item["lines"].append(
+            {
+                "line_id": line.line_id,
+                "batch_id": line.batch_id,
+                "exp_date": batch.exp_date.isoformat() if batch is not None and batch.exp_date else None,
+                "expected_qty": money(line.expected_qty),
+                "counted_qty": money(line.counted_qty) if line.counted_qty is not None else None,
+            }
+        )
+
+    return {"count_id": count_id, "status": c.status, "items": list(items.values())}
 
 
 def post_count(session: Session, count_id: int, *, employee_id: int | None = None) -> dict:

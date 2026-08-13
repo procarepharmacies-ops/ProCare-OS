@@ -1,13 +1,14 @@
 "use client";
 
 // My tasks, phone-sized: tap to complete. Marking done sets absolute state
-// server-side, so a repeated tap is harmless — which is also what will make
-// this safe to queue offline later.
+// server-side, so a repeated tap is harmless — which is exactly what makes it
+// safe to queue offline and replay later.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUI } from "../../providers";
 import { t } from "../../i18n";
 import { api } from "../../api";
+import { queueTaskStatus, flush } from "../../lib/outbox";
 
 // Same buckets as the desktop tasks screen. Computed on the device clock, so a
 // phone with the wrong date buckets wrong — acceptable for an ordering hint.
@@ -32,6 +33,9 @@ export default function RXTasksPage() {
   const L = (k) => t(lang, k);
   const [tasks, setTasks] = useState(null);
   const [busy, setBusy] = useState(null);
+  // Completed on this device but maybe not uploaded yet — hide them so the
+  // list matches what the person just did, even with no signal.
+  const [done, setDone] = useState(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -41,7 +45,8 @@ export default function RXTasksPage() {
       const r = await api.get("/tasks", params);
       setTasks(r.tasks || []);
     } catch {
-      setTasks([]);
+      // Offline: keep whatever is on screen rather than blanking it.
+      setTasks((prev) => prev || []);
     }
   }, [branch, user]);
 
@@ -49,10 +54,15 @@ export default function RXTasksPage() {
     load();
   }, [load]);
 
+  // Queued like a count. Setting a task's status writes absolute state
+  // server-side, so replaying it is harmless — which is what makes it safe to
+  // complete tasks with no signal and let them upload later.
   async function complete(task) {
     setBusy(task.task_id);
     try {
-      await api.post(`/tasks/${task.task_id}/status`, { status: "done" });
+      await queueTaskStatus(task.task_id, "done");
+      setDone((prev) => new Set(prev).add(task.task_id)); // optimistic
+      await flush();
       await load();
     } catch {
       /* leave it pending; the list reload will show the truth */
@@ -60,7 +70,11 @@ export default function RXTasksPage() {
     setBusy(null);
   }
 
-  const buckets = useMemo(() => group(tasks || []), [tasks]);
+  const visible = useMemo(
+    () => (tasks || []).filter((task) => !done.has(task.task_id)),
+    [tasks, done]
+  );
+  const buckets = useMemo(() => group(visible), [visible]);
   const SECTIONS = [
     ["overdue", "tasks_overdue", "danger"],
     ["today", "tasks_today", "warn"],
@@ -69,7 +83,7 @@ export default function RXTasksPage() {
   ];
 
   if (tasks === null) return <div className="rx-muted">{L("loading")}</div>;
-  if (!tasks.length) return <div className="rx-card rx-muted">{L("rx_no_tasks")}</div>;
+  if (!visible.length) return <div className="rx-card rx-muted">{L("rx_no_tasks")}</div>;
 
   return (
     <div>
