@@ -270,6 +270,8 @@ export const api = {
   cancelStockCount: (countId) => http(`/stocktaking/${countId}/cancel`, { method: "POST" }),
   scanStockCount: (countId, code) =>
     http(`/stocktaking/${countId}/scan?code=${encodeURIComponent(code)}`),
+  // Compact code -> line index the RX app caches so scanning works offline.
+  stockScanIndex: (countId) => http(`/stocktaking/${countId}/scan-index`),
   // Teach the catalogue which product an unrecognised barcode belongs to.
   // Idempotent server-side, so a retry can never create a duplicate mapping.
   linkScanBarcode: (countId, payload) =>

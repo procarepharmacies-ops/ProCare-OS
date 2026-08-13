@@ -3,6 +3,7 @@
 // Settings and escape hatches: branch, language, theme, the full desktop app,
 // and sign out.
 
+import Link from "next/link";
 import { useUI } from "../../providers";
 import { t } from "../../i18n";
 
@@ -40,6 +41,16 @@ export default function RXMorePage() {
         <button className="rx-btn" onClick={toggleTheme}>
           {theme === "dark" ? "☀️" : "🌙"}
         </button>
+      </div>
+
+      <div className="rx-card">
+        <Link
+          className="rx-btn"
+          href="/rx/unsent"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          {L("rx_unsent")}
+        </Link>
       </div>
 
       <div className="rx-card">

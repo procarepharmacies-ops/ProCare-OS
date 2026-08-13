@@ -116,6 +116,11 @@ def detail(count_id: int, session: Session = Depends(get_session)):
 class LineIn(BaseModel):
     line_id: int
     counted_qty: float | None = Field(None, ge=0)
+    # What the sending device last saw on the server. Optional: when present and
+    # stale, the write still applies and the line is reported in `conflicts` so
+    # the phone can warn that a colleague counted the same shelf. Omitted by the
+    # desktop sheet, which has no offline queue.
+    base_counted_qty: float | None = Field(None, ge=0)
 
 
 class RecordIn(BaseModel):
@@ -126,8 +131,11 @@ class RecordIn(BaseModel):
 def record(count_id: int, payload: RecordIn, session: Session = Depends(get_session)):
     """Save physically-counted quantities (save-as-you-go while counting)."""
     try:
+        # exclude_unset so an omitted base_counted_qty stays ABSENT rather than
+        # arriving as None — the service distinguishes "no base sent, skip the
+        # conflict check" from "base was explicitly null (line was uncounted)".
         return stocktaking.record_lines(
-            session, count_id, [e.model_dump() for e in payload.entries]
+            session, count_id, [e.model_dump(exclude_unset=True) for e in payload.entries]
         )
     except POSError as e:
         _raise(e)
@@ -176,6 +184,19 @@ def scan(
     so the app can jump straight to the item instead of scrolling the sheet."""
     try:
         return stocktaking.scan_lookup(session, count_id, code)
+    except POSError as e:
+        _raise(e)
+
+
+@router.get("/{count_id}/scan-index")
+def scan_index(count_id: int, session: Session = Depends(get_session)):
+    """Compact code -> line index the phone caches so scanning works offline.
+
+    One row per product with every code it can be scanned by (code, fast_code,
+    learned GTINs) and its per-batch lines.
+    """
+    try:
+        return stocktaking.scan_index(session, count_id)
     except POSError as e:
         _raise(e)
 

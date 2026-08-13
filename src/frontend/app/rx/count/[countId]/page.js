@@ -16,6 +16,44 @@ import { useUI } from "../../../providers";
 import { t } from "../../../i18n";
 import { api } from "../../../api";
 import { makeDetector, detectFromFile, cameraAvailable } from "../../../lib/scanner";
+import { resolveOffline } from "../../../lib/gs1";
+import { saveSheet, loadSheet as loadCachedSheet, saveScanIndex, loadScanIndex } from "../../../lib/rxdb";
+import {
+  queueCountLine,
+  queueBarcodeLink,
+  flush,
+  startAutoFlush,
+  onOutboxChange,
+  outboxSummary,
+} from "../../../lib/outbox";
+
+// Keep the cached index in step with what was just entered, so re-scanning the
+// same pack offline shows the counted value rather than a stale null.
+function applyCountedLocally(index, lineId, countedQty) {
+  if (!index?.items) return index;
+  return {
+    ...index,
+    items: index.items.map((item) => ({
+      ...item,
+      lines: item.lines.map((l) =>
+        l.line_id === lineId ? { ...l, counted_qty: countedQty } : l
+      ),
+    })),
+  };
+}
+
+// A barcode linked while offline must resolve on the very next scan.
+function applyLinkLocally(index, code, productId) {
+  if (!index?.items) return index;
+  return {
+    ...index,
+    items: index.items.map((item) =>
+      item.product_id === productId && !(item.codes || []).includes(code)
+        ? { ...item, codes: [...(item.codes || []), code] }
+        : item
+    ),
+  };
+}
 
 export default function RXCountPage() {
   const { countId } = useParams();
@@ -30,6 +68,8 @@ export default function RXCountPage() {
   const fileRef = useRef(null);
 
   const [sheet, setSheet] = useState(null);
+  const [index, setIndex] = useState(null); // cached code -> line index
+  const [queue, setQueue] = useState({ pending: 0, failed: 0 });
   const [scanning, setScanning] = useState(false);
   const [code, setCode] = useState("");
   const [match, setMatch] = useState(null);
@@ -39,17 +79,47 @@ export default function RXCountPage() {
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // Network first, cache as we go, fall back to the cache when the shelf has
+  // no signal. The counter should never be blocked by a dead spot.
   const loadSheet = useCallback(async () => {
     try {
-      setSheet(await api.stockCountDetail(countId));
-    } catch (e) {
-      setMsg({ kind: "danger", text: e?.message || String(e) });
+      const fresh = await api.stockCountDetail(countId);
+      setSheet(fresh);
+      saveSheet(countId, fresh);
+    } catch {
+      const cached = await loadCachedSheet(countId);
+      if (cached) setSheet(cached);
+      else setMsg({ kind: "danger", text: L("rx_no_cached_sheet") });
+    }
+  }, [countId, L]);
+
+  // The scan index is what makes scanning work offline: every code a product
+  // can be scanned by, plus its per-batch lines.
+  const loadIndex = useCallback(async () => {
+    try {
+      const fresh = await api.stockScanIndex(countId);
+      setIndex(fresh);
+      saveScanIndex(countId, fresh);
+    } catch {
+      setIndex(await loadScanIndex(countId));
     }
   }, [countId]);
 
   useEffect(() => {
     loadSheet();
-  }, [loadSheet]);
+    loadIndex();
+  }, [loadSheet, loadIndex]);
+
+  // Keep the queue badge honest, and drain whenever we plausibly reconnect.
+  useEffect(() => {
+    const off = onOutboxChange(setQueue);
+    const stop = startAutoFlush();
+    outboxSummary().then(setQueue);
+    return () => {
+      off();
+      stop();
+    };
+  }, []);
 
   const stopCamera = useCallback(() => {
     if (loopRef.current) {
@@ -72,7 +142,15 @@ export default function RXCountPage() {
       setBusy(true);
       setMsg(null);
       try {
-        const r = await api.scanStockCount(countId, c);
+        let r;
+        try {
+          r = await api.scanStockCount(countId, c);
+        } catch {
+          // No signal: resolve against the cached index with the same parser
+          // the server uses, so the result shape is identical either way.
+          if (!index) throw new Error(L("rx_no_cached_index"));
+          r = resolveOffline(index, c);
+        }
         if (r.result === "unknown") {
           setMatch(r);
           setActiveLine(null);
@@ -98,7 +176,7 @@ export default function RXCountPage() {
       setCode("");
       setBusy(false);
     },
-    [countId, L]
+    [countId, L, index]
   );
 
   const onDetected = useCallback(
@@ -165,18 +243,29 @@ export default function RXCountPage() {
     else setMsg({ kind: "warn", text: L("stk_scan_no_code_in_photo") });
   }
 
+  // Optimistic: the count goes into the durable queue first, the UI moves on
+  // immediately, and the badge shows ⏳ until the flush confirms. Writes are
+  // absolute quantities, so a replay lands on the same number — that is what
+  // makes queueing safe without any idempotency key.
   async function save() {
     if (!activeLine || qty === "") return;
     setBusy(true);
     setMsg(null);
+    const counted = Number(qty);
     try {
-      await api.saveStockCountLines(countId, [
-        { line_id: activeLine.line_id, counted_qty: Number(qty) },
-      ]);
+      setQueue(await queueCountLine(countId, activeLine, counted));
       setSaved((n) => n + 1);
+
+      // Reflect it locally so a re-scan of the same pack shows what we just
+      // entered even while the request is still in flight (or offline).
+      setIndex((prev) => applyCountedLocally(prev, activeLine.line_id, counted));
+
       setMatch(null);
       setActiveLine(null);
       setQty("");
+      const summary = await flush();
+      setQueue(summary);
+      if (summary.paused) setMsg({ kind: "warn", text: L("rx_session_expired") });
       loadSheet();
       // Straight back to scanning: the flow is scan -> count -> scan.
       if (cameraAvailable()) startCamera();
@@ -188,14 +277,16 @@ export default function RXCountPage() {
 
   async function linkBarcode(productId) {
     setBusy(true);
+    const code = match.code;
     try {
-      await api.linkScanBarcode(countId, {
-        code: match.code,
-        product_id: productId,
-        employee_id: user?.employee_id ?? null,
-      });
+      // Queued like a count: linking is idempotent server-side (unique GTIN
+      // index), so replaying it can never create a duplicate mapping.
+      setQueue(await queueBarcodeLink(countId, code, productId, user?.employee_id));
+      // Teach the local index too, so the next scan resolves offline as well.
+      setIndex((prev) => applyLinkLocally(prev, code, productId));
       setMsg({ kind: "ok", text: L("rx_link_saved") });
-      lookup(match.code); // resolve again, now that it is known
+      setQueue(await flush());
+      lookup(code); // resolve again, now that it is known
     } catch (e) {
       setMsg({ kind: "danger", text: e?.message || String(e) });
     }
@@ -220,6 +311,17 @@ export default function RXCountPage() {
             {saved > 0 ? ` · ${saved} ${L("rx_this_session")}` : ""}
           </div>
         </div>
+        {/* Truthful per-queue state: the counter can see what has actually
+            reached the server versus what is still waiting. */}
+        {queue.pending > 0 && (
+          <span className="rx-chip warn">⏳ {queue.pending}</span>
+        )}
+        {queue.failed > 0 && (
+          <span className="rx-chip danger">⚠ {queue.failed}</span>
+        )}
+        {queue.pending === 0 && queue.failed === 0 && saved > 0 && (
+          <span className="rx-chip ok">✓</span>
+        )}
       </div>
 
       {msg && (

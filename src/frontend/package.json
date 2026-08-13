@@ -2,12 +2,13 @@
   "name": "procare-os-frontend",
   "private": true,
   "version": "0.0.1",
-  "description": "ProCare OS frontend — Arabic/RTL-first, Light-first, with English and Dark toggles.",
+  "description": "ProCare OS frontend \u2014 Arabic/RTL-first, Light-first, with English and Dark toggles.",
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "next build",
     "start": "next start -p 3100",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test --no-warnings app/lib/__tests__/*.test.mjs"
   },
   "dependencies": {
     "next": "^15.1.6",
