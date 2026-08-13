@@ -1,0 +1,76 @@
+# ProCare OS — production overlay for the pharmacy server.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Use this ON TOP OF docker-compose.yml whenever ProCare runs against the REAL
+# pharmacy databases. The base file is a self-contained demo stack: it starts its
+# own SQL Server container and hands the backend generated credentials. On the
+# pharmacy server that is wrong in three ways, and this overlay corrects each:
+#
+#   1. The base stack publishes host port 1433 for its own SQL Server. On the
+#      Elsanta box that port already belongs to the live SQL Server 2008
+#      instance, so the container would collide with production. Here the
+#      sqlserver service is moved behind the "localdb" profile, so it does not
+#      start unless explicitly asked for.
+#
+#   2. The base stack points PROCARE_DB_* at that throwaway container, so
+#      ProCare's own tables would land in an ephemeral volume instead of the
+#      central database co-hosted on Elsanta. Every DB env var is blanked below.
+#
+#   3. deploy/entrypoint.backend.sh REWRITES config/connections.json from those
+#      env vars, and it can only express the legacy SINGLE estock_source — which
+#      would silently drop the Mas-hala source and its customers_only mode.
+#      With the vars blank the entrypoint writes nothing ("no SQL Server env
+#      set"), and the real file is bind-mounted read-only instead.
+#
+# config/connections.json is .dockerignore'd on purpose — secrets stay out of
+# image layers — so the bind mount below is what actually supplies it at run
+# time. It must exist on the host before `up`.
+#
+# TLS: the backend image already relaxes OpenSSL so Driver 18 can complete the
+# TLS 1.0 handshake a SQL Server 2008 instance requires. That patch is what
+# makes this the recommended path on Elsanta — see
+# deploy/SQL-SERVER-2008-ELSANTA.md 1.1.
+
+services:
+  # Not started in production: the central database is the Elsanta instance.
+  # `--profile localdb` still brings it up for a laptop demo.
+  sqlserver:
+    profiles: ["localdb"]
+
+  backend:
+    # Base file declares depends_on: [sqlserver]. That service is profile-gated
+    # off above, which makes it "undefined" to compose — the dependency must be
+    # erased outright (a plain `[]` merges instead of replacing, and still
+    # fails validation).
+    depends_on: !reset []
+    volumes:
+      # Authoritative connection config: both eStock sources (Elsanta full,
+      # Mas-hala customers_only) and the central ProCare DB on Elsanta.
+      - ./config/connections.json:/app/config/connections.json:ro
+    environment:
+      # Blank => entrypoint writes no connections.json and leaves the mount
+      # alone. Do NOT set these on the pharmacy server.
+      PROCARE_DB_SERVER: ""
+      PROCARE_DB_PORT: ""
+      PROCARE_DB_DATABASE: ""
+      PROCARE_DB_USER: ""
+      PROCARE_DB_PASSWORD: ""
+      ESTOCK_DB_SERVER: ""
+      ESTOCK_DB_PORT: ""
+      ESTOCK_DB_DATABASE: ""
+      ESTOCK_DB_USER: ""
+      ESTOCK_DB_PASSWORD: ""
+      ESTOCK_STORE_BRANCH_MAP: ""
+      # Runtime settings come from the repo-root .env (compose interpolates it).
+      # The base file hardcodes 300s; keep the two in step via .env instead.
+      SYNC_ENABLED: "${SYNC_ENABLED:-true}"
+      SYNC_INTERVAL_SECONDS: "${SYNC_INTERVAL_SECONDS:-120}"
+      SYNC_INCREMENTAL_DAYS: "${SYNC_INCREMENTAL_DAYS:-7}"
+      AUTOMATION_ENABLED: "${AUTOMATION_ENABLED:-true}"
+      REQUIRE_SQLSERVER: "${REQUIRE_SQLSERVER:-1}"
+      DB_SIZE_CAP_MB: "${DB_SIZE_CAP_MB:-10240}"
+      MANAGER_PHONE: "${MANAGER_PHONE:-}"
+      BRANCH_TIMEZONE: "${BRANCH_TIMEZONE:-Africa/Cairo}"
+      LOYALTY_EGP_PER_POINT: "${LOYALTY_EGP_PER_POINT:-10}"
+      LOYALTY_POINT_VALUE: "${LOYALTY_POINT_VALUE:-0.25}"

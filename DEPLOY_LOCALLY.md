@@ -2,13 +2,15 @@
 
 **Status:** Configuration files created with your credentials.
 - ✅ `config/connections.json` — Configured with Elsanta/Mashala eStock + ProCare database
-- ✅ `.env` — Production settings (AUTH_ENABLED=true, SYNC_ENABLED=true, SYNC_INTERVAL_SECONDS=30)
+- ✅ `.env` — Production settings (AUTH_ENABLED=true, AUTH_SECRET set, SYNC_ENABLED=true, SYNC_INTERVAL_SECONDS=120)
 
 ## Deploy on Your Pharmacy PC/Server
 
 You MUST deploy from the **pharmacy's local network** where SQL Server is accessible.
 
-### Option 1: Windows Batch Script (Recommended for Pharmacy PC)
+### Option 1: Windows Batch Script
+
+> Needs the TLS 1.0 fix applied to the host first — see Troubleshooting below.
 
 Create file: `C:\ProCare\start-production.bat`
 
@@ -30,21 +32,45 @@ cd src\backend
 python run.py
 ```
 
-### Option 2: Docker Compose (Cleanest)
+### Option 2: Docker Compose (Recommended)
+
+Recommended because the backend image already carries the OpenSSL relaxation
+that lets Driver 18 complete a TLS 1.0 handshake against SQL Server 2008 — the
+other two options need that applied to the host by hand.
+
+**Always pass the production overlay.** `docker-compose.yml` on its own is the
+demo stack: it starts its own SQL Server on host port 1433 (which collides with
+the live instance on the Elsanta box), points ProCare's tables at that throwaway
+container instead of the central database, and regenerates
+`config/connections.json` from environment variables — a format that can only
+hold ONE eStock source, silently dropping Mas-hala and its `customers_only`
+mode. `docker-compose.prod.yml` corrects all three.
 
 ```bash
-cd /home/user/ProCare-OS
-docker compose build --no-cache
-docker compose up -d
+cd /opt/procare        # or C:\ProCare
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
+
+Check the merge before starting anything, if you like:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+```
+
+Expect: no `sqlserver` service, every `PROCARE_DB_*` / `ESTOCK_DB_*` empty, and
+`config/connections.json` bind-mounted read-only.
+
+Ports: UI on **3000**, API on **7000** (host 8000 stays free for the NVR).
 
 **Verify deployment:**
 ```bash
-curl http://localhost:8000/api/health
+curl http://localhost:7000/api/health
 curl http://localhost:3000/api/health
 ```
 
 ### Option 3: Python Direct (Development Mode)
+
+> Needs the TLS 1.0 fix applied to the host first — see Troubleshooting below.
 
 ```bash
 cd src/backend
@@ -65,9 +91,9 @@ python run.py
    - Creates demo users (CEO, manager, cashier)
 
 3. **Full eStock Sync** (5-30 minutes depending on data volume)
-   - Reads from Elsanta (196.202.93.37)
-   - Reads from Mas-hala (192.168.1.2)
-   - Imports:
+   - Reads from Elsanta, the main server (LAN 192.168.1.9) — full mirror
+   - Reads from Mas-hala (192.168.1.2) — **customer register only**
+   - Imports (from Elsanta):
      * Products (53K+)
      * Customers (5K+)
      * Sales history (412K+ on Elsanta)
@@ -75,8 +101,8 @@ python run.py
      * Vendors
      * Employees
 
-4. **Continuous Sync** (every 30 seconds)
-   - Incremental syncs
+4. **Continuous Sync** (every 120 seconds)
+   - Incremental: only the trailing 7-day window is re-pulled
    - No blocking to pharmacy operations
 
 ---
@@ -135,29 +161,30 @@ python run.py
 
 Your `config/connections.json` is configured with:
 
-**Elsanta eStock (WAN 196.202.93.37)**
+**Elsanta eStock — main server (LAN 192.168.1.9, WAN 196.202.93.37)**
 ```json
 {
   "username": "AHMEDPHARM22",
-  "password": "Egstart211078$",
+  "password": "<see config/connections.json on the server>",
   "store_branch_map": {"1": "ELSANTA", "2": "ELSANTA"}
 }
 ```
 
-**Mas-hala eStock (LAN 192.168.1.2)**
+**Mas-hala eStock (LAN 192.168.1.2) — customers only**
 ```json
 {
   "username": "ahmedibrahim",
-  "password": "Egstart211078$",
-  "store_branch_map": {"1": "MASHALA"}
+  "password": "<see config/connections.json on the server>",
+  "store_branch_map": {"1": "MASHALA"},
+  "sync_mode": "customers_only"
 }
 ```
 
-**ProCare Database (192.168.1.2)**
+**ProCare central database — co-hosted on Elsanta (192.168.1.9)**
 ```json
 {
   "username": "procare_app",
-  "password": "Procare@2026",
+  "password": "<see config/connections.json on the server>",
   "database": "ProCare"
 }
 ```
@@ -175,9 +202,9 @@ so both the eStock read and ProCare's own co-hosted DB fail to connect.
 deployments (Option 2) already carry the patch.
 
 ### "Cannot connect to eStock"
-- Verify network: `ping 196.202.93.37` (Elsanta) and `ping 192.168.1.2` (Mas-hala)
+- Verify network: `ping 192.168.1.9` (Elsanta) and `ping 192.168.1.2` (Mas-hala)
 - Verify credentials in `config/connections.json`
-- Check SQL Server is running: `sqlcmd -S 192.168.1.2 -U procare_app -P Procare@2026 -Q "SELECT 1"`
+- Check SQL Server is running: `sqlcmd -S 192.168.1.9 -U procare_app -P <password> -Q "SELECT 1"`
 
 ### "AUTH_ENABLED=true but can't login"
 - Verify eStock is configured (auth auto-enables when eStock + ProCare DB both exist)
@@ -198,7 +225,7 @@ deployments (Option 2) already carry the patch.
 
 ## Production Go-Live Checklist
 
-- [ ] Backend running (http://localhost:8000/api/health returns 200)
+- [ ] Backend running (http://localhost:7000/api/health returns 200)
 - [ ] Frontend accessible (http://localhost:3000 loads)
 - [ ] Sync status shows "running" + recent timestamp
 - [ ] Dashboard displays real Elsanta/Mas-hala data
