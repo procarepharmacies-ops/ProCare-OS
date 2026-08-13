@@ -166,6 +166,14 @@ Your `config/connections.json` is configured with:
 
 ## Troubleshooting
 
+### "SSL routines::unsupported protocol" / health says `sqlite` on a 2008 host
+
+Driver 18 (OpenSSL 3) refuses the TLS 1.0 handshake that SQL Server 2008 needs,
+so both the eStock read and ProCare's own co-hosted DB fail to connect.
+`TrustServerCertificate=yes` does not fix it — see
+`deploy/SQL-SERVER-2008-ELSANTA.md` §1.1 for the per-platform fix. Docker
+deployments (Option 2) already carry the patch.
+
 ### "Cannot connect to eStock"
 - Verify network: `ping 196.202.93.37` (Elsanta) and `ping 192.168.1.2` (Mas-hala)
 - Verify credentials in `config/connections.json`
