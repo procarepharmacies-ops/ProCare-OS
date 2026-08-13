@@ -74,3 +74,17 @@ services:
       BRANCH_TIMEZONE: "${BRANCH_TIMEZONE:-Africa/Cairo}"
       LOYALTY_EGP_PER_POINT: "${LOYALTY_EGP_PER_POINT:-10}"
       LOYALTY_POINT_VALUE: "${LOYALTY_POINT_VALUE:-0.25}"
+      # AI. Default is Gemini on a free AI Studio key — the ONLY provider that
+      # enables the prescription reader (services/prescriptions.py:37).
+      AI_PROVIDER: "${AI_PROVIDER:-gemini}"
+      AI_MODEL: "${AI_MODEL:-gemini-2.0-flash}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      # Only read when AI_PROVIDER=ollama. Inside a container "localhost" is the
+      # container itself, so a host-side Ollama must be reached through the
+      # host gateway (mapped below), never http://localhost:11434.
+      AI_BASE_URL: "${AI_BASE_URL:-}"
+      AI_MODEL_FALLBACKS: "${AI_MODEL_FALLBACKS:-}"
+    # Lets the container resolve a host-side Ollama on Linux, where
+    # host.docker.internal is not built in. Harmless when Ollama is not used.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
