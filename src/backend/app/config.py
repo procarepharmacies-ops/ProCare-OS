@@ -272,6 +272,16 @@ class Settings:
         return _odbc_url(_data.get("procare_database", {}))
 
     @staticmethod
+    def procare_database_name() -> str | None:
+        """The configured SQL Server database name for ProCare's own DB.
+
+        The engine URL is a raw ``odbc_connect`` string (see ``_odbc_url``), so
+        ``engine.url.database`` is always empty — callers needing the plain
+        database name (e.g. native ``BACKUP DATABASE``) must read it from here.
+        """
+        return _data.get("procare_database", {}).get("database") or None
+
+    @staticmethod
     def estock_sqlalchemy_url() -> str | None:
         """Read-only SQL Server URL for the eStock mirror source, or None.
 

@@ -28,6 +28,20 @@ log = logging.getLogger("procare.backup")
 KEEP_LAST = 30  # pruned oldest-first beyond this many backups
 
 
+def _procare_db_name() -> str | None:
+    """Plain database name for native ``BACKUP DATABASE`` / ``msdb`` lookups.
+
+    NOT ``engine.url.database``: ProCare builds its SQL Server URL as a raw
+    ``odbc_connect`` string, which leaves SQLAlchemy's ``url.database`` empty.
+    Reading it from there yields "" — enough to make BACKUP DATABASE fail and
+    an msdb.backupset lookup silently match nothing.
+    """
+    from app.config import settings
+    from app.db.base import engine
+
+    return settings.procare_database_name() or (engine.url.database or None)
+
+
 def _backup_dir() -> Path:
     """Where backups are written.
 
@@ -83,7 +97,9 @@ def backup_now(reason: str = "manual") -> dict:
         # A bare filename lands in the instance's default backup folder, which
         # last_backup_at() cannot see — set PROCARE_BACKUP_DIR to a path both
         # the server and ProCare can read so the throttle below works.
-        dbname = engine.url.database
+        dbname = _procare_db_name()
+        if not dbname:
+            return {"ok": False, "error": "no ProCare database name configured", "reason": reason}
         dest = f"procare-{stamp}.bak"
         if os.environ.get("PROCARE_BACKUP_DIR"):
             dest = str(_backup_dir() / dest)
@@ -107,7 +123,8 @@ def last_backup_at() -> datetime | None:
     """
     from app.db.base import engine
 
-    if engine.url.get_backend_name() != "sqlite":
+    dbname = _procare_db_name()
+    if engine.url.get_backend_name() != "sqlite" and dbname:
         try:
             with engine.connect() as conn:
                 row = conn.execute(
@@ -115,7 +132,7 @@ def last_backup_at() -> datetime | None:
                         "SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset "
                         "WHERE database_name = :db AND type = 'D'"
                     ),
-                    {"db": engine.url.database},
+                    {"db": dbname},
                 ).scalar()
             if row is not None:
                 # backup_finish_date is server-local naive; treat as UTC-naive

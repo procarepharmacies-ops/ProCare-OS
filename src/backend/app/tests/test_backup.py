@@ -51,5 +51,33 @@ def test_backup_reports_failure_without_raising(tmp_path, monkeypatch, seeded_db
     assert "error" in res and res["reason"] == "test"
 
 
+def test_db_name_comes_from_config_not_the_engine_url(monkeypatch):
+    """``BACKUP DATABASE`` and msdb lookups need the plain database name.
+
+    ProCare builds its SQL Server URL as ``mssql+pyodbc:///?odbc_connect=...``,
+    which leaves SQLAlchemy's ``url.database`` EMPTY. Reading the name from
+    there produced ``BACKUP DATABASE []`` and an msdb query matching nothing —
+    which silently disabled the once-a-day throttle.
+    """
+    from sqlalchemy.engine import make_url
+
+    from app import config as config_mod
+
+    block = {
+        "driver": "ODBC Driver 18 for SQL Server",
+        "server": "192.168.1.9,1433",
+        "database": "ProCare",
+        "username": "procare_app",
+        "password": "not-a-placeholder-value",
+    }
+    url = config_mod._odbc_url(block)
+    assert url and url.startswith("mssql+pyodbc:///?odbc_connect=")
+    # The trap: the database name is inside the opaque connect string only.
+    assert make_url(url).database == ""
+
+    monkeypatch.setattr(config_mod, "_data", {"procare_database": block})
+    assert config_mod.Settings.procare_database_name() == "ProCare"
+
+
 def _boom(*_a, **_k):
     raise OSError("disk full")
