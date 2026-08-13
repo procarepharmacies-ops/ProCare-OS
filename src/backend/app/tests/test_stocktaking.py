@@ -24,6 +24,8 @@ def test_full_count_snapshot_and_post(session):
     sheet = stocktaking.get_count(session, count_id)
     line = sheet["lines"][0]
     assert line["counted_qty"] is None and line["expected_qty"] >= 0
+    # Product code is on every line (barcode-scan count entry matches against it).
+    assert "code" in line and "fast_code" in line
 
     # Count one line short by 1 (a shortage).
     physical = max(0.0, line["expected_qty"] - 1)

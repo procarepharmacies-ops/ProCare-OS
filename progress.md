@@ -1060,3 +1060,67 @@
   remaining piece of Phase 7's coverage work that should wait for the
   owner's `python -m tools.estock_schema_dump --counts` run on Elsanta
   rather than proceed on inferred columns.
+
+## 2026-08-13 · Backlog cleanup — barcode-scanner count sheet · small-unit price override · purchase header extras — branch claude/phase-7-backlog-items
+- Owner asked to proceed with the three remaining backlog items after
+  explicitly declining PR 2e (Gedo_* sub-ledgers stay parked pending the
+  schema-dump, per the previous entry). Asked which backlog item first; owner
+  said "all" — did all three in one pass on a fresh branch off main.
+- **Barcode-scanner count sheet**: `stocktaking.get_count()` now returns
+  `code`/`fast_code` per line (product's eStock `product_code` — documented
+  as "Barcode / internal code" in docs/02). Frontend `/stocktaking` count
+  sheet gained a scan input (visible only on an open session, autofocused):
+  Enter matches the scanned string against a line's code/fast_code and adds
+  1 to that line's DRAFT physical count — scanning the same item N times
+  counts N units, the standard handheld-scanner workflow. No match ->
+  "not on this sheet" badge, scan input clears either way for the next scan.
+- **Small-unit price override**: investigated first — the backend has
+  ALREADY supported a per-line `sell_price` override since Phase 3
+  (`SaleLineInput.sell_price: float | None`), but (a) no frontend UI ever
+  exposed it, and (b) `completeSale`'s payload wasn't even sending
+  `sell_price` (a latent gap — the cart tracked a price for display only;
+  checkout silently fell back to the live product default). Fixed both: cart
+  line gained an editable per-unit price input that reads/writes in
+  whichever unit is currently selected (علبة or شريط/أمبول), converting
+  through `unit_factor` to the big-unit-equivalent `sell_price` actually
+  stored on the line; `completeSale` now sends that `sell_price` explicitly
+  on every line. No backend changes needed — the override path already
+  existed and was already tested for the note/dosage features; added 2 new
+  tests (`test_line_sell_price_override`, `test_api_sale_accepts_line_price_
+  override`) since nothing had exercised it directly before.
+- **Purchase header extras (تسوية/خصم نقدي)**: re-examined the "may be stale"
+  flag from the original backlog entry — `purchasing.create_purchase` IS a
+  real ProCare-native write path (receive-goods screen), entirely separate
+  from the read-only eStock purchase-history mirror, so the flag was overly
+  cautious. Checked eStock's own `Purchase_header` columns
+  (`bill_disc_per`, `bill_other_expenses`) to ground the two vague Arabic
+  terms in real schema rather than guessing: `bill_disc_per` = a header
+  discount RATE (distinct from the flat `total_discount` money amount
+  ProCare already had); `bill_other_expenses` = شحن/مصاريف أخرى, a vendor
+  charge that ADDS to the invoice total. Added `Purchase.disc_percent` +
+  `Purchase.other_expenses` columns + `ensure_purchase_header_extra_columns`
+  (dialect-aware, idempotent, wired into main.py startup). Service:
+  `disc_percent` computes on gross BEFORE flat discounts and folds into
+  `total_discount` (so the existing "total_discount = header + line
+  discounts" invariant still holds, just with one more term); validated
+  0-100. `other_expenses` adds to net, validated >=0. Fixed a bug found
+  along the way: `purchase_detail`'s inline `total_net` formula omitted
+  `other_expenses` even before this change would have mattered — now
+  correct. Receive-goods form gained two header inputs (discount %, other
+  expenses) + the live running-total was updated to reflect both.
+- TESTS: +2 test_ops.py (percent+expenses round-trip and net math via the
+  API; out-of-range percent rejected by pydantic before the service layer),
+  +2 test_migrate.py (legacy purchases table gets both columns; idempotent
+  re-run), +2 test_pos_invoice.py (line-level sell_price override, service +
+  API), +1 test_stocktaking.py (code/fast_code present on every sheet line).
+  Full suite: 389 total, 388 passed, 1 pre-existing failure
+  (`test_tasks_insights.py::test_insights_daily_and_productivity`) —
+  confirmed via `git stash` that it fails identically on clean merged main,
+  unrelated to any of these three changes (looks like a date-rotted
+  assumption in seeded demo data now that real time has moved past the
+  original 30-day window; not investigated further as it's out of scope for
+  this backlog pass). `next build` clean (`/pos` 10.1 kB, `/purchasing`
+  3.4 kB, `/stocktaking` 2.76 kB).
+- Gemini/ollama keys item left in the backlog, unstarted — no concrete
+  request behind it yet (unlike the other three, which had clear, actionable
+  scope once investigated).

@@ -58,7 +58,13 @@ def purchase_detail(session: Session, purchase_id: int) -> dict | None:
         "bill_number": p.bill_number,
         "total_gross": float(p.total_gross or 0),
         "total_discount": float(p.total_discount or 0),
-        "total_net": round(float(p.total_gross or 0) - float(p.total_discount or 0) + float(p.total_tax or 0), 2),
+        "disc_percent": float(p.disc_percent or 0),
+        "other_expenses": float(p.other_expenses or 0),
+        "total_net": round(
+            float(p.total_gross or 0) - float(p.total_discount or 0)
+            + float(p.total_tax or 0) + float(p.other_expenses or 0),
+            2,
+        ),
         "total_tax": float(p.total_tax or 0),
         "is_return": p.is_return,
         "created_at": p.created_at.isoformat() if p.created_at else None,
@@ -171,6 +177,8 @@ def create_purchase(
     *,
     bill_number: str | None = None,
     total_discount: float = 0.0,
+    disc_percent: float = 0.0,
+    other_expenses: float = 0.0,
     total_tax: float = 0.0,
     is_credit: bool = True,
 ) -> m.Purchase:
@@ -180,11 +188,21 @@ def create_purchase(
 
     Each line: {product_id, amount, buy_price, sell_price?, bonus?, exp_date?}.
     Bonus (eStock's 'bouns') adds free units to the received batch quantity.
+
+    ``disc_percent`` (eStock's bill_disc_per, تسوية/خصم نقدي) is a header
+    discount RATE applied on top of ``total_discount`` (a flat money amount) —
+    both can be used together, same as eStock's own invoice. ``other_expenses``
+    (بيل_other_expenses, شحن/مصاريف أخرى) is a vendor charge that ADDS to what's
+    owed, same direction as tax.
     """
     from app.services.pos import POSError  # shared business-error type
 
     if not lines:
         raise POSError("empty_purchase", "لا توجد أصناف في الفاتورة / no lines")
+    if not (0 <= disc_percent <= 100):
+        raise POSError("bad_discount", "نسبة الخصم يجب أن تكون بين ٠ و ١٠٠ / discount % must be 0..100")
+    if other_expenses < 0:
+        raise POSError("bad_expense", "المصاريف الأخرى لا يمكن أن تكون سالبة / other expenses can't be negative")
     vendor = session.get(m.Vendor, vendor_id)
     if vendor is None or not vendor.is_active:
         raise POSError("vendor_not_found", "المورد غير موجود / vendor not found")
@@ -214,16 +232,25 @@ def create_purchase(
             line_disc_total += disc_money
             resolved.append((product, amount, bonus, buy_price, sell_price, disc_money, exp_date))
 
-        net = round(gross - line_disc_total - float(total_discount) + float(total_tax), 2)
+        # The percentage discount is computed on the gross BEFORE the flat
+        # header/line money discounts (eStock's own bill_disc_per behaviour).
+        percent_disc_money = round(gross * float(disc_percent) / 100, 2)
+        header_discount = round(float(total_discount) + percent_disc_money, 2)
+        net = round(
+            gross - line_disc_total - header_discount + float(total_tax) + float(other_expenses), 2
+        )
         purchase = m.Purchase(
             branch_id=branch_id,
             vendor_id=vendor_id,
             bill_date=datetime.now().date(),
             bill_number=bill_number,
             total_gross=round(gross, 2),
-            # Invoice total discount = header discount + all per-line discounts,
-            # so total_gross − total_discount + total_tax == net.
-            total_discount=round(float(total_discount) + line_disc_total, 2),
+            # Invoice total discount = header money discount + the percentage's
+            # money-equivalent + all per-line discounts, so
+            # total_gross − total_discount + total_tax + other_expenses == net.
+            total_discount=round(header_discount + line_disc_total, 2),
+            disc_percent=float(disc_percent),
+            other_expenses=float(other_expenses),
             total_tax=float(total_tax),
         )
         session.add(purchase)

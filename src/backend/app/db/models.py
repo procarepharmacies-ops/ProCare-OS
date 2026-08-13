@@ -382,6 +382,15 @@ class Purchase(Base):
     bill_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     total_gross: Mapped[float] = mapped_column(Money, default=0)
     total_discount: Mapped[float] = mapped_column(Money, default=0)
+    # Header discount PERCENTAGE (eStock's bill_disc_per), kept alongside the
+    # money discount above (bill_disc_money) — mirrors eStock's own purchase
+    # invoice, which carries both. The percentage's money-equivalent is folded
+    # into total_discount when the purchase is created; this column is kept so
+    # the invoice can display/reprint the rate the vendor actually quoted.
+    disc_percent: Mapped[float] = mapped_column(Money, default=0)
+    # Other invoice expenses (شحن/مصاريف أخرى, eStock's bill_other_expenses) —
+    # a vendor charge that adds to what's owed, same direction as tax.
+    other_expenses: Mapped[float] = mapped_column(Money, default=0)
     total_tax: Mapped[float] = mapped_column(Money, default=0)
     is_return: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

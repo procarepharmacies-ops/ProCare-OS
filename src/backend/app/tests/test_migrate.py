@@ -7,7 +7,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine, inspect
 
 from app.db.base import Base
-from app.db.migrate import bootstrap_ceo_if_configured, ensure_role_column
+from app.db.migrate import bootstrap_ceo_if_configured, ensure_purchase_header_extra_columns, ensure_role_column
 
 
 def test_ensure_role_column_adds_missing_column(tmp_path):
@@ -61,3 +61,25 @@ def test_bootstrap_creates_ceo_only_when_env_and_table_empty(monkeypatch, tmp_pa
         # Second call must not duplicate the account (table no longer empty).
         bootstrap_ceo_if_configured(s)
         assert s.query(m.Employee).filter_by(username="owner").count() == 1
+
+
+def test_ensure_purchase_header_extra_columns_adds_missing(tmp_path):
+    # Simulate a pre-Phase-7 purchases table (predates disc_percent/other_expenses).
+    eng = create_engine(f"sqlite:///{tmp_path / 'legacy_purchases.db'}")
+    with eng.begin() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE purchases (purchase_id INTEGER PRIMARY KEY, "
+            "branch_id INTEGER, vendor_id INTEGER, total_gross NUMERIC, "
+            "total_discount NUMERIC, total_tax NUMERIC)"
+        )
+    ensure_purchase_header_extra_columns(eng)
+    columns = {c["name"] for c in inspect(eng).get_columns("purchases")}
+    assert {"disc_percent", "other_expenses"} <= columns
+
+    # Idempotent: running it again on the now-current schema must not raise.
+    ensure_purchase_header_extra_columns(eng)
+
+
+def test_ensure_purchase_header_extra_columns_noop_when_table_absent(tmp_path):
+    eng = create_engine(f"sqlite:///{tmp_path / 'empty_purchases.db'}")
+    ensure_purchase_header_extra_columns(eng)  # no purchases table -> must not raise
