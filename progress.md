@@ -21,6 +21,39 @@
   unknown code, not_in_count (partial-count scope exclusion), API path,
   recent-alerts not shadowed. `next build` clean.
 
+## 2026-07-25 (cont.) · Offline الجرد (branch feat/rx-offline-outbox, merged)
+- Counting now works with no signal: scans resolve from a cached index, counts
+  go into a durable device queue, the queue drains on reconnect.
+- WHY NO IDEMPOTENCY KEYS: every queued write is absolute state — `record_lines`
+  sets `counted_qty` (not a delta), task status is absolute, and a barcode link
+  is idempotent via the unique GTIN index. N replays land on the same number.
+  Count CREATION and POSTING stay online-only on purpose (the first needs a
+  server-assigned id + snapshot; the second applies deltas against LIVE stock
+  and is a manager's call against current data).
+- BACKEND: `record_lines` takes optional `base_counted_qty`; when stale the
+  write still APPLIES (last-write-wins, never block a count) and the line is
+  returned in `conflicts` — same advisory shape as `held.resume_held`. Absent
+  base ⇒ no conflict check (desktop sheet unaffected); `exclude_unset=True` in
+  the endpoint keeps ABSENT distinct from NULL. New `GET /{id}/scan-index`.
+- FRONTEND: `lib/gs1.js` mirrors `services/gs1.py` (needed so GS1 batch-pinning
+  works offline). Anti-drift = BOTH parsers test against the SAME golden vectors
+  (`npm test` reads the pytest fixture) — node:test, no new dependency.
+  `lib/rxdb.js` IndexedDB with a UNIQUE `dedupe_key`: re-entering a quantity
+  REPLACES the queued row, so the queue can't outgrow the lines touched.
+  `lib/outbox.js`: retry only the network class (etl.py discipline) but WITHOUT
+  its 3-attempt cap — this queue may hold the only copy of a physical count.
+  4xx terminal + surfaced; 401 PAUSES (12h token, no refresh); backoff persisted.
+- The queue lives in the PAGE, not the SW: scope matching is by request URL, so
+  `/api/*` from an RX page hits the ROOT worker and an RX fetch handler would
+  silently never fire. Also more honest — intercepting would return a synthetic
+  202 for a real question; "saved" vs "queued" is the distinction that matters
+  for الجرد. Hence the per-count badge + the «لم يُرفع» screen.
+- TESTS: 484 backend (+11 reconcile/scan-index), 11 JS parser tests, build clean.
+  Smoke: stale base → `overwritten` reported yet applied; same entry ×3 → 9.
+- STILL pre-existing (not ours): `test_insights_daily_and_productivity`.
+- NOT done (queued): prescription capture in RX, Bubblewrap APK,
+  `POST /api/sales` double-submit gap (real, separate ticket).
+
 ## 2026-07-25 (cont.) · GS1 DataMatrix + ProCare RX (branch feat/rx-mobile-jard)
 - RESEARCH that changed the design: Egypt's EDA track-and-trace (ePTTS) mandates
   a GS1 DataMatrix on every saleable pack — imported since 2026-02-01, local from
