@@ -134,9 +134,11 @@ def _run_gemini(task: str) -> str:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         raise RuntimeError("GEMINI_API_KEY not set")
+    # Follow the configured model rather than pinning one here: the previously
+    # hardcoded gemini-2.0-flash has been retired by Google and now 404s.
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.0-flash:generateContent?key=" + key
+        f"{settings.ai_model}:generateContent?key={key}"
     )
     body = json.dumps({"contents": [{"parts": [{"text": task}]}]}).encode()
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})

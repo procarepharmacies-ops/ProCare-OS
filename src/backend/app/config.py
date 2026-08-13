@@ -126,7 +126,12 @@ _notify = _data.get("notifications", {})
 # Code) and need NO API key — the assistant works fully offline on the LAN.
 _AI_PROVIDER_DEFAULTS = {
     "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
-    "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+    # Pinning a dated Gemini model strands the install when Google retires it:
+    # gemini-2.0-flash now answers "no longer available", which the fail-soft
+    # paths turn into a silent drop to the keyword router (and, for the
+    # prescription reader, back to manual entry) with no obvious cause. The
+    # floating -latest alias keeps following the current flash model.
+    "gemini": {"model": "gemini-flash-latest", "key_env": "GEMINI_API_KEY"},
     # Ollama serves an OpenAI-compatible API at http://localhost:11434. "Hermes"
     # is just a model served by Ollama (default hermes3), so hermes -> ollama.
     "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True},

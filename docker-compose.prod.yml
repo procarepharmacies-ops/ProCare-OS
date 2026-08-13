@@ -77,7 +77,7 @@ services:
       # AI. Default is Gemini on a free AI Studio key — the ONLY provider that
       # enables the prescription reader (services/prescriptions.py:37).
       AI_PROVIDER: "${AI_PROVIDER:-gemini}"
-      AI_MODEL: "${AI_MODEL:-gemini-2.0-flash}"
+      AI_MODEL: "${AI_MODEL:-gemini-flash-latest}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       # Only read when AI_PROVIDER=ollama. Inside a container "localhost" is the
       # container itself, so a host-side Ollama must be reached through the
