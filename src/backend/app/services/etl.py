@@ -2001,6 +2001,33 @@ def preflight() -> dict:
         return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def sync_customers_only(source_engine, branch_map: dict | None = None) -> dict:
+    """Sync only customer records from a source (skip products, sales, inventory).
+
+    Used for multi-branch consolidation where one source is the main server
+    (products, sales) and others contribute only customer name updates.
+    """
+    insp = inspect(source_engine)
+    src = _ResilientSource(source_engine)
+    try:
+        if not branch_map:
+            store_ids = _distinct_store_ids(insp, src)
+            branch_map = _resolve_branch_map(SessionLocal(), None, store_ids)
+
+        default_branch = next(iter(branch_map.values())) if branch_map else 1
+        counts: dict = {}
+        counts["sync_mode"] = "customers_only"
+
+        with SessionLocal() as dst:
+            # Only load customers (upsert, dedup by matching on code/mobile/name)
+            _load_customers(insp, src, dst, counts, dedup=True, update_on_match=True)
+            dst.commit()
+
+        return counts
+    finally:
+        src.close()
+
+
 def run_full_load() -> dict:
     """Entry point for the Phase-1 full mirror against the live eStock DB.
 

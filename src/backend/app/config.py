@@ -290,7 +290,7 @@ class Settings:
         plus its own ``store_branch_map`` — and falls back to the legacy single
         ``estock_source`` block so existing configs keep working. Entries without
         real credentials are skipped. Each item carries only what the sync needs:
-        ``{"name", "url", "store_branch_map"}``.
+        ``{"name", "url", "store_branch_map", "sync_mode"?}``.
         """
         blocks = list(_data.get("estock_sources") or [])
         if not blocks and _data.get("estock_source"):
@@ -299,13 +299,14 @@ class Settings:
         for i, block in enumerate(blocks):
             url = _odbc_url(block)
             if url:
-                out.append(
-                    {
-                        "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
-                        "url": url,
-                        "store_branch_map": block.get("store_branch_map"),
-                    }
-                )
+                entry = {
+                    "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
+                    "url": url,
+                    "store_branch_map": block.get("store_branch_map"),
+                }
+                if "sync_mode" in block:
+                    entry["sync_mode"] = block["sync_mode"]
+                out.append(entry)
         return out
 
     @staticmethod
