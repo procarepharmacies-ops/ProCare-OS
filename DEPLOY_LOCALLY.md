@@ -225,7 +225,24 @@ deployments (Option 2) already carry the patch.
 
 ## Production Go-Live Checklist
 
+**Before `up` — must be done by hand:**
+
+- [ ] `GEMINI_API_KEY` set in `.env` (free key from https://aistudio.google.com/apikey).
+      Without it `/api/health` reports the prescription reader as `manual` and
+      photo reading is off — every other feature is unaffected.
+- [ ] `AUTH_SECRET` present in `.env` (already generated; it must travel with
+      the file). Missing => session tokens are signed with a constant published
+      in this repo.
+- [ ] eStock/ProCare passwords rotated — the previous values were committed to
+      git history and cannot be un-published by editing the files.
+- [ ] Host port 1433 left to the live SQL Server: start with BOTH compose files
+      so the demo `sqlserver` service stays off.
+
+**After `up`:**
+
 - [ ] Backend running (http://localhost:7000/api/health returns 200)
+- [ ] `/api/health` reports `procare_db: sqlserver` (NOT `sqlite` — a SQLite
+      fallback means the 2008 box was unreachable; check TLS first)
 - [ ] Frontend accessible (http://localhost:3000 loads)
 - [ ] Sync status shows "running" + recent timestamp
 - [ ] Dashboard displays real Elsanta/Mas-hala data
@@ -247,9 +264,12 @@ deployments (Option 2) already carry the patch.
 Copy these from the cloud to your pharmacy PC:
 
 1. **Full repository**: `/home/user/ProCare-OS/` → `C:\ProCare\` (Windows) or `/opt/procare/` (Linux)
-2. **config/connections.json** — Already configured with your credentials
-3. **.env** — Already configured for production
-4. **docker-compose.yml** — For Docker deployment (if using)
+2. **config/connections.json** — git-ignored, so it is NOT in the clone; copy it
+   across separately. The container reads it via a bind mount, and it is
+   `.dockerignore`d on purpose so credentials stay out of image layers.
+3. **.env** — git-ignored likewise; carries `AUTH_SECRET` and `GEMINI_API_KEY`.
+4. **docker-compose.yml + docker-compose.prod.yml** — both are required; the
+   base file alone is the demo stack.
 
 **DO NOT commit credentials to git.** Both `config/connections.json` and `.env` are git-ignored (safe).
 
