@@ -140,9 +140,10 @@ def run_once(source_engine=None) -> dict:
     try:
         for s in sources:
             try:
-                # Customers-only mode: sync only customer records (no products, sales, inventory)
+                # Customers-only source: its operational data already arrives
+                # from the main server, so only the customer register is pulled.
                 if s.get("sync_mode") == "customers_only":
-                    counts = etl.sync_customers_only(s["engine"], s["store_branch_map"])
+                    counts = etl.sync_customers_only(s["engine"])
                 else:
                     # Incremental only after this source has completed a FULL load
                     # (recorded in sync_state) — a fresh/reset database, or demo

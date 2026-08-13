@@ -2001,28 +2001,27 @@ def preflight() -> dict:
         return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
 
 
-def sync_customers_only(source_engine, branch_map: dict | None = None) -> dict:
-    """Sync only customer records from a source (skip products, sales, inventory).
+def sync_customers_only(source_engine) -> dict:
+    """Mirror ONLY the customer register from ``source_engine``.
 
-    Used for multi-branch consolidation where one source is the main server
-    (products, sales) and others contribute only customer name updates.
+    Used when a secondary branch server contributes customer names to the
+    shared register but its operational data (products, stock, sales,
+    purchases) already arrives from the main head-office server — syncing it
+    twice would duplicate rows and waste the branch server's capacity.
+
+    Customers are matched and updated in place (``dedup`` + ``update_on_match``)
+    so the register stays single-copy across sources, exactly as in a
+    ``branch_scoped`` mirror. Nothing is wiped: this mode never touches a
+    branch's transactional rows, so it is safe to interleave with the main
+    source's full/incremental cycles.
     """
     insp = inspect(source_engine)
     src = _ResilientSource(source_engine)
     try:
-        if not branch_map:
-            store_ids = _distinct_store_ids(insp, src)
-            branch_map = _resolve_branch_map(SessionLocal(), None, store_ids)
-
-        default_branch = next(iter(branch_map.values())) if branch_map else 1
-        counts: dict = {}
-        counts["sync_mode"] = "customers_only"
-
+        counts: dict = {"sync_mode": "customers_only"}
         with SessionLocal() as dst:
-            # Only load customers (upsert, dedup by matching on code/mobile/name)
             _load_customers(insp, src, dst, counts, dedup=True, update_on_match=True)
             dst.commit()
-
         return counts
     finally:
         src.close()
