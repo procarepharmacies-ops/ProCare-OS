@@ -57,6 +57,7 @@
     "username": "REPLACE_WITH_READONLY_LOGIN",
     "password": "REPLACE_ME"
   },
+  "_procare_database_windows_auth": "Dev laptop with SQL Server Express: the installer creates a NAMED instance and Windows-auth-only. Use \"server\": \"localhost\\\\SQLEXPRESS\" (escaped backslash), OMIT \"port\" (SQL Browser resolves a named instance; a port would override the instance name), and set \"trusted_connection\": true INSTEAD of username/password — the signed-in Windows account authenticates. Example: {\"driver\": \"ODBC Driver 18 for SQL Server\", \"server\": \"localhost\\\\SQLEXPRESS\", \"database\": \"ProCare\", \"trusted_connection\": true, \"encrypt\": \"yes\", \"trust_server_certificate\": \"yes\"}",
   "procare_database": {
     "_role": "ProCare OS OWN database — the new system of record. Read/write.",
     "driver": "ODBC Driver 18 for SQL Server",

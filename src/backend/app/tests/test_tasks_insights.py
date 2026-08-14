@@ -52,6 +52,27 @@ def test_insights_daily_and_productivity(client):
     assert {"date", "sales", "visitors", "conversion_pct", "tasks", "alerts"} <= set(daily)
     assert daily["sales"]["bills"] >= 0
 
+    # Ring one sale NOW. seed.py is anchored to a frozen TODAY (deliberately —
+    # deterministic five-year demo history), so once wall-clock time drifts more
+    # than `days` past that anchor every seeded sale falls outside the window and
+    # productivity legitimately returns []. Asserting on seeded rows made this
+    # test a time bomb; supplying our own row keeps it testing the aggregation.
+    from datetime import datetime
+
+    from app.db.base import SessionLocal
+
+    with SessionLocal() as s:
+        cashier = s.scalars(select(m.Employee)).first()
+        assert cashier is not None, "seed must create at least one employee"
+        s.add(m.Sale(
+            branch_id=s.scalars(select(m.Branch)).first().branch_id,
+            cashier_id=cashier.employee_id,
+            sale_date=datetime.now().replace(hour=13, minute=0, second=0, microsecond=0),
+            total_net=125.0,
+            is_return=False,
+        ))
+        s.commit()
+
     prod = client.get("/api/insights/productivity", params={"days": 30}).json()
     assert prod["days"] == 30
     assert isinstance(prod["employees"], list) and len(prod["employees"]) >= 1

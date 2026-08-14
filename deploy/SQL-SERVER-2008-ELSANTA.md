@@ -70,6 +70,51 @@ driver is independent of the 2008 server version; Driver 18 defaults to
 `Encrypt=yes`, and the config sets `TrustServerCertificate=yes`, which is what a
 2008 instance with a self-signed cert needs).
 
+### 1.1 Allow the TLS 1.0 handshake (non-Docker hosts only)
+
+Driver 18 links **OpenSSL 3**, which refuses TLS 1.0/1.1 — the only protocols a
+2008 instance negotiates. The handshake fails before authentication with:
+
+```
+SSL routines::unsupported protocol
+```
+
+`TrustServerCertificate=yes` does **not** help: this is a protocol-version
+rejection, not a certificate one. Both connections terminate on the 2008 box
+(eStock *and* ProCare's own co-hosted DB), so a host without this fix cannot
+reach either — ProCare falls back to SQLite, and with `REQUIRE_SQLSERVER=1` the
+watchdog reads that fallback as unhealthy and restarts the stack on a loop.
+
+**Docker:** already handled — `deploy/Dockerfile.backend` patches the image's
+`openssl.cnf`. Nothing to do.
+
+**Linux (running `python run.py` directly):** apply the same patch to the host:
+
+```bash
+sudo sed -i '/^\[openssl_init\]/a ssl_conf = ssl_sect' /etc/ssl/openssl.cnf
+sudo tee -a /etc/ssl/openssl.cnf >/dev/null <<'EOF'
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+MinProtocol = TLSv1
+CipherString = DEFAULT@SECLEVEL=0
+EOF
+```
+
+**Windows:** the OpenSSL patch does not apply — Driver 18 uses SChannel, so TLS
+1.0 is an OS-level setting. Windows 10/11 up to 23H2 still enable the TLS 1.0
+*client* by default and connect without changes; Windows 11 24H2 and Server 2025
+disable TLS 1.0/1.1, and there the client must be re-enabled under
+`HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client`
+(`Enabled=1`, `DisabledByDefault=0`), followed by a reboot.
+
+> Re-enabling TLS 1.0 weakens the host's TLS posture machine-wide. It is
+> required only because the 2008 server cannot negotiate anything newer, and is
+> one more reason to keep this instance off any untrusted network (see the
+> end-of-life warning above).
+
 ---
 
 ## 2. Point ProCare at both databases
@@ -187,9 +232,52 @@ exits 0 (healthy) / 1 (unhealthy) for Task Scheduler.
 
 ---
 
+## Troubleshooting
+
+### Error 9002 — "The transaction log for database 'ProCare' is full"
+
+A database created from the default `model` inherits the **FULL** recovery model,
+where the log is only truncated by a *log backup*. Nobody takes log backups of
+ProCare, so the log grows until it hits the disk or its MAXSIZE — and the first
+full mirror (121K `Branches_Product_Amount` rows, 70K `Branch_order_*` rows, plus
+sales/purchase history) is what surfaces it.
+
+ProCare's DB is a **mirror**: its recovery path is "re-run the mirror from
+eStock", not "replay the log to a point in time". **SIMPLE** recovery is the
+correct steady-state setting.
+
+```sql
+-- Diagnose (log_reuse_wait_desc tells you why the log can't be reused)
+SELECT name, recovery_model_desc, log_reuse_wait_desc
+FROM sys.databases WHERE name = 'ProCare';
+
+-- Fix (LOG_BACKUP case — the common one)
+ALTER DATABASE ProCare SET RECOVERY SIMPLE;
+GO
+USE ProCare;
+CHECKPOINT;
+DBCC SHRINKFILE (ProCare_log, 512);
+GO
+```
+
+Run [`sql/fix-transaction-log-full.sql`](../sql/fix-transaction-log-full.sql) for
+the full runbook — it covers the `ACTIVE_TRANSACTION` (crashed ETL run) and
+disk-full cases too, sets a bounded 8 GB log ceiling, and verifies eStock was
+untouched.
+
+> ⚠️ Apply this to **ProCare only**. Never change the recovery model of the
+> eStock `stock` database — that is the pharmacy's own recovery path.
+
+If SSMS raised this while opening **Database Diagrams** (`sp_upgraddiagrams` in
+the stack trace), that statement is incidental — it just happened to be the write
+that hit the full log. ProCare doesn't use diagrams; skip that SSMS feature.
+
+---
+
 ## Pre-flight checklist
 
 - [ ] `SERVERPROPERTY('Edition')` checked (Express ⇒ mind the 10 GB cap)
+- [ ] `ProCare` recovery model is **SIMPLE** (not FULL — see Troubleshooting)
 - [ ] `ProCare` DB + `procare_app` (read-write) created
 - [ ] `procare_reader` (read-only, `db_datareader`) into the eStock DB
 - [ ] TCP 1433 + mixed auth enabled; ODBC Driver 18 installed

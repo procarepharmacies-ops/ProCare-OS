@@ -47,9 +47,26 @@ def _is_real(value) -> bool:
     return not any(marker in v for marker in _PLACEHOLDER_MARKERS)
 
 
+def _is_trusted(block) -> bool:
+    """True when the block asks for Windows (integrated) authentication."""
+    if not isinstance(block, dict):
+        return False
+    value = block.get("trusted_connection")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _source_configured(block) -> bool:
     if not isinstance(block, dict):
         return False
+    if _is_trusted(block):
+        # Windows auth: the signed-in account IS the credential, so there is no
+        # username/password pair to check. Require server + database instead,
+        # otherwise an empty block with one stray flag would read as configured
+        # and the app would try (and fail) to reach SQL Server rather than
+        # falling back to SQLite.
+        return _is_real(block.get("server")) and _is_real(block.get("database"))
     return _is_real(block.get("username")) and _is_real(block.get("password"))
 
 
@@ -67,18 +84,34 @@ def _odbc_url(block: dict) -> str | None:
     server = block.get("server", "")
     # Port forwarding: "SERVER=host,1433". Accept an explicit port (default 1433
     # only when the server has no port baked in already).
+    #
+    # A NAMED instance ("host\SQLEXPRESS", the SQL Server Express default) is
+    # resolved by the SQL Browser service, which hands back a port that is
+    # dynamic unless someone pinned it. Appending a port there is contradictory:
+    # the driver honours the port and ignores the instance name, so a wrong port
+    # fails with a confusing "server not found" rather than naming the cause.
+    # Let the instance name win — pin the port in SQL Server Configuration
+    # Manager and drop the instance name if a fixed port is genuinely wanted.
     port = block.get("port")
-    if port and "," not in str(server):
+    if port and "," not in str(server) and "\\" not in str(server):
         server = f"{server},{port}"
     parts = [
         f"DRIVER={{{driver}}}",
         f"SERVER={server}",
         f"DATABASE={block.get('database', '')}",
-        f"UID={block.get('username', '')}",
-        f"PWD={block.get('password', '')}",
-        f"Encrypt={block.get('encrypt', 'yes')}",
-        f"TrustServerCertificate={block.get('trust_server_certificate', 'yes')}",
     ]
+    if _is_trusted(block):
+        # Windows auth — the process's own token authenticates. UID/PWD must be
+        # omitted entirely, not left blank: some drivers treat an empty UID as an
+        # attempted SQL login and fail before trying integrated auth.
+        parts.append("Trusted_Connection=yes")
+    else:
+        parts.append(f"UID={block.get('username', '')}")
+        parts.append(f"PWD={block.get('password', '')}")
+    parts.append(f"Encrypt={block.get('encrypt', 'yes')}")
+    parts.append(
+        f"TrustServerCertificate={block.get('trust_server_certificate', 'yes')}"
+    )
     return "mssql+pyodbc:///?odbc_connect=" + quote_plus(";".join(parts))
 
 
@@ -93,7 +126,12 @@ _notify = _data.get("notifications", {})
 # Code) and need NO API key — the assistant works fully offline on the LAN.
 _AI_PROVIDER_DEFAULTS = {
     "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
-    "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+    # Pinning a dated Gemini model strands the install when Google retires it:
+    # gemini-2.0-flash now answers "no longer available", which the fail-soft
+    # paths turn into a silent drop to the keyword router (and, for the
+    # prescription reader, back to manual entry) with no obvious cause. The
+    # floating -latest alias keeps following the current flash model.
+    "gemini": {"model": "gemini-flash-latest", "key_env": "GEMINI_API_KEY"},
     # Ollama serves an OpenAI-compatible API at http://localhost:11434. "Hermes"
     # is just a model served by Ollama (default hermes3), so hermes -> ollama.
     "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True},
@@ -234,6 +272,16 @@ class Settings:
         return _odbc_url(_data.get("procare_database", {}))
 
     @staticmethod
+    def procare_database_name() -> str | None:
+        """The configured SQL Server database name for ProCare's own DB.
+
+        The engine URL is a raw ``odbc_connect`` string (see ``_odbc_url``), so
+        ``engine.url.database`` is always empty — callers needing the plain
+        database name (e.g. native ``BACKUP DATABASE``) must read it from here.
+        """
+        return _data.get("procare_database", {}).get("database") or None
+
+    @staticmethod
     def estock_sqlalchemy_url() -> str | None:
         """Read-only SQL Server URL for the eStock mirror source, or None.
 
@@ -257,7 +305,7 @@ class Settings:
         plus its own ``store_branch_map`` — and falls back to the legacy single
         ``estock_source`` block so existing configs keep working. Entries without
         real credentials are skipped. Each item carries only what the sync needs:
-        ``{"name", "url", "store_branch_map"}``.
+        ``{"name", "url", "store_branch_map", "sync_mode"?}``.
         """
         blocks = list(_data.get("estock_sources") or [])
         if not blocks and _data.get("estock_source"):
@@ -266,13 +314,14 @@ class Settings:
         for i, block in enumerate(blocks):
             url = _odbc_url(block)
             if url:
-                out.append(
-                    {
-                        "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
-                        "url": url,
-                        "store_branch_map": block.get("store_branch_map"),
-                    }
-                )
+                entry = {
+                    "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
+                    "url": url,
+                    "store_branch_map": block.get("store_branch_map"),
+                }
+                if "sync_mode" in block:
+                    entry["sync_mode"] = block["sync_mode"]
+                out.append(entry)
         return out
 
     @staticmethod

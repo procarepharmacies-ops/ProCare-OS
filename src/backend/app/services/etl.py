@@ -1025,9 +1025,31 @@ def _load_employees(insp, src, dst, counts) -> None:
             )
             updated += 1
         else:
-            dst.add(m.Employee(
+            # Two eStock rows can carry the same username — the source has no
+            # unique index on it — while ProCare's `username` IS unique.
+            # `existing` is built once BEFORE this loop, so a new row must be
+            # registered here as it is created; otherwise the second source row
+            # falls into this branch too and queues a SECOND insert. That
+            # duplicate does not fail here — it fails at the post-loop flush, as
+            # a unique violation. And because the mirror is a single transaction
+            # (one commit at the end of `mirror`), that violation rolls back
+            # EVERY table already loaded, not just this employee.
+            #
+            # Flushing per new employee to obtain the id is affordable: Employee
+            # is a small master table (staff), not one of the 100K-row tables.
+            #
+            # Deliberately NOT wrapped in `dst.begin_nested()`. A SAVEPOINT would
+            # look like a tidier guard, but pysqlite does not emit BEGIN properly,
+            # so on SQLite (dev/demo) the savepoint's work escapes the enclosing
+            # transaction and survives a rollback — quietly breaking the
+            # all-or-nothing property the mirror depends on. Deduplicating here
+            # needs no savepoint and behaves identically on SQLite and SQL Server.
+            obj = m.Employee(
                 username=uname, password_hash="!estock-mirror", role="assistant", **fields
-            ))
+            )
+            dst.add(obj)
+            dst.flush()
+            existing[uname.lower()] = (obj.employee_id, obj.password_hash)
             created += 1
     dst.flush()
     counts["employees"] = created
@@ -1977,6 +1999,32 @@ def preflight() -> dict:
         return result
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def sync_customers_only(source_engine) -> dict:
+    """Mirror ONLY the customer register from ``source_engine``.
+
+    Used when a secondary branch server contributes customer names to the
+    shared register but its operational data (products, stock, sales,
+    purchases) already arrives from the main head-office server — syncing it
+    twice would duplicate rows and waste the branch server's capacity.
+
+    Customers are matched and updated in place (``dedup`` + ``update_on_match``)
+    so the register stays single-copy across sources, exactly as in a
+    ``branch_scoped`` mirror. Nothing is wiped: this mode never touches a
+    branch's transactional rows, so it is safe to interleave with the main
+    source's full/incremental cycles.
+    """
+    insp = inspect(source_engine)
+    src = _ResilientSource(source_engine)
+    try:
+        counts: dict = {"sync_mode": "customers_only"}
+        with SessionLocal() as dst:
+            _load_customers(insp, src, dst, counts, dedup=True, update_on_match=True)
+            dst.commit()
+        return counts
+    finally:
+        src.close()
 
 
 def run_full_load() -> dict:

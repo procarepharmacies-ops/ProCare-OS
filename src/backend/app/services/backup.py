@@ -28,8 +28,35 @@ log = logging.getLogger("procare.backup")
 KEEP_LAST = 30  # pruned oldest-first beyond this many backups
 
 
-def _backup_dir() -> Path:
+def _procare_db_name() -> str | None:
+    """Plain database name for native ``BACKUP DATABASE`` / ``msdb`` lookups.
+
+    NOT ``engine.url.database``: ProCare builds its SQL Server URL as a raw
+    ``odbc_connect`` string, which leaves SQLAlchemy's ``url.database`` empty.
+    Reading it from there yields "" — enough to make BACKUP DATABASE fail and
+    an msdb.backupset lookup silently match nothing.
+    """
+    from app.config import settings
     from app.db.base import engine
+
+    return settings.procare_database_name() or (engine.url.database or None)
+
+
+def _backup_dir() -> Path:
+    """Where backups are written.
+
+    ``PROCARE_BACKUP_DIR`` overrides the default — point it at the volume that
+    already holds the pharmacy's backups (e.g. ``F:\\backup``). On SQL Server
+    the path is resolved BY THE SERVER, so it must be writable by the SQL
+    Server service account, not just by the ProCare process.
+    """
+    from app.db.base import engine
+
+    override = os.environ.get("PROCARE_BACKUP_DIR")
+    if override:
+        d = Path(override)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     if engine.url.get_backend_name() == "sqlite" and engine.url.database:
         base = Path(engine.url.database).resolve().parent
@@ -67,8 +94,15 @@ def backup_now(reason: str = "manual") -> dict:
             _prune(dest.parent)
             return {"ok": True, "path": str(dest), "reason": reason}
         # SQL Server: server-side native backup (path is ON THE SERVER).
-        dbname = engine.url.database
+        # A bare filename lands in the instance's default backup folder, which
+        # last_backup_at() cannot see — set PROCARE_BACKUP_DIR to a path both
+        # the server and ProCare can read so the throttle below works.
+        dbname = _procare_db_name()
+        if not dbname:
+            return {"ok": False, "error": "no ProCare database name configured", "reason": reason}
         dest = f"procare-{stamp}.bak"
+        if os.environ.get("PROCARE_BACKUP_DIR"):
+            dest = str(_backup_dir() / dest)
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text(f"BACKUP DATABASE [{dbname}] TO DISK = :d"), {"d": dest})
         return {"ok": True, "path": dest, "reason": reason}
@@ -78,6 +112,35 @@ def backup_now(reason: str = "manual") -> dict:
 
 
 def last_backup_at() -> datetime | None:
+    """When the newest backup was taken, or None if there is none.
+
+    On SQL Server the authoritative record is ``msdb.dbo.backupset``, not the
+    filesystem: a server-side ``BACKUP DATABASE`` writes to a path chosen by the
+    SERVER, which ProCare often cannot see. Globbing a local folder therefore
+    reported "no backup ever" on every call, so the throttle in
+    ``backup_if_stale`` never engaged and a full backup ran on EVERY startup —
+    minutes of blocked lifespan on a real pharmacy database.
+    """
+    from app.db.base import engine
+
+    dbname = _procare_db_name()
+    if engine.url.get_backend_name() != "sqlite" and dbname:
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        "SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset "
+                        "WHERE database_name = :db AND type = 'D'"
+                    ),
+                    {"db": dbname},
+                ).scalar()
+            if row is not None:
+                # backup_finish_date is server-local naive; treat as UTC-naive
+                # for comparison against the UTC "now" used by backup_if_stale.
+                return row if row.tzinfo else row.replace(tzinfo=timezone.utc)
+        except Exception:  # noqa: BLE001 — fall through to the file scan
+            log.debug("msdb.backupset unreadable; falling back to file scan")
+
     files = sorted(_backup_dir().glob("procare-*"), key=lambda p: p.name)
     if not files:
         return None
