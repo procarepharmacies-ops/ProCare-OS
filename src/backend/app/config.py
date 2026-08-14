@@ -126,7 +126,12 @@ _notify = _data.get("notifications", {})
 # Code) and need NO API key — the assistant works fully offline on the LAN.
 _AI_PROVIDER_DEFAULTS = {
     "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
-    "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+    # Pinning a dated Gemini model strands the install when Google retires it:
+    # gemini-2.0-flash now answers "no longer available", which the fail-soft
+    # paths turn into a silent drop to the keyword router (and, for the
+    # prescription reader, back to manual entry) with no obvious cause. The
+    # floating -latest alias keeps following the current flash model.
+    "gemini": {"model": "gemini-flash-latest", "key_env": "GEMINI_API_KEY"},
     # Ollama serves an OpenAI-compatible API at http://localhost:11434. "Hermes"
     # is just a model served by Ollama (default hermes3), so hermes -> ollama.
     "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True},
@@ -267,6 +272,16 @@ class Settings:
         return _odbc_url(_data.get("procare_database", {}))
 
     @staticmethod
+    def procare_database_name() -> str | None:
+        """The configured SQL Server database name for ProCare's own DB.
+
+        The engine URL is a raw ``odbc_connect`` string (see ``_odbc_url``), so
+        ``engine.url.database`` is always empty — callers needing the plain
+        database name (e.g. native ``BACKUP DATABASE``) must read it from here.
+        """
+        return _data.get("procare_database", {}).get("database") or None
+
+    @staticmethod
     def estock_sqlalchemy_url() -> str | None:
         """Read-only SQL Server URL for the eStock mirror source, or None.
 
@@ -290,7 +305,7 @@ class Settings:
         plus its own ``store_branch_map`` — and falls back to the legacy single
         ``estock_source`` block so existing configs keep working. Entries without
         real credentials are skipped. Each item carries only what the sync needs:
-        ``{"name", "url", "store_branch_map"}``.
+        ``{"name", "url", "store_branch_map", "sync_mode"?}``.
         """
         blocks = list(_data.get("estock_sources") or [])
         if not blocks and _data.get("estock_source"):
@@ -299,13 +314,14 @@ class Settings:
         for i, block in enumerate(blocks):
             url = _odbc_url(block)
             if url:
-                out.append(
-                    {
-                        "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
-                        "url": url,
-                        "store_branch_map": block.get("store_branch_map"),
-                    }
-                )
+                entry = {
+                    "name": str(block.get("name") or block.get("database") or f"estock{i + 1}"),
+                    "url": url,
+                    "store_branch_map": block.get("store_branch_map"),
+                }
+                if "sync_mode" in block:
+                    entry["sync_mode"] = block["sync_mode"]
+                out.append(entry)
         return out
 
     @staticmethod

@@ -70,6 +70,51 @@ driver is independent of the 2008 server version; Driver 18 defaults to
 `Encrypt=yes`, and the config sets `TrustServerCertificate=yes`, which is what a
 2008 instance with a self-signed cert needs).
 
+### 1.1 Allow the TLS 1.0 handshake (non-Docker hosts only)
+
+Driver 18 links **OpenSSL 3**, which refuses TLS 1.0/1.1 — the only protocols a
+2008 instance negotiates. The handshake fails before authentication with:
+
+```
+SSL routines::unsupported protocol
+```
+
+`TrustServerCertificate=yes` does **not** help: this is a protocol-version
+rejection, not a certificate one. Both connections terminate on the 2008 box
+(eStock *and* ProCare's own co-hosted DB), so a host without this fix cannot
+reach either — ProCare falls back to SQLite, and with `REQUIRE_SQLSERVER=1` the
+watchdog reads that fallback as unhealthy and restarts the stack on a loop.
+
+**Docker:** already handled — `deploy/Dockerfile.backend` patches the image's
+`openssl.cnf`. Nothing to do.
+
+**Linux (running `python run.py` directly):** apply the same patch to the host:
+
+```bash
+sudo sed -i '/^\[openssl_init\]/a ssl_conf = ssl_sect' /etc/ssl/openssl.cnf
+sudo tee -a /etc/ssl/openssl.cnf >/dev/null <<'EOF'
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+MinProtocol = TLSv1
+CipherString = DEFAULT@SECLEVEL=0
+EOF
+```
+
+**Windows:** the OpenSSL patch does not apply — Driver 18 uses SChannel, so TLS
+1.0 is an OS-level setting. Windows 10/11 up to 23H2 still enable the TLS 1.0
+*client* by default and connect without changes; Windows 11 24H2 and Server 2025
+disable TLS 1.0/1.1, and there the client must be re-enabled under
+`HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client`
+(`Enabled=1`, `DisabledByDefault=0`), followed by a reboot.
+
+> Re-enabling TLS 1.0 weakens the host's TLS posture machine-wide. It is
+> required only because the 2008 server cannot negotiate anything newer, and is
+> one more reason to keep this instance off any untrusted network (see the
+> end-of-life warning above).
+
 ---
 
 ## 2. Point ProCare at both databases

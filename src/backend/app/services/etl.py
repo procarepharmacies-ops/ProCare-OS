@@ -2009,6 +2009,32 @@ def preflight() -> dict:
         return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def sync_customers_only(source_engine) -> dict:
+    """Mirror ONLY the customer register from ``source_engine``.
+
+    Used when a secondary branch server contributes customer names to the
+    shared register but its operational data (products, stock, sales,
+    purchases) already arrives from the main head-office server — syncing it
+    twice would duplicate rows and waste the branch server's capacity.
+
+    Customers are matched and updated in place (``dedup`` + ``update_on_match``)
+    so the register stays single-copy across sources, exactly as in a
+    ``branch_scoped`` mirror. Nothing is wiped: this mode never touches a
+    branch's transactional rows, so it is safe to interleave with the main
+    source's full/incremental cycles.
+    """
+    insp = inspect(source_engine)
+    src = _ResilientSource(source_engine)
+    try:
+        counts: dict = {"sync_mode": "customers_only"}
+        with SessionLocal() as dst:
+            _load_customers(insp, src, dst, counts, dedup=True, update_on_match=True)
+            dst.commit()
+        return counts
+    finally:
+        src.close()
+
+
 def run_full_load() -> dict:
     """Entry point for the Phase-1 full mirror against the live eStock DB.
 

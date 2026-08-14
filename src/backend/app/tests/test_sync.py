@@ -429,3 +429,87 @@ def test_two_sources_branch_scoped(tmp_path):
         src_a.dispose()
         src_b.dispose()
         reset_and_seed()
+
+
+def test_customers_only_source_mirrors_register_but_no_operational_rows(estock_source):
+    """A ``sync_mode: customers_only`` source contributes customer names ONLY.
+
+    Mas-hala's products/stock/sales already arrive from the Elsanta head-office
+    server, so mirroring them a second time would duplicate rows and spend the
+    branch server's capacity for nothing. Only the shared customer register
+    moves across.
+    """
+    from app.services import etl
+
+    try:
+        with SessionLocal() as s:
+            products_before = s.scalar(select(func.count()).select_from(m.Product))
+            sales_before = s.scalar(select(func.count()).select_from(m.Sale))
+            batches_before = s.scalar(select(func.count()).select_from(m.StockBatch))
+            customers_before = s.scalar(select(func.count()).select_from(m.Customer))
+
+        counts = etl.sync_customers_only(estock_source)
+
+        assert counts["sync_mode"] == "customers_only"
+        assert counts["customers"] + counts["customers_updated"] == len(estock_seed.CUSTOMERS)
+        # The operational loaders never ran, so they reported no counts at all.
+        for key in ("products", "sales", "returns", "stock_batches", "purchases"):
+            assert key not in counts
+
+        with SessionLocal() as s:
+            assert s.scalar(select(func.count()).select_from(m.Customer)) > customers_before
+            # Operational tables untouched — nothing mirrored, nothing wiped.
+            assert s.scalar(select(func.count()).select_from(m.Product)) == products_before
+            assert s.scalar(select(func.count()).select_from(m.Sale)) == sales_before
+            assert s.scalar(select(func.count()).select_from(m.StockBatch)) == batches_before
+
+        # Idempotent: a second cycle matches every customer, creates none.
+        again = etl.sync_customers_only(estock_source)
+        assert again["customers"] == 0
+        with SessionLocal() as s:
+            assert s.scalar(select(func.count()).select_from(m.Sale)) == sales_before
+    finally:
+        reset_and_seed()
+
+
+def test_customers_only_flag_survives_config_read(tmp_path, monkeypatch):
+    """``sync_mode`` set on a source block reaches run_once's source list.
+
+    Guards the wiring: a typo'd/dropped passthrough in ``estock_sources()``
+    would silently give Mas-hala a FULL mirror instead of customers-only.
+    """
+    import json
+
+    from app import config as config_mod
+
+    cfg = {
+        "estock_sources": [
+            {
+                "name": "elsanta",
+                "driver": "ODBC Driver 18 for SQL Server",
+                "server": "192.168.1.9,1433",
+                "database": "stock",
+                "username": "u",
+                "password": "p",
+                "store_branch_map": {"1": "ELSANTA"},
+            },
+            {
+                "name": "mashala",
+                "driver": "ODBC Driver 18 for SQL Server",
+                "server": "192.168.1.2,1433",
+                "database": "stock",
+                "username": "u",
+                "password": "p",
+                "store_branch_map": {"1": "MASHALA"},
+                "sync_mode": "customers_only",
+            },
+        ]
+    }
+    path = tmp_path / "connections.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setattr(config_mod, "_data", json.loads(path.read_text(encoding="utf-8")))
+
+    by_name = {b["name"]: b for b in config_mod.settings.estock_sources()}
+    assert by_name["mashala"]["sync_mode"] == "customers_only"
+    # The main server carries no mode at all — it must take the full path.
+    assert "sync_mode" not in by_name["elsanta"]

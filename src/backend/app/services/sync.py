@@ -129,6 +129,7 @@ def run_once(source_engine=None) -> dict:
                 "name": b["name"],
                 "engine": create_engine(b["url"], echo=False),
                 "store_branch_map": b["store_branch_map"],
+                "sync_mode": b.get("sync_mode"),
                 "own": True,
             }
             for b in blocks
@@ -139,18 +140,23 @@ def run_once(source_engine=None) -> dict:
     try:
         for s in sources:
             try:
-                # Incremental only after this source has completed a FULL load
-                # (recorded in sync_state) — a fresh/reset database, or demo
-                # data sitting in the branch, must never suppress the initial
-                # history pull.
-                with SessionLocal() as st:
-                    state = st.get(m.SyncState, s["name"])
-                    inc = incremental_days() if (state and state.full_synced_at) else 0
-                with SessionLocal() as dst:
-                    counts = etl.mirror(
-                        s["engine"], dst, s["store_branch_map"], branch_scoped=True,
-                        incremental_days=inc or None,
-                    )
+                # Customers-only source: its operational data already arrives
+                # from the main server, so only the customer register is pulled.
+                if s.get("sync_mode") == "customers_only":
+                    counts = etl.sync_customers_only(s["engine"])
+                else:
+                    # Incremental only after this source has completed a FULL load
+                    # (recorded in sync_state) — a fresh/reset database, or demo
+                    # data sitting in the branch, must never suppress the initial
+                    # history pull.
+                    with SessionLocal() as st:
+                        state = st.get(m.SyncState, s["name"])
+                        inc = incremental_days() if (state and state.full_synced_at) else 0
+                    with SessionLocal() as dst:
+                        counts = etl.mirror(
+                            s["engine"], dst, s["store_branch_map"], branch_scoped=True,
+                            incremental_days=inc or None,
+                        )
                 all_counts[s["name"]] = counts
                 _record_cycle(s["name"], counts.get("sync_mode", ""))
             except Exception as e:  # noqa: BLE001 — soft-fail per source
