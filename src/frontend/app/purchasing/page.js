@@ -18,6 +18,8 @@ export default function PurchasingPage() {
   const [vendors, setVendors] = useState([]);
   const [vendorId, setVendorId] = useState("");
   const [billNumber, setBillNumber] = useState("");
+  const [discPercent, setDiscPercent] = useState(0);
+  const [otherExpenses, setOtherExpenses] = useState(0);
   const [prodSearch, setProdSearch] = useState("");
   const [prodResults, setProdResults] = useState([]);
   const [lines, setLines] = useState([]);
@@ -152,6 +154,8 @@ export default function PurchasingPage() {
         branch_id: recvBranch,
         vendor_id: Number(vendorId),
         bill_number: billNumber || null,
+        disc_percent: Number(discPercent) || 0,
+        other_expenses: Number(otherExpenses) || 0,
         lines: lines.map((l) => ({
           product_id: l.product_id,
           amount: Number(l.amount),
@@ -166,6 +170,8 @@ export default function PurchasingPage() {
       setLines([]);
       setVendorId("");
       setBillNumber("");
+      setDiscPercent(0);
+      setOtherExpenses(0);
     } catch (e) {
       setSaveMsg({ ok: false, msg: e.message });
     }
@@ -309,6 +315,12 @@ export default function PurchasingPage() {
               </select>
               <input className="input" placeholder={L("bill_number")} value={billNumber}
                      onChange={(e) => setBillNumber(e.target.value)} style={{ width: 160 }} />
+              <input className="input" type="number" min={0} max={100} step="0.01"
+                     placeholder={L("pur_disc_percent")} title={L("pur_disc_percent")}
+                     value={discPercent} onChange={(e) => setDiscPercent(e.target.value)} style={{ width: 130 }} />
+              <input className="input" type="number" min={0} step="0.01"
+                     placeholder={L("pur_other_expenses")} title={L("pur_other_expenses")}
+                     value={otherExpenses} onChange={(e) => setOtherExpenses(e.target.value)} style={{ width: 130 }} />
             </div>
 
             <div style={{ position: "relative", marginBottom: 12 }}>
@@ -360,7 +372,13 @@ export default function PurchasingPage() {
               <span style={{ fontWeight: 700 }}>
                 {L("total")}:{" "}
                 <span className="num">
-                  {lines.reduce((s, l) => s + Number(l.amount || 0) * Number(l.buy_price || 0), 0).toLocaleString("en-US")} {L("egp")}
+                  {(() => {
+                    const gross = lines.reduce((s, l) => s + Number(l.amount || 0) * Number(l.buy_price || 0), 0);
+                    const lineDisc = lines.reduce((s, l) => s + (Number(l.disc_money) || 0), 0);
+                    const percentDisc = gross * (Number(discPercent) || 0) / 100;
+                    const net = gross - lineDisc - percentDisc + (Number(otherExpenses) || 0);
+                    return net.toLocaleString("en-US");
+                  })()} {L("egp")}
                 </span>
               </span>
               <button className="btn primary" disabled={!vendorId || lines.length === 0} onClick={savePurchase}>

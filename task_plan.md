@@ -292,9 +292,47 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
       own table count); ~25 uncovered tables are empty/temp/config;
       Employee_daily_time (2.8M) deliberately deferred.
 
-## Backlog (not started)
-- [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
-- [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys
+## Backlog
+- [x] **Barcode-scanner count sheet** (2026-08-13): `get_count()` sheet lines
+      now carry `code`/`fast_code`; `/stocktaking` count-sheet view gained a
+      scan input (open sessions only) — Enter matches the scanned value
+      against a line's code/fast_code and adds 1 to that line's physical
+      count (repeat scans = repeat units, standard handheld-scanner count
+      workflow), or shows "not on this sheet" if no line matches.
+- [x] **Small-unit price override** (2026-08-13): POS cart line gained an
+      editable per-unit price input (shows/edits the price in whichever unit
+      is currently selected — علبة or شريط/أمبول — converting through
+      `unit_factor` to the big-unit-equivalent `sell_price` actually sent).
+      Fixed a latent gap in the same pass: `completeSale`'s payload wasn't
+      sending `sell_price` at all (cart tracked it, but checkout silently
+      used the live product default), so the override wouldn't have taken
+      effect even after adding the input — now every line sends its
+      (possibly overridden) `sell_price` explicitly. Backend already
+      supported this (`SaleLineInput.sell_price` override existed since
+      Phase 3); no service changes needed there.
+- [x] **Purchase entry extra fields — تسوية/خصم نقدي** (2026-08-13): confirmed
+      NOT stale — `create_purchase` is a real ProCare-native write path
+      (receive-goods screen), separate from the eStock purchase-history
+      mirror. Added `Purchase.disc_percent` (header discount RATE, eStock's
+      `bill_disc_per`) + `Purchase.other_expenses` (شحن/مصاريف أخرى, eStock's
+      `bill_other_expenses`) + `ensure_purchase_header_extra_columns`
+      migration. `disc_percent` computes on gross BEFORE the flat header/line
+      discounts and folds into `total_discount`; `other_expenses` adds to net
+      (same direction as tax). Both validated (0..100% / >=0). Receive-goods
+      form gained two header inputs + a live running-total that reflects
+      them. `purchase_detail` exposes both fields + a corrected `total_net`
+      (previous formula omitted other_expenses).
+      Tests: +2 test_ops.py (percent+expenses round-trip and net math,
+      out-of-range percent rejected), +2 test_migrate.py (legacy-DB column
+      add, idempotent re-run), +2 test_pos_invoice.py (line sell_price
+      override — service + API round-trip), +1 test_stocktaking.py (code/
+      fast_code present on sheet lines). Full suite 389 (was 383); the lone
+      failure (`test_insights_daily_and_productivity`) is pre-existing on
+      main, unrelated to these changes (date-rotted seed-data assumption —
+      not investigated further, out of scope here) — reported separately.
+      `next build` clean (`/pos` 10.1 kB, `/purchasing` 3.4 kB, `/stocktaking`
+      2.76 kB).
+- [ ] Gemini/ollama keys (not started — deferred, no active request for it)
 
 ---
 

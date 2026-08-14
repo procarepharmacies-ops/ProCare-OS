@@ -240,6 +240,22 @@ function POSInner() {
   }
   const shownQty = (x) =>
     x.unit === "small" ? Math.round(x.amount * (x.unit_factor || 1)) : Math.round(x.amount * 1000) / 1000;
+  // sell_price on the cart line is ALWAYS the big-unit price (matches how
+  // stock/amount is stored). The small-unit price is normally sell_price /
+  // unit_factor, but that division doesn't always land on a round number
+  // eStock's own price list uses — so the cashier can override the PER-UNIT
+  // price shown in the current unit, and we convert it back to the
+  // big-unit-equivalent sell_price that's actually sent to the sale.
+  const unitPrice = (x) => (x.unit === "small" ? x.sell_price / (x.unit_factor || 1) : x.sell_price);
+  function setUnitPrice(pid, value) {
+    const price = Number(value);
+    if (!Number.isFinite(price) || price < 0) return;
+    setCart((c) =>
+      c.map((x) =>
+        x.product_id !== pid ? x : { ...x, sell_price: x.unit === "small" ? price * (x.unit_factor || 1) : price }
+      )
+    );
+  }
   function removeItem(pid) {
     setCart((c) => c.filter((x) => x.product_id !== pid));
   }
@@ -444,7 +460,12 @@ function POSInner() {
         cashier_id: 1,
         is_credit: isCredit,
         customer_id: customerId ? Number(customerId) : null,
-        lines: cart.map((x) => ({ product_id: x.product_id, amount: x.amount, batch_id: x.batch_id || null })),
+        lines: cart.map((x) => ({
+          product_id: x.product_id,
+          amount: x.amount,
+          batch_id: x.batch_id || null,
+          sell_price: x.sell_price,
+        })),
         redeem_points: Number(redeemIn) || 0,
         allow_partial: allowPartial,
         note: saleNote.trim() || null,
@@ -740,6 +761,16 @@ function POSInner() {
                 min={1}
                 value={shownQty(x)}
                 onChange={(e) => setQty(x.product_id, Number(e.target.value))}
+                style={{ width: 64 }}
+              />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="any"
+                title={L("pos_unit_price_title")}
+                value={Math.round(unitPrice(x) * 100) / 100}
+                onChange={(e) => setUnitPrice(x.product_id, e.target.value)}
                 style={{ width: 64 }}
               />
               <span className="num muted" style={{ width: 70, textAlign: "end" }}>

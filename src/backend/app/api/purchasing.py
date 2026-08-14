@@ -82,6 +82,8 @@ class PurchaseIn(BaseModel):
     lines: list[PurchaseLineIn]
     bill_number: str | None = None
     total_discount: float = 0.0
+    disc_percent: float = Field(0.0, ge=0, le=100)  # header discount rate (تسوية/bill_disc_per)
+    other_expenses: float = Field(0.0, ge=0)  # شحن/مصاريف أخرى (bill_other_expenses)
     total_tax: float = 0.0
     is_credit: bool = True
 
@@ -98,6 +100,8 @@ def create_purchase(payload: PurchaseIn, session: Session = Depends(get_session)
             [l.model_dump() for l in payload.lines],
             bill_number=payload.bill_number,
             total_discount=payload.total_discount,
+            disc_percent=payload.disc_percent,
+            other_expenses=payload.other_expenses,
             total_tax=payload.total_tax,
             is_credit=payload.is_credit,
         )

@@ -473,6 +473,22 @@ def ensure_purchase_line_discount_column(engine) -> None:
         conn.execute(text(f"ALTER TABLE purchase_lines {add} disc_money NUMERIC(18,3) DEFAULT 0"))
 
 
+def ensure_purchase_header_extra_columns(engine) -> None:
+    """Add ``purchases.disc_percent`` + ``purchases.other_expenses`` (header
+    discount rate + other invoice expenses) if the table predates them.
+    Existing purchases default both to 0 — no change to their net."""
+    inspector = inspect(engine)
+    if "purchases" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("purchases")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "disc_percent" not in columns:
+            conn.execute(text(f"ALTER TABLE purchases {add} disc_percent NUMERIC(18,3) DEFAULT 0"))
+        if "other_expenses" not in columns:
+            conn.execute(text(f"ALTER TABLE purchases {add} other_expenses NUMERIC(18,3) DEFAULT 0"))
+
+
 def ensure_held_invoice_table(engine) -> None:
     """Ensure the held_invoices table exists (Phase 7: hold/park invoice).
     Creates it via create_all if missing; idempotent."""

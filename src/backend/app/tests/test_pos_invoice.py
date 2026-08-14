@@ -109,3 +109,31 @@ def test_products_list_exposes_nearest_expiry(client):
     assert "products" in body
     # Every row carries the key (value may be null for no-expiry stock).
     assert all("nearest_expiry" in p for p in body["products"])
+
+
+def test_line_sell_price_override(session):
+    """A line-level sell_price overrides the product default (backlog: small-
+    unit price override — POS sends the big-unit-equivalent price it computed
+    from an edited small-unit price; the service just honours whatever price
+    is given, same override path used for prescriptions/substitutions)."""
+    pid, older, fresher = _two_batches(session)  # product default sell_price=10
+    session.commit()
+    sale = pos.create_sale(
+        session, branch_id=1, lines=[pos.SaleLineInput(pid, 2, sell_price=9.5)], cashier_id=1
+    )
+    line = session.query(m.SaleLine).filter(m.SaleLine.sale_id == sale.sale_id).one()
+    assert float(line.sell_price) == pytest.approx(9.5)
+    assert float(sale.total_net) == pytest.approx(19.0)  # 2 x 9.5, not the default 2 x 10
+
+
+def test_api_sale_accepts_line_price_override(client):
+    products = client.get("/api/inventory/products?branch_id=1").json()["products"]
+    target = next(p for p in products if p["on_hand"] >= 1)
+    override_price = round(float(target["sell_price"]) - 0.25, 2)
+    r = client.post("/api/sales", json={
+        "branch_id": 1, "cashier_id": 1,
+        "lines": [{"product_id": target["product_id"], "amount": 1, "sell_price": override_price}],
+    })
+    assert r.status_code == 200
+    detail = client.get(f"/api/sales/{r.json()['sale_id']}").json()
+    assert detail["lines"][0]["sell_price"] == pytest.approx(override_price)
