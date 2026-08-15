@@ -1959,21 +1959,51 @@ def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
 def preflight() -> dict:
     """On-prem connectivity + read-only check before a first mirror run.
 
-    Confirms (1) we can connect to the configured eStock source, and (2) the
+    Confirms (1) we can connect to EVERY configured eStock source, and (2) EACH
     login truly cannot write — a blocked write is the SUCCESS case (roadmap
-    Phase 0). Run this on a machine that can reach the DB.
+    Phase 0). Run this on a machine that can reach the DB(s).
+
+    For multi-source setups (branch servers), reports per-source connectivity
+    and discovered store_ids so the operator can map them via ESTOCK_STORE_BRANCH_MAP.
     """
-    url = settings.estock_sqlalchemy_url()
-    if not url:
+    sources = settings.estock_sources()
+    if not sources:
         return {"ok": False, "reason": "No eStock credentials configured (config/connections.json)."}
+
+    if len(sources) == 1:
+        # Single-source: return flat result for backward compat.
+        return _preflight_one(sources[0])
+
+    # Multi-source: report per-source so the operator knows which server maps to which branch.
+    results = {}
+    all_ok = True
+    for src_block in sources:
+        name = src_block.get("name", "unknown")
+        results[name] = _preflight_one(src_block)
+        if not results[name]["ok"]:
+            all_ok = False
+
+    return {
+        "ok": all_ok,
+        "multi_source": True,
+        "sources": results,
+        "hint": "Map each source's store_ids to branches via ESTOCK_STORE_BRANCH_MAP, ESTOCK2_STORE_BRANCH_MAP, etc.; "
+        "unmapped ids auto-create STORE<id> branches.",
+    }
+
+
+def _preflight_one(source_block: dict) -> dict:
+    """Test connectivity + read-only for one eStock source."""
+    url = _get_odbc_url(source_block)
+    if not url:
+        return {"ok": False, "reason": f"Missing credentials in source block (database={source_block.get('database')})."}
     try:
         src = create_engine(url, echo=False)
         with src.connect() as c:
             c.execute(text("SELECT 1"))
             insp = inspect(src)
             tables = insp.get_table_names()
-            # Discover the branches present so the operator can name them (e.g.
-            # which store_id is Mashal) before/after the first sync.
+            # Discover the branches present so the operator can name them.
             try:
                 store_ids = sorted(_distinct_store_ids(insp, c))
             except Exception:  # noqa: BLE001
@@ -1983,8 +2013,7 @@ def preflight() -> dict:
             "connected": True,
             "source_tables": len(tables),
             "store_ids_found": store_ids,
-            "hint": "Map each store_id to a branch via ESTOCK_STORE_BRANCH_MAP; "
-            "unmapped ids auto-create a STORE<id> branch.",
+            "hint": "Map each store_id to a branch code via store_branch_map.",
         }
         # Verify the login is read-only: a write MUST be rejected.
         try:
@@ -1999,6 +2028,16 @@ def preflight() -> dict:
         return result
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _get_odbc_url(block: dict) -> str | None:
+    """Build a pyodbc SQLAlchemy URL from a connection block, or None if not configured.
+
+    Uses config.py's internal helper directly since that one is the canonical impl.
+    """
+    from app.config import _odbc_url as config_odbc_url
+
+    return config_odbc_url(block)
 
 
 def sync_customers_only(source_engine) -> dict:
@@ -2028,27 +2067,50 @@ def sync_customers_only(source_engine) -> dict:
 
 
 def run_full_load() -> dict:
-    """Entry point for the Phase-1 full mirror against the live eStock DB.
+    """Entry point for the Phase-1+ full mirror against live eStock DB(s).
+
+    For single-source: full refresh of ProCare's data from one eStock server.
+    For multi-source: full refresh of EACH branch server's data independently
+    (branch_scoped=True so sources never wipe each other).
 
     Refuses to run (rather than guess) until a real read-only eStock login is
     configured, keeping the read-only guardrail explicit and safe.
     """
-    url = settings.estock_sqlalchemy_url()
-    if not url:
+    sources = settings.estock_sources()
+    if not sources:
         return {
             "ran": False,
             "reason": "No read-only eStock credentials configured. "
-            "Fill config/connections.json:estock_source, then re-run. "
+            "Fill config/connections.json:estock_source or estock_sources, then re-run. "
             "The system runs on its own seeded data until then.",
         }
+
     Base.metadata.create_all(engine)
-    # Read-only intent: the login itself has no write perms; we also never issue
-    # anything but SELECT against the source.
-    source_engine = create_engine(url, echo=False)
-    store_map = settings.estock_store_branch_map()
-    with SessionLocal() as dst:
-        counts = mirror(source_engine, dst, store_map)
-    return {"ran": True, "source": "eStock (read-only)", "counts": counts}
+
+    all_counts: dict = {}
+    for src_block in sources:
+        url = _get_odbc_url(src_block)
+        if not url:
+            continue
+        try:
+            # Multi-source: each source is branch-scoped so they don't wipe each other.
+            source_engine = create_engine(url, echo=False)
+            store_map = src_block.get("store_branch_map")
+            with SessionLocal() as dst:
+                counts = mirror(
+                    source_engine, dst, store_map, branch_scoped=len(sources) > 1
+                )
+            all_counts[src_block.get("name", "source")] = counts
+        except Exception as e:  # noqa: BLE001
+            all_counts[src_block.get("name", "source")] = {
+                "error": f"{type(e).__name__}: {e}"
+            }
+
+    return {
+        "ran": bool(all_counts),
+        "source": "eStock (read-only)" + (" — multi-branch" if len(sources) > 1 else ""),
+        "counts": all_counts,
+    }
 
 
 def import_branch_backup(database: str, branch_code: str, *, append: bool = True) -> dict:

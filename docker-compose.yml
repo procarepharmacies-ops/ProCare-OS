@@ -43,16 +43,22 @@ services:
       PROCARE_DB_DATABASE: "procare_db"
       PROCARE_DB_USER: "sa"
       PROCARE_DB_PASSWORD: "ProCareAdmin#Strong2024"
+      # Multi-branch eStock sync: Elsanta (remote) + Mas-hala (local PC)
+      # Each branch server is independent; their data stays separate in ProCare.
+      # Elsanta: store_id 1 = pharmacy, store_id 2 = depot (both map to ELSANTA).
       ESTOCK_DB_SERVER: "196.202.93.37"
       ESTOCK_DB_PORT: "1433"
       ESTOCK_DB_DATABASE: "stock"
-      ESTOCK_DB_USER: "${ESTOCK_DB_USER}"
-      ESTOCK_DB_PASSWORD: "${ESTOCK_DB_PASSWORD}"
-      # eStock store_id -> ProCare branch code (owner-confirmed: store_id 1 = Elsanta).
-      # Any store_id NOT listed is still synced into an auto-created "STORE<id>"
-      # branch, so no branch's data is ever merged into another. Run
-      # GET /api/sync/preflight to see the real store_ids, then map them here.
-      ESTOCK_STORE_BRANCH_MAP: '{"1":"ELSANTA"}'
+      ESTOCK_DB_USER: "${ESTOCK_DB_USER:-}"
+      ESTOCK_DB_PASSWORD: "${ESTOCK_DB_PASSWORD:-}"
+      ESTOCK_STORE_BRANCH_MAP: '{"1":"ELSANTA","2":"ELSANTA"}'
+      # Mas-hala (local PC on the LAN): store_id 1 = pharmacy only.
+      ESTOCK2_DB_SERVER: "${ESTOCK2_DB_SERVER:-}"
+      ESTOCK2_DB_PORT: "${ESTOCK2_DB_PORT:-1433}"
+      ESTOCK2_DB_DATABASE: "${ESTOCK2_DB_DATABASE:-stock}"
+      ESTOCK2_DB_USER: "${ESTOCK2_DB_USER:-}"
+      ESTOCK2_DB_PASSWORD: "${ESTOCK2_DB_PASSWORD:-}"
+      ESTOCK2_STORE_BRANCH_MAP: '{"1":"MASHALA"}'
       SYNC_ENABLED: "true"
       SYNC_INTERVAL_SECONDS: "300"
       DEFAULT_LANGUAGE: "ar"
