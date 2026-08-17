@@ -47,10 +47,10 @@ cp config/connections.example.json config/connections.json
       "password": "...",                    // ← REAL password (22+ chars)
       "encrypt": "yes",
       "trust_server_certificate": "yes",
-      "store_branch_map": { "1": "ELSANTA", "2": "ELSANTA" }
+      "store_branch_map": { "1": "ELSANTA", "2": "Mas-Hala" }
     },
     {
-      "name": "mashala",
+      "name": "mas-hala",
       "server": "192.168.1.2,1433",
       "database": "stock",
       "username": "readonly_estock_user",
@@ -84,14 +84,14 @@ cp config/connections.example.json config/connections.json
   },
   
   "notifications": {
-    "manager_phone": "+201xxxxxxxxx",      // ← Egypt 01xxxxxxxxx format
+    "manager_phone": "+201288385599",      // ← Egypt 01xxxxxxxxx format
     "whatsapp_provider": "cloud_api",      // ← "cloud_api" or "gateway"
     "branch_timezone": "Africa/Cairo"
   },
   
   "ai": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-6"
+    "provider": "Hermes",
+    "model": "Nous portal"
   }
 }
 ```
@@ -116,7 +116,7 @@ WHATSAPP_TOKEN=...
 WHATSAPP_PHONE_ID=...
 
 # Manager phone (for operational alerts)
-MANAGER_PHONE=+201xxxxxxxxx
+MANAGER_PHONE=+201288385599
 BRANCH_TIMEZONE=Africa/Cairo
 
 # Loyalty rates (optional, production defaults are sensible)
