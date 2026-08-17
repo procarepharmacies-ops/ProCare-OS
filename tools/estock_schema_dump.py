@@ -9,7 +9,8 @@ Strictly READ-ONLY: it only inspects table/column metadata (via SQLAlchemy's
 dialect-agnostic Inspector, so it works on SQL Server 2008 and SQLite alike) and
 optionally COUNT(*)s. It never writes to eStock.
 
-Usage (from src/backend, with config/connections.json pointing at eStock):
+Usage (from the REPO ROOT — the `tools` package lives there, not under
+src/backend — with config/connections.json pointing at eStock):
     python -m tools.estock_schema_dump                 # metadata only
     python -m tools.estock_schema_dump --counts        # + row counts (slower)
     python -m tools.estock_schema_dump --url "sqlite:///…"   # explicit source
