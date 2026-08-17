@@ -1318,3 +1318,76 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   table is skipped not an error, Job absent from _WIPE_ORDER, API returns
   both languages, migration on a legacy table + idempotent re-run + no-op on
   current/missing schema.
+
+## 2026-08-15 · AI providers: hermes promoted to a first-class OpenRouter provider; Gemini Pro free tier — branch claude/ibn-project-completion-59drks
+- Owner asked to "replace ollama by hermes and gemini pro free tier and hermes
+  free model". This closes the long-parked "Gemini/ollama keys" backlog item,
+  which had been sitting unstarted for want of a concrete request.
+- **What "hermes" means in this project** — checked before writing anything.
+  docs/ESTOCK_MIRROR_ON_BRANCHES.md shows the branch PCs already run the
+  Hermes Agent against **OpenRouter** with `:free` slugs and an
+  `OPENROUTER_API_KEY`. And the backend was ALREADY reaching OpenRouter — but
+  by abusing the `ollama` provider:
+      AI_PROVIDER=ollama
+      AI_BASE_URL=https://openrouter.ai/api
+      AI_MODEL=openai/gpt-oss-20b:free
+      AI_MODEL_FALLBACKS=...,nousresearch/hermes-3-llama-3.1-405b:free,...
+      OLLAMA_API_KEY=sk-or-v1-...      # an OpenRouter key in the Ollama var
+  So this was never "add a provider" — it was "stop pretending a hosted
+  gateway is a local server". `hermes` was literally an ALIAS for `ollama` in
+  `_norm_provider`, and `llm._openai_headers()` already spoke OpenRouter
+  (Bearer + attribution headers) with an `AI_MODEL_FALLBACKS` loop whose
+  docstring says "so a congested free model never takes the assistant offline".
+- Changes: `hermes` is now its own provider (aliases `openrouter`, `nous`) with
+  `key_env=OPENROUTER_API_KEY`, its own OpenRouter base URL, and a default of
+  `nousresearch/hermes-3-llama-3.1-405b:free`. `ollama` goes back to meaning an
+  actual local server. Gemini's default moved from `gemini-flash-latest` to
+  `gemini-2.5-pro` (the Pro free tier the owner asked for). `OPENROUTER_API_KEY`
+  joins provider auto-detection. `_ollama_*` internals renamed `_openai_*` —
+  the transport is shared by hermes and ollama, and the old name had stopped
+  being true.
+- **`ai_base_url` is now resolved PER PROVIDER.** It was one global default of
+  `http://localhost:11434`, which is why the working config had to override it
+  by hand — a hosted provider was otherwise pointed at a machine not serving
+  it. A config-file `base_url` now applies only when that block targets the
+  ACTIVE provider, so a leftover Ollama URL can't hijack hermes.
+- **Bug caught by reading the owner's working config instead of trusting my
+  own default.** I first set the hermes base URL to
+  `https://openrouter.ai/api/v1` — the URL the API docs give. But llm.py
+  appends `/v1/chat/completions` itself, so that composes
+  `/api/v1/v1/chat/completions` and 404s. Their file says
+  `https://openrouter.ai/api` precisely because of this. Fixed, commented at
+  the definition, and the test now asserts the EXACT composed endpoint rather
+  than a prefix — `startswith("https://openrouter.ai/api/v1")` passes on the
+  doubled-/v1 URL too, so a prefix assertion would not have caught it.
+- Free `:free` slugs are retired/renamed by OpenRouter without notice, and the
+  fail-soft design turns a dead model into a SILENT drop to the keyword router
+  (the exact failure config.py already documents for the retired
+  gemini-2.0-flash). So `hermes` carries built-in `HERMES_FALLBACK_MODELS`
+  tried after AI_MODEL/AI_MODEL_FALLBACKS; every entry is itself `:free`, and
+  the last one is `openai/gpt-oss-20b:free` — the model the owner's own Hermes
+  Agent is configured with, so it is known-good on their account.
+  `llm.status()` now reports the whole chain, not just the primary.
+- COULD NOT VERIFY the current `:free` slug list from this sandbox: the egress
+  proxy blocks openrouter.ai (both curl and WebFetch). The primary
+  (`nousresearch/hermes-3-llama-3.1-405b:free`) is taken from the owner's own
+  committed fallback list, so it is grounded in their working config rather
+  than guessed — but if OpenRouter has since retired it, the fallback chain is
+  what carries the install, and `GET /api/health` shows which model answered.
+- TESTS: test_llm.py 8 -> 15. The old `test_hermes_alias_maps_to_ollama`
+  asserted exactly the behaviour being replaced, so it was rewritten rather
+  than kept: hermes resolves to its own provider/key/base URL and never
+  localhost; `openrouter`/`nous` aliases; hermes is NOT keyless (free still
+  needs a key, and treating it as keyless would make it try-and-fail instead
+  of falling back); the fallback chain is all-`:free` and de-duplicated;
+  ollama keeps its local base URL (splitting hermes out must not drag the
+  local provider to OpenRouter); gemini defaults to Pro; hermes classify hits
+  the exact OpenRouter endpoint with Bearer auth; a 429 on the primary rolls
+  to the next model.
+- Docs: .env.example rewritten with all three key options and where to get
+  them; docker-compose gains OPENROUTER_API_KEY + AI_MODEL_FALLBACKS and
+  AI_MODEL now defaults EMPTY (take the provider's free-tier default);
+  connections.example.json switched to gemini + empty model/base_url;
+  ESTOCK_MIRROR_ON_BRANCHES.md now shows the 4-line hermes setup with the old
+  ollama workaround kept below as explicitly superseded (it still works, since
+  env overrides win); CLAUDE.md gains an "AI providers" contract table.

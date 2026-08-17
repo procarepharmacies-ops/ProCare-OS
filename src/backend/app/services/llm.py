@@ -5,12 +5,18 @@ narrative, prescription OCR) hard-coded its own ``httpx.post`` to a single
 provider. This centralises them so the same four providers work everywhere:
 
   * ``anthropic``  — Claude API (hosted, needs ANTHROPIC_API_KEY)
-  * ``gemini``     — Google Gemini API (hosted, needs GEMINI_API_KEY)
+  * ``gemini``     — Google Gemini API (hosted, needs GEMINI_API_KEY).
+                     Defaults to Gemini Pro on the free tier.
+  * ``hermes``     — Nous Hermes served through OpenRouter's FREE tier
+                     (hosted, needs OPENROUTER_API_KEY). Same gateway the
+                     branch PCs' Hermes Agent already uses.
   * ``ollama``     — local, OpenAI-compatible server at settings.ai_base_url
-                     (default http://localhost:11434). "Hermes" = an Ollama
-                     model (default hermes3). NO API key — fully offline.
+                     (http://localhost:11434). NO API key — fully offline.
   * ``claude-cli`` — shell out to a locally installed & logged-in Claude Code
                      CLI. NO API key.
+
+``hermes`` and ``ollama`` share one OpenAI-compatible transport
+(``_openai_*``); they differ only in base URL, key and model list.
 
 Two public entry points, both provider-agnostic and both fail-soft (return
 ``None`` on any error) so the assistant always falls back to its deterministic
@@ -47,18 +53,30 @@ def _openai_headers():
     }
 
 
-def _ollama_models():
-    """Ordered model list for the OpenAI-compatible (ollama/OpenRouter) path:
-    the primary ``AI_MODEL`` first, then any comma-separated ``AI_MODEL_FALLBACKS``.
+def _openai_models():
+    """Ordered model list for the OpenAI-compatible (hermes/OpenRouter, ollama)
+    path: the primary ``AI_MODEL`` first, then any comma-separated
+    ``AI_MODEL_FALLBACKS``, then the provider's own built-in fallbacks.
+
     On a rate-limit (429) or error, callers try the next model in turn — so a
-    congested free model never takes the pharmacy assistant offline."""
+    congested free model never takes the pharmacy assistant offline. For
+    ``hermes`` the built-ins matter more than usual: OpenRouter's ``:free``
+    slugs are retired and renamed without notice, and a dead primary would
+    otherwise drop the assistant to the keyword router with no visible cause.
+    """
     import os
+
+    from app.config import HERMES_FALLBACK_MODELS
 
     models = [settings.ai_model]
     for m in (os.environ.get("AI_MODEL_FALLBACKS") or "").split(","):
         m = m.strip()
         if m and m not in models:
             models.append(m)
+    if settings.ai_provider == "hermes":
+        for m in HERMES_FALLBACK_MODELS:
+            if m not in models:
+                models.append(m)
     return models
 
 
@@ -81,8 +99,8 @@ def classify(query: str, choices: dict[str, str], branch_id: int | None) -> tupl
     try:
         if p == "gemini":
             return _classify_gemini(query, choices, branch_id)
-        if p == "ollama":
-            return _classify_ollama(query, choices, branch_id)
+        if p in ("hermes", "ollama"):
+            return _classify_openai(query, choices, branch_id)
         if p == "claude-cli":
             return _classify_cli(query, choices, branch_id)
         return _classify_anthropic(query, choices, branch_id)
@@ -172,7 +190,7 @@ def _classify_gemini(query, choices, branch_id):
     return None
 
 
-def _classify_ollama(query, choices, branch_id):
+def _classify_openai(query, choices, branch_id):
     """Ollama's OpenAI-compatible /v1/chat/completions with tool-calling."""
     import httpx
 
@@ -192,7 +210,7 @@ def _classify_ollama(query, choices, branch_id):
         },
     }]
     last_exc = None
-    for model in _ollama_models():
+    for model in _openai_models():
         try:
             resp = httpx.post(
                 f"{settings.ai_base_url.rstrip('/')}/v1/chat/completions",
@@ -256,8 +274,8 @@ def complete(prompt: str, system: str | None = None, max_tokens: int = 400) -> s
     try:
         if p == "gemini":
             return _complete_gemini(prompt, system, max_tokens)
-        if p == "ollama":
-            return _complete_ollama(prompt, system, max_tokens)
+        if p in ("hermes", "ollama"):
+            return _complete_openai(prompt, system, max_tokens)
         if p == "claude-cli":
             return _run_cli(f"{system}\n\n{prompt}" if system else prompt)
         return _complete_anthropic(prompt, system, max_tokens)
@@ -302,12 +320,12 @@ def _complete_gemini(prompt, system, max_tokens):
     return None
 
 
-def _complete_ollama(prompt, system, max_tokens):
+def _complete_openai(prompt, system, max_tokens):
     import httpx
 
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
     last_exc = None
-    for model in _ollama_models():
+    for model in _openai_models():
         try:
             resp = httpx.post(
                 f"{settings.ai_base_url.rstrip('/')}/v1/chat/completions",
@@ -356,7 +374,10 @@ def status() -> dict:
         "model": settings.ai_model,
         "configured": is_configured(),
         "keyless": settings.ai_provider in _keyless(),
-        "base_url": settings.ai_base_url if settings.ai_provider == "ollama" else None,
+        "base_url": settings.ai_base_url if settings.ai_provider in ("hermes", "ollama") else None,
+        # The whole chain, so a settings screen shows what will actually be
+        # tried when a free slug is retired — not just the dead primary.
+        "models": _openai_models() if settings.ai_provider in ("hermes", "ollama") else [settings.ai_model],
     }
 
 

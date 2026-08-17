@@ -71,14 +71,29 @@ The eStock SQL Server is **local** on elsanta. Point the elsanta source at
 
 ### Backend `.env` (src/backend/.env) — identical on all 3
 ```
-AI_PROVIDER=ollama
-AI_BASE_URL=https://openrouter.ai/api
-AI_MODEL=openai/gpt-oss-20b:free
-AI_MODEL_FALLBACKS=nvidia/nemotron-nano-9b-v2:free,nousresearch/hermes-3-llama-3.1-405b:free,meta-llama/llama-3.3-70b-instruct:free
-OLLAMA_API_KEY=sk-or-v1-...        # same OpenRouter key
+AI_PROVIDER=hermes
+OPENROUTER_API_KEY=sk-or-v1-...    # same OpenRouter key as the Hermes Agent
 SYNC_ENABLED=1
 SYNC_INTERVAL_SECONDS=30
 ```
+
+`hermes` is now a first-class provider: it defaults to a Nous Hermes `:free`
+model on OpenRouter and carries its own `:free` fallback chain, so AI_MODEL /
+AI_MODEL_FALLBACKS / AI_BASE_URL can all be left unset. Add
+`AI_MODEL_FALLBACKS=` only to prepend extra models of your own.
+
+> **Superseded setup.** Earlier installs reached OpenRouter through the
+> `ollama` provider with an overridden base URL and the OpenRouter key stuffed
+> into `OLLAMA_API_KEY`:
+> ```
+> AI_PROVIDER=ollama
+> AI_BASE_URL=https://openrouter.ai/api
+> AI_MODEL=openai/gpt-oss-20b:free
+> AI_MODEL_FALLBACKS=nvidia/nemotron-nano-9b-v2:free,nousresearch/hermes-3-llama-3.1-405b:free,meta-llama/llama-3.3-70b-instruct:free
+> OLLAMA_API_KEY=sk-or-v1-...
+> ```
+> That still works (the env vars override the new defaults), but prefer the
+> four lines above. `ollama` now means an actual local Ollama server again.
 
 ### Run the mirror (elsanta — local, instant)
 ```bash

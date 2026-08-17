@@ -370,7 +370,27 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
       not investigated further, out of scope here) — reported separately.
       `next build` clean (`/pos` 10.1 kB, `/purchasing` 3.4 kB, `/stocktaking`
       2.76 kB).
-- [ ] Gemini/ollama keys (not started — deferred, no active request for it)
+- [x] **AI providers: hermes (OpenRouter free) + Gemini Pro free tier**
+      (2026-08-15) — closes the parked "Gemini/ollama keys" item once the owner
+      gave concrete direction. `hermes` was an ALIAS for `ollama`, and the
+      backend was already reaching OpenRouter by abusing that provider
+      (AI_BASE_URL override + an OpenRouter key in `OLLAMA_API_KEY`), so this
+      was "stop pretending a hosted gateway is a local server", not a new
+      integration. `hermes` is now its own provider (aliases `openrouter`,
+      `nous`; `OPENROUTER_API_KEY`; default
+      `nousresearch/hermes-3-llama-3.1-405b:free`) with built-in all-`:free`
+      `HERMES_FALLBACK_MODELS` — OpenRouter retires free slugs without notice
+      and the fail-soft path turns that into a SILENT drop to the keyword
+      router. Gemini default `gemini-flash-latest` -> `gemini-2.5-pro` (Pro
+      free tier). `ai_base_url` resolved per provider (one localhost default
+      was pointing hosted providers at a machine not serving them). Caught
+      before shipping: base URL must be `.../api` NOT `.../api/v1`, since
+      llm.py appends `/v1/chat/completions` — `/api/v1` composes
+      `/api/v1/v1/...` and 404s; the test asserts the exact composed endpoint,
+      because a `startswith` assertion passes on the broken URL too.
+      NOT verifiable from the dev sandbox: egress to openrouter.ai is blocked,
+      so the primary slug is taken from the owner's own committed fallback
+      list rather than confirmed live. test_llm.py 8 -> 15.
 
 ---
 

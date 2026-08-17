@@ -141,7 +141,7 @@ use constructs newer than 2008 in query code or migrations:
 
 ```
 [Pharmacy Windows PC or Linux/Mac Dev]
-  ├─ .env (git-ignored: ANTHROPIC_API_KEY, SYNC_ENABLED, SYNC_INTERVAL_SECONDS, etc.)
+  ├─ .env (git-ignored: GEMINI_API_KEY, OPENROUTER_API_KEY, SYNC_ENABLED, SYNC_INTERVAL_SECONDS, etc.)
   ├─ config/
   │  ├─ connections.example.json (template for eStock credentials)
   │  └─ connections.json (git-ignored; user fills in read-only eStock login)
@@ -154,7 +154,7 @@ use constructs newer than 2008 in query code or migrations:
   │  │  │  ├─ seed.py (demo data, idempotent: safe to run twice)
   │  │  │  └─ migrate.py (idempotent column adds via ensure_* pattern)
   │  │  ├─ services/
-  │  │  │  ├─ llm.py (provider registry: anthropic, gemini, ollama/hermes, claude-cli; fail-soft)
+  │  │  │  ├─ llm.py (provider registry: gemini, hermes/OpenRouter, anthropic, ollama, claude-cli; fail-soft)
   │  │  │  ├─ etl.py (eStock→ProCare sync: read, validate, insert atomically per table)
   │  │  │  ├─ prescriptions.py (capture → review → dispensed workflow)
   │  │  │  ├─ transfers.py (stock transfer requests + approval + auto-task creation)
@@ -266,7 +266,7 @@ Before committing and pushing to main:
 | `src/backend/requirements.txt` | Dependencies | Pin versions; keep sqlalchemy, fastapi, python-dotenv |
 | `src/frontend/next.config.mjs` | Build/proxy | /api proxy to backend, no accidental CORS |
 | `config/connections.json` | eStock creds | Git-ignored; read-only login validation on startup |
-| `.env` (repo root) | Runtime config | Git-ignored; ANTHROPIC_API_KEY, SYNC_ENABLED, SYNC_INTERVAL_SECONDS |
+| `.env` (repo root) | Runtime config | Git-ignored; GEMINI_API_KEY / OPENROUTER_API_KEY, SYNC_ENABLED, SYNC_INTERVAL_SECONDS |
 | `deploy/ProCare-Connect-eStock.bat` | User workflow | Exit codes, Notepad close, sync logs readable |
 
 ---
@@ -513,12 +513,45 @@ titles master (same posture as shareholders). Reads carry `job_name_ar` +
 `job_name_en` (the map was Arabic-only, which showed Arabic titles in English
 mode). Columns added idempotently via `ensure_job_source_columns`.
 
+
 **Not mirrored — `EMP_CONTROL`:** the ~200-column permission matrix is keyed by
 opaque letter codes (A1..A35, B1..B34, …) whose meanings are undocumented.
 Decoding them is guesswork that would surface as an authoritative-looking
 grant/denial, so it stays deferred pending the schema dump. The permission
 flags that ARE documented live on the `Employee` master and are already
 mirrored 1:1 by `_load_employees`.
+
+---
+
+## AI providers (`services/llm.py` + `config.py`)
+
+Both defaults are **free tiers**; every path is fail-soft (a provider outage
+drops to the deterministic keyword router, never to a broken screen).
+
+| provider | transport | key | default model |
+|---|---|---|---|
+| `gemini` (default) | Google Gemini API | `GEMINI_API_KEY` | `gemini-2.5-pro` (free tier) |
+| `hermes` (aliases `openrouter`, `nous`) | OpenRouter, OpenAI-compatible | `OPENROUTER_API_KEY` | a Nous Hermes `:free` slug |
+| `anthropic` | Claude API | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
+| `ollama` | local server `:11434` | none (keyless) | `hermes3` |
+| `claude-cli` | local Claude Code CLI | none (keyless) | — |
+
+Invariants: **`hermes` means hosted OpenRouter, NOT a local Ollama model** — it
+was formerly an alias for `ollama` and is now its own provider with its own key
+and base URL; an install that wants the local server must say `ollama`.
+`hermes` is **not keyless** (OpenRouter gates free models behind a key too).
+Model ids must stay **floating aliases, never dated builds** — a retired dated
+model strands the install and the fail-soft paths turn that into a silent drop
+to the keyword router (and, for the prescription reader, back to manual entry)
+with no visible cause. Because OpenRouter retires and renames `:free` slugs
+without notice, `hermes` carries built-in `HERMES_FALLBACK_MODELS` tried in
+order after `AI_MODEL` and `AI_MODEL_FALLBACKS`; every entry must itself be
+`:free`, so a rate-limit or retirement degrades to another free model rather
+than to a dead assistant. `ai_base_url` is resolved **per provider** (a single
+localhost default used to point hosted providers at a machine not serving
+them), and a config-file `base_url` applies only when that block targets the
+ACTIVE provider. `llm.status()` reports the whole model chain, not just the
+primary, so a settings screen shows what will actually be tried.
 
 ---
 
