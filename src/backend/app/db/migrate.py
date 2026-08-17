@@ -489,6 +489,23 @@ def ensure_purchase_header_extra_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE purchases {add} other_expenses NUMERIC(18,3) DEFAULT 0"))
 
 
+def ensure_job_source_columns(engine) -> None:
+    """Add ``jobs.source_id`` + ``jobs.code`` if the table predates the eStock
+    ``Jobs`` mirror. Pre-existing (seeded) job titles keep NULL source_id and
+    are matched by name instead, so the mirror reuses them rather than
+    inserting a duplicate."""
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("jobs")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "source_id" not in columns:
+            conn.execute(text(f"ALTER TABLE jobs {add} source_id INTEGER"))
+        if "code" not in columns:
+            conn.execute(text(f"ALTER TABLE jobs {add} code VARCHAR(30)"))
+
+
 def ensure_held_invoice_table(engine) -> None:
     """Ensure the held_invoices table exists (Phase 7: hold/park invoice).
     Creates it via create_all if missing; idempotent."""

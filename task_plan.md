@@ -162,8 +162,29 @@ bilingual (Arabic RTL first).
       (own sub-table). ETL `_load_salary_advances` (shared emp_id→ProCare
       resolver, upsert by cash_advance_id, graceful-absent). Advances ledger +
       total added to the payroll panel. 2 tests. (2026-07-21)
-- [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
-- [ ] Jobs master mirror + employee.job_id linkage
+- [~] EMP_CONTROL full matrix mapping (beyond the Employee-row flags) —
+      DEFERRED, same reasoning as PR 2e. The structure doc gives the SHAPE
+      (~200 boolean columns in letter groups A,A1..A35, B,B1..B34, …) but not
+      what each letter code MEANS. The named examples it lists
+      (`emp_edit_sell_price`, `allaw_sale_credit`, `emp_change_cash_disk`, …)
+      are columns on the **Employee master**, which `_load_employees` already
+      mirrors 1:1 — so the useful permission data is in. Decoding A17 → a real
+      screen/action is guesswork, and a wrong guess grants or denies a
+      permission that LOOKS authoritative in the UI. Needs the schema-dump (or
+      an eStock screen-by-screen audit) before it is safe to build.
+- [x] Jobs master mirror + employee.job_id linkage (2026-08-15): columns are
+      fully enumerated in the structure doc §2 (`job_id, job_code,
+      job_name_ar/en`), so unlike EMP_CONTROL this was buildable on documented
+      shapes. `Job.source_id` + `Job.code` columns + idempotent dialect-aware
+      `ensure_job_source_columns`; ETL `_load_jobs` (`has_table`-guarded, runs
+      BEFORE `_load_employees` and hands it a source→ProCare map, upsert by
+      `source_id` then by Arabic name so the seeded titles are adopted rather
+      than duplicated, NOT in `_WIPE_ORDER` since employees are never wiped);
+      `_load_employees` resolves each row's `job_id`, leaving it NULL when the
+      source id is unknown (never a dangling FK). `_job_map` now carries both
+      names — it was Arabic-only, so English mode showed the Arabic title —
+      and the employees API returns `job_name_ar`/`job_name_en` alongside the
+      existing `job_name`. 9 tests. `COVERED_SOURCE_TABLES` now 32 (was 31).
 
 ### eStock tutorial feature-map gaps (from owner's illustrated report, 2026-07-20)
 - [x] Item sales-movement report (تقرير حركة مبيعات صنف في فترة): per-day

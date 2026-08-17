@@ -67,7 +67,7 @@ DEFERRED_PLAN = [
 # live eStock tables ProCare does NOT yet mirror. NB: this is the count that
 # matters for "how much of eStock do we cover", not ProCare's own table count.
 COVERED_SOURCE_TABLES = frozenset({
-    "Products", "Customer", "Vendor", "Employee", "Product_Amount", "Branches_Product_Amount",
+    "Products", "Customer", "Vendor", "Employee", "Jobs", "Product_Amount", "Branches_Product_Amount",
     "Sales_header", "Sales_details", "Branches_sales_header", "Branches_sales_details",
     "Back_sales_header", "Back_Sales_details", "Branches_back_sales_header", "Branches_back_sales_details",
     "Purchase_header", "Purchase_details", "Branches_purchase_header", "Branches_purchase_details",
@@ -184,6 +184,16 @@ def _as_dt(value):
     try:
         return datetime.fromisoformat(str(value))
     except ValueError:
+        return None
+
+
+def _int_or_none(value) -> int | None:
+    """Coerce a source key to int, or None when it is missing/not a number."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
         return None
 
 
@@ -430,7 +440,10 @@ def mirror(
         product_map = _load_products(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
-        _load_employees(insp, src, dst, counts)
+        # Job titles before employees: the employee pass resolves each row's
+        # source job_id through this map.
+        job_map = _load_jobs(insp, src, dst, counts)
+        _load_employees(insp, src, dst, counts, job_map)
         _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
         _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map, default_branch)
 
@@ -936,7 +949,83 @@ def _load_vendors(insp, src, dst, counts, dedup: bool = False) -> None:
     counts["vendors"] = len(objs)
 
 
-def _load_employees(insp, src, dst, counts) -> None:
+def _load_jobs(insp, src, dst, counts) -> dict[int, int]:
+    """Mirror eStock's ``Jobs`` master (job titles / المسمى الوظيفي).
+
+    Returns ``{source job_id -> ProCare job_id}`` so ``_load_employees`` can
+    resolve each employee's title. Absent source table -> empty map (the
+    employee loader then simply leaves ``job_id`` untouched).
+
+    Matching is by ``source_id`` first, then by Arabic name — the name fallback
+    is what stops the mirror from duplicating the job titles already created by
+    the seed (which carry no source id). Titles are a tiny company-wide master
+    and are NOT in ``_WIPE_ORDER``: employees are never wiped, so their titles
+    must survive a full refresh too.
+    """
+    counts["jobs"] = 0
+    counts["jobs_updated"] = 0
+    if not insp.has_table("Jobs"):
+        return {}
+    cols = {c["name"] for c in insp.get_columns("Jobs")}
+    jid = _pick(cols, "job_id")
+    if jid is None:
+        return {}  # without the source key there is nothing to attribute
+    code = _pick(cols, "job_code", "code")
+    name_ar = _pick(cols, "job_name_ar", "name_ar")
+    name_en = _pick(cols, "job_name_en", "name_en")
+
+    by_source: dict[int, int] = {}
+    by_name: dict[str, int] = {}
+    for j in dst.scalars(select(m.Job)).all():
+        if j.source_id is not None:
+            by_source[int(j.source_id)] = j.job_id
+        key = (j.name_ar or "").strip()
+        if key and key not in by_name:
+            by_name[key] = j.job_id
+
+    mapping: dict[int, int] = {}
+    created = updated = 0
+    for r in src.execute(text("SELECT * FROM Jobs")).mappings().all():
+        if r.get(jid) is None:
+            continue
+        source_id = int(r[jid])
+        title_ar = _ar(
+            r.get(name_ar) if name_ar else None,
+            r.get(name_en) if name_en else None,
+            placeholder=f"وظيفة {source_id}",
+        )
+        fields = {
+            "source_id": source_id,
+            "code": (_str(r.get(code)) or None) if code else None,
+            "name_ar": title_ar,
+            "name_en": r.get(name_en) if name_en else None,
+        }
+        existing_id = by_source.get(source_id) or by_name.get(title_ar.strip())
+        if existing_id is not None:
+            dst.execute(
+                m.Job.__table__.update()
+                .where(m.Job.__table__.c.job_id == existing_id)
+                .values(**fields)
+            )
+            updated += 1
+        else:
+            obj = m.Job(**fields)
+            dst.add(obj)
+            # Flush per new title to get its id: Jobs is a handful of rows, and
+            # the map must be complete before the employee pass runs.
+            dst.flush()
+            existing_id = obj.job_id
+            created += 1
+        by_source[source_id] = existing_id
+        by_name.setdefault(title_ar.strip(), existing_id)
+        mapping[source_id] = existing_id
+    dst.flush()
+    counts["jobs"] = created
+    counts["jobs_updated"] = updated
+    return mapping
+
+
+def _load_employees(insp, src, dst, counts, job_map: dict[int, int] | None = None) -> None:
     """Mirror eStock's Employee master (the POS users) into ProCare.
 
     eStock keeps the per-cashier permission flags ON the Employee row
@@ -975,6 +1064,7 @@ def _load_employees(insp, src, dst, counts) -> None:
     show_money = _pick(cols, "emp_show_money")
     active = _pick(cols, "active")
     deleted = _pick(cols, "deleted")
+    source_job = _pick(cols, "job_id")
 
     existing = {
         (u or "").strip().lower(): (eid, ph)
@@ -1006,6 +1096,13 @@ def _load_employees(insp, src, dst, counts) -> None:
             can_see_buy_price=_b(r.get(show_money)) if show_money else False,
             is_active=is_active,
         )
+        # Job title (المسمى الوظيفي). Only set when the source id resolves to a
+        # mirrored title — an unknown/absent job_id must leave the field alone
+        # rather than write a dangling FK.
+        if source_job and job_map:
+            resolved = job_map.get(_int_or_none(r.get(source_job)))
+            if resolved is not None:
+                fields["job_id"] = resolved
         eid, cur_hash = existing.get(uname.lower(), (None, None))
         if eid is not None:
             # A usable ProCare password marks a REAL ProCare login (roster or

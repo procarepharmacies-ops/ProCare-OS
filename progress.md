@@ -1265,3 +1265,56 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   unpriced, zero-cost never flagged, zero-stock opt-in, ordering/totals,
   notification round-trip + dismissal, feed excludes zero-stock, API).
   Full suite 465 passed / 0 failed. `next build` clean (`/alerts` 2.13 kB).
+
+## 2026-08-15 · Phase 6 employee domain — Jobs mirror shipped, EMP_CONTROL deferred with cause — branch claude/ibn-project-completion-59drks
+- Two items were left open on the Phase-6 list. Checked BOTH against
+  docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md before starting, and they split:
+  * **`Jobs`** — columns fully enumerated in §2 (`job_id, job_code,
+    job_name_ar/en`), same documentation quality as the payroll/shareholder
+    mirrors that already shipped. BUILDABLE.
+  * **`EMP_CONTROL`** — the doc gives the SHAPE (~200 booleans in letter
+    groups A,A1..A35, B,B1..B34, C,C1..C7, …) but not what any letter code
+    MEANS. Crucially, the human-readable names it does list
+    (`emp_edit_sell_price`, `allaw_sale_credit`, `emp_change_cash_disk`,
+    `emp_del_vendor`) are columns on the **Employee master**, not on
+    EMP_CONTROL — and `_load_employees` already mirrors those 1:1, so the
+    permission data that is actually decipherable is ALREADY IN. What's left
+    is mapping A17 to a screen, which is guesswork; and a wrong guess here
+    doesn't skip a field, it grants or denies a permission that looks
+    authoritative in the /permissions UI. Same failure mode that parked PR 2e,
+    so same verdict: deferred pending the schema dump. Recorded in
+    task_plan.md + CLAUDE.md so the reasoning isn't re-litigated.
+- **Jobs mirror.** Found `Job` (job_id, name_ar, name_en) and
+  `Employee.job_id` FK ALREADY in models.py, and the employees service already
+  returning `job_name` — but the ETL had NO job handling whatsoever (grep for
+  "job" in etl.py returned nothing), so `Employee.job_id` was always NULL in
+  production and the column was decorative. Added `Job.source_id` +
+  `Job.code`, `ensure_job_source_columns` (dialect-aware, idempotent, wired
+  into main.py startup), and ETL `_load_jobs`.
+- Ordering matters: `_load_jobs` runs BEFORE `_load_employees` and returns a
+  `{source job_id -> ProCare job_id}` map that the employee pass resolves
+  against — same pattern as the product/customer maps. An employee whose
+  source job_id isn't in the map keeps `job_id` NULL rather than writing a
+  dangling FK (tested).
+- Matching is by `source_id` **then by Arabic name**. The name fallback is not
+  decoration: seed.py creates 'مدير'/'كاشير' with no source id, so without it
+  the first real sync would have inserted a SECOND 'كاشير' next to the seeded
+  one. The test asserts the seeded row is adopted (gains the source_id) and
+  the count stays at 1.
+- Jobs are deliberately absent from `_WIPE_ORDER` — employees are never wiped,
+  so their titles must survive a full refresh too. Asserted in a test rather
+  than left as a comment, since a future edit to `_WIPE_ORDER` would silently
+  break it.
+- Fixed a latent bilingual gap found on the way: `employees._job_map` returned
+  Arabic titles ONLY, so English mode would have shown the Arabic job title
+  next to correctly-translated everything else. Now carries both names; the
+  API returns `job_name_ar`/`job_name_en` alongside the existing `job_name`
+  (kept, so nothing that consumes it breaks), and the /employees screen picks
+  by language the same way it already does for employee names.
+- `COVERED_SOURCE_TABLES` 31 → 32.
+- TESTS: +9 `test_jobs_mirror.py` — link employee→title, re-run updates in
+  place instead of duplicating (owner renames a title on eStock), seeded
+  titles adopted by name, unknown job_id leaves NULL, source with no Jobs
+  table is skipped not an error, Job absent from _WIPE_ORDER, API returns
+  both languages, migration on a legacy table + idempotent re-run + no-op on
+  current/missing schema.

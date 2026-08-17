@@ -496,6 +496,30 @@ roll-up. ETL `_load_salary_advances` shares the `_estock_empid_to_pk`
 first) + `advances_total` alongside the monthly panel. Idempotent
 `ensure_salary_advance_table`.
 
+### Job titles (المسمى الوظيفي) — `jobs`
+
+Mirror of eStock `Jobs` (`job_id, job_code, job_name_ar/en`) with
+`Job.source_id` = eStock `job_id`, plus `employees.job_id` linkage.
+
+Invariants: ETL `_load_jobs` is `has_table`-guarded and runs **before**
+`_load_employees`, handing it a `{source job_id -> ProCare job_id}` map;
+matching is by `source_id` **then by Arabic name**, so the seeded titles
+(created with no source id) are adopted rather than duplicated; titles are NOT
+in the destructive `_WIPE_ORDER` (employees are never wiped, so neither are
+their titles); an employee whose source `job_id` does not resolve keeps
+`job_id` NULL — never a dangling FK. Both branch servers are clones of one
+eStock install and share the job list, so upsert-by-`source_id` keeps ONE
+titles master (same posture as shareholders). Reads carry `job_name_ar` +
+`job_name_en` (the map was Arabic-only, which showed Arabic titles in English
+mode). Columns added idempotently via `ensure_job_source_columns`.
+
+**Not mirrored — `EMP_CONTROL`:** the ~200-column permission matrix is keyed by
+opaque letter codes (A1..A35, B1..B34, …) whose meanings are undocumented.
+Decoding them is guesswork that would surface as an authoritative-looking
+grant/denial, so it stays deferred pending the schema dump. The permission
+flags that ARE documented live on the `Employee` master and are already
+mirrored 1:1 by `_load_employees`.
+
 ---
 
 ## Operations Monitoring (SRE) — watchdog · digest · db_health

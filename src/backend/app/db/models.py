@@ -216,9 +216,19 @@ class Vendor(Base):
 
 
 class Job(Base):
+    """Job title (المسمى الوظيفي) — eStock's ``Jobs`` master.
+
+    ``source_id`` is eStock's own ``job_id``. Both branch servers are clones of
+    the same eStock install and carry the same small job list, so upserting by
+    ``source_id`` keeps ONE titles master rather than a per-server copy — the
+    same posture as shareholders (see CLAUDE.md).
+    """
+
     __tablename__ = "jobs"
 
     job_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     name_ar: Mapped[str] = mapped_column(String(80))
     name_en: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
