@@ -24,6 +24,17 @@ def low_stock(branch_id: int | None = Query(None), session: Session = Depends(ge
     return {"items": alerts.low_stock(session, branch_id or None)}
 
 
+@router.get("/below-cost")
+def below_cost(
+    branch_id: int | None = Query(None),
+    include_zero_stock: bool = Query(False, description="Also flag price-list errors with no stock on hand"),
+    limit: int = Query(200, ge=1, le=1000),
+    session: Session = Depends(get_session),
+):
+    """Items selling at or below cost (البيع بأقل من التكلفة)."""
+    return alerts.below_cost(session, branch_id or None, limit, include_zero_stock)
+
+
 @router.get("/reorder")
 def reorder(branch_id: int | None = Query(None), session: Session = Depends(get_session)):
     return {"drafts": alerts.smart_reorder(session, branch_id or None)}

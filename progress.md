@@ -1204,3 +1204,64 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
 - Gemini/ollama keys item left in the backlog, unstarted — no concrete
   request behind it yet (unlike the other three, which had clear, actionable
   scope once investigated).
+
+## 2026-08-15 · Phase 6 derived alarms closed — below-cost (البيع بأقل من التكلفة) — branch claude/ibn-project-completion-59drks
+- Picked up the last unblocked Phase-6 item. Of the three derived alarms in
+  that line, the News_bar ticker shipped 2026-07-21 and cheque-due is
+  deferred with cause (both branch servers have ZERO rows in `Checks` — the
+  pharmacy doesn't use the module), leaving below-cost as the only one with
+  real data behind it. PR 2e (Gedo_* sub-ledgers) stays parked on the
+  schema-dump; Gemini/ollama keys still has no concrete request behind it.
+- **The design question was "which cost binds?"** The plan line said
+  `sell_price < buy_price`, i.e. the catalogue price — but the catalogue
+  price is exactly the field that goes stale when a vendor raises theirs.
+  What actually costs money is the weighted-average `buy_price` of the
+  SELLABLE batches on hand: those units WILL go out the door at today's
+  selling price. So `cost` = weighted avg of on-hand batches, falling back to
+  `Product.buy_price` only when we hold nothing. Both values are returned per
+  row (`cost` + `catalogue_buy_price`) — the gap between them IS the
+  "vendor raised the price and nobody updated the list" signal, and the UI
+  shows the catalogue price underneath when they differ.
+- Scoping decisions that keep the alarm readable rather than a 53K-row dump:
+  * zero-cost rows are never flagged (buy_price 0 AND no stock value is
+    missing data, not a loss — flagging it would bury the real ones);
+  * items with no stock are excluded by default (`include_zero_stock=True`
+    opts into the price-list check), and NEVER reach the notification feed;
+  * `sell_price <= 0` gets its own reason (`unpriced`) rather than being
+    lumped into below_cost — it rings up FREE at the POS, a different bug;
+  * `zero_margin` (sell == cost) is reported but only as `warning` — it
+    loses nothing today, it just leaves no room for the next price rise.
+  * `exposure = loss_per_unit x on_hand`, ordered biggest-bleeder-first, so
+    the `.limit()` keeps the rows that matter.
+- **SQL Server 2008 hazard caught before it shipped**: the weighted average
+  divides by the on-hand qty inside a `CASE` guarded on `qty > 0`. SQL Server
+  does NOT guarantee CASE short-circuits — the optimizer may evaluate the
+  division for a zero-qty row anyway, and x/0 kills the whole query on the
+  production server (SQLite would have passed happily). Denominator is
+  `NULLIF(qty, 0)`, so the worst case is NULL, not an error.
+- Surfacing: new `below_cost` notification category (so it flows into the
+  existing ticker + center screens with no frontend change — those render
+  `label_ar`/`label_en` straight from the backend), `GET /api/alerts/
+  below-cost`, and a section on `/alerts` with an inline price fix. The fix
+  reuses the audited `POST /inventory/products/{id}/pricing` from the Phase-6
+  audit work, so every correction lands in `product_changes` with who/from/
+  to/when — detect and act close the loop in one screen. Gated to ceo/manager
+  (pricing is a manager action); everyone else sees the list read-only. The
+  suggested new price prefills to the cost itself — the minimum that stops
+  the bleeding, leaving the actual margin to the manager.
+- TWO EXISTING TESTS were asserting hand-listed category/prefix sets, so
+  adding a category failed them. Both were generalised to the invariant they
+  were really protecting rather than re-listed: the center exposes exactly
+  `svc.CATEGORIES`, and an event's key prefix EQUALS its own category (that
+  pairing is what keeps a dismissal bound to the event clicked). Next
+  category added won't touch them.
+- Frontend gotcha: `btn ghost` doesn't exist in globals.css (only `.btn`,
+  `.btn.primary`, `.btn.icon`) — caught by grepping the stylesheet rather
+  than trusting the class name; also removed duplicate `save`/`cancel` i18n
+  keys I'd added on top of existing ones (a duplicate key in a JS object
+  literal silently wins, which would have changed those strings app-wide).
+- TESTS: +11 `test_below_cost.py` (exposure arithmetic, weighted average vs
+  stale catalogue price, healthy margin not flagged, zero-margin severity,
+  unpriced, zero-cost never flagged, zero-stock opt-in, ordering/totals,
+  notification round-trip + dismissal, feed excludes zero-stock, API).
+  Full suite 465 passed / 0 failed. `next build` clean (`/alerts` 2.13 kB).

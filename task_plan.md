@@ -131,8 +131,25 @@ bilingual (Arabic RTL first).
       to etl `_WIPE_ORDER` (FK-safe full sync). 7 tests. (2026-07-21)
       [Mirroring the raw eStock change tables verbatim still needs their
       column audit; ProCare-side logging is live now.]
-- [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
-      (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
+- [x] Derived alarms — COMPLETE (News_bar ticker + below-cost; cheque-due
+      deferred with cause). Below-cost البيع بأقل من التكلفة (2026-08-15):
+      `alerts.below_cost()` compares sell_price against the cost that actually
+      binds — the weighted-average `buy_price` of the SELLABLE batches on hand
+      (real money: those units will be sold at that loss), falling back to the
+      catalogue `Product.buy_price` when nothing is held (`include_zero_stock`,
+      a price-list check with no exposure yet). Both are returned per row so a
+      vendor rise that never reached the price list shows as the gap. Reasons
+      `below_cost` / `zero_margin` / `unpriced` (sell_price 0 = rings up free);
+      zero-cost rows are NOT flagged (missing data, not a loss — otherwise every
+      unpriced catalogue row buries the real ones). `exposure = loss_per_unit x
+      on_hand`, ordered biggest-bleeder-first. New `below_cost` notification
+      category (feed carries stock-bearing rows only). `GET /api/alerts/
+      below-cost`; `/alerts` screen section with an inline manager-only price
+      fix via the existing audited `POST /inventory/products/{id}/pricing`.
+      SQL Server 2008: NULLIF-guarded denominator (CASE is not guaranteed to
+      short-circuit, so x/0 could still be evaluated), `.limit()` only.
+      11 tests + 2 existing notification tests generalised to track
+      `CATEGORIES` instead of hand-listed prefixes. 465 tests green.
 - [x] Payroll depth: `Employee_salary` mirrored → `payroll_records` (base,
       commission+over, deduction+absence, advance, net recomputed). ETL
       `_load_payroll` resolves emp_id→username→ProCare employee, upserts by
