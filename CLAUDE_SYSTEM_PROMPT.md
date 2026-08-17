@@ -71,7 +71,7 @@ You are maintaining **ProCare OS**, a professional pharmacy management system se
   │  ├─ app/db/models.py (SQLAlchemy: Product, Customer, Sale, Prescription, EmployeeTask, StockTransfer, etc.)
   │  ├─ app/db/migrate.py (idempotent column adds: ensure_role_column, ensure_priority_column, etc.)
   │  ├─ app/services/
-  │  │  ├─ llm.py (provider registry: anthropic, gemini, ollama, claude-cli)
+  │  │  ├─ llm.py (provider registry: gemini, hermes/OpenRouter, anthropic, ollama, claude-cli)
   │  │  ├─ etl.py (eStock read, transform, validate, insert)
   │  │  ├─ prescriptions.py (capture → review → dispensed)
   │  │  ├─ transfers.py (stock transfer requests + approval workflow)

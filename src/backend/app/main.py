@@ -36,6 +36,7 @@ from app.db.migrate import (
     ensure_product_change_table,
     ensure_purchase_line_discount_column,
     ensure_purchase_header_extra_columns,
+    ensure_job_source_columns,
     ensure_held_invoice_table,
     ensure_salary_advance_table,
     ensure_sale_note_column,
@@ -108,6 +109,8 @@ async def lifespan(_app: FastAPI):
     ensure_purchase_line_discount_column(engine)
     # Phase 7: purchase header discount rate + other expenses (تسوية/خصم نقدي)
     ensure_purchase_header_extra_columns(engine)
+    # Phase 6: eStock Jobs master mirror (job titles / المسمى الوظيفي)
+    ensure_job_source_columns(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     from app.services import backup
 

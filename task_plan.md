@@ -131,8 +131,25 @@ bilingual (Arabic RTL first).
       to etl `_WIPE_ORDER` (FK-safe full sync). 7 tests. (2026-07-21)
       [Mirroring the raw eStock change tables verbatim still needs their
       column audit; ProCare-side logging is live now.]
-- [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
-      (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
+- [x] Derived alarms — COMPLETE (News_bar ticker + below-cost; cheque-due
+      deferred with cause). Below-cost البيع بأقل من التكلفة (2026-08-15):
+      `alerts.below_cost()` compares sell_price against the cost that actually
+      binds — the weighted-average `buy_price` of the SELLABLE batches on hand
+      (real money: those units will be sold at that loss), falling back to the
+      catalogue `Product.buy_price` when nothing is held (`include_zero_stock`,
+      a price-list check with no exposure yet). Both are returned per row so a
+      vendor rise that never reached the price list shows as the gap. Reasons
+      `below_cost` / `zero_margin` / `unpriced` (sell_price 0 = rings up free);
+      zero-cost rows are NOT flagged (missing data, not a loss — otherwise every
+      unpriced catalogue row buries the real ones). `exposure = loss_per_unit x
+      on_hand`, ordered biggest-bleeder-first. New `below_cost` notification
+      category (feed carries stock-bearing rows only). `GET /api/alerts/
+      below-cost`; `/alerts` screen section with an inline manager-only price
+      fix via the existing audited `POST /inventory/products/{id}/pricing`.
+      SQL Server 2008: NULLIF-guarded denominator (CASE is not guaranteed to
+      short-circuit, so x/0 could still be evaluated), `.limit()` only.
+      11 tests + 2 existing notification tests generalised to track
+      `CATEGORIES` instead of hand-listed prefixes. 465 tests green.
 - [x] Payroll depth: `Employee_salary` mirrored → `payroll_records` (base,
       commission+over, deduction+absence, advance, net recomputed). ETL
       `_load_payroll` resolves emp_id→username→ProCare employee, upserts by
@@ -145,8 +162,29 @@ bilingual (Arabic RTL first).
       (own sub-table). ETL `_load_salary_advances` (shared emp_id→ProCare
       resolver, upsert by cash_advance_id, graceful-absent). Advances ledger +
       total added to the payroll panel. 2 tests. (2026-07-21)
-- [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
-- [ ] Jobs master mirror + employee.job_id linkage
+- [~] EMP_CONTROL full matrix mapping (beyond the Employee-row flags) —
+      DEFERRED, same reasoning as PR 2e. The structure doc gives the SHAPE
+      (~200 boolean columns in letter groups A,A1..A35, B,B1..B34, …) but not
+      what each letter code MEANS. The named examples it lists
+      (`emp_edit_sell_price`, `allaw_sale_credit`, `emp_change_cash_disk`, …)
+      are columns on the **Employee master**, which `_load_employees` already
+      mirrors 1:1 — so the useful permission data is in. Decoding A17 → a real
+      screen/action is guesswork, and a wrong guess grants or denies a
+      permission that LOOKS authoritative in the UI. Needs the schema-dump (or
+      an eStock screen-by-screen audit) before it is safe to build.
+- [x] Jobs master mirror + employee.job_id linkage (2026-08-15): columns are
+      fully enumerated in the structure doc §2 (`job_id, job_code,
+      job_name_ar/en`), so unlike EMP_CONTROL this was buildable on documented
+      shapes. `Job.source_id` + `Job.code` columns + idempotent dialect-aware
+      `ensure_job_source_columns`; ETL `_load_jobs` (`has_table`-guarded, runs
+      BEFORE `_load_employees` and hands it a source→ProCare map, upsert by
+      `source_id` then by Arabic name so the seeded titles are adopted rather
+      than duplicated, NOT in `_WIPE_ORDER` since employees are never wiped);
+      `_load_employees` resolves each row's `job_id`, leaving it NULL when the
+      source id is unknown (never a dangling FK). `_job_map` now carries both
+      names — it was Arabic-only, so English mode showed the Arabic title —
+      and the employees API returns `job_name_ar`/`job_name_en` alongside the
+      existing `job_name`. 9 tests. `COVERED_SOURCE_TABLES` now 32 (was 31).
 
 ### eStock tutorial feature-map gaps (from owner's illustrated report, 2026-07-20)
 - [x] Item sales-movement report (تقرير حركة مبيعات صنف في فترة): per-day
@@ -332,7 +370,27 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
       not investigated further, out of scope here) — reported separately.
       `next build` clean (`/pos` 10.1 kB, `/purchasing` 3.4 kB, `/stocktaking`
       2.76 kB).
-- [ ] Gemini/ollama keys (not started — deferred, no active request for it)
+- [x] **AI providers: hermes (OpenRouter free) + Gemini Pro free tier**
+      (2026-08-15) — closes the parked "Gemini/ollama keys" item once the owner
+      gave concrete direction. `hermes` was an ALIAS for `ollama`, and the
+      backend was already reaching OpenRouter by abusing that provider
+      (AI_BASE_URL override + an OpenRouter key in `OLLAMA_API_KEY`), so this
+      was "stop pretending a hosted gateway is a local server", not a new
+      integration. `hermes` is now its own provider (aliases `openrouter`,
+      `nous`; `OPENROUTER_API_KEY`; default
+      `nousresearch/hermes-3-llama-3.1-405b:free`) with built-in all-`:free`
+      `HERMES_FALLBACK_MODELS` — OpenRouter retires free slugs without notice
+      and the fail-soft path turns that into a SILENT drop to the keyword
+      router. Gemini default `gemini-flash-latest` -> `gemini-2.5-pro` (Pro
+      free tier). `ai_base_url` resolved per provider (one localhost default
+      was pointing hosted providers at a machine not serving them). Caught
+      before shipping: base URL must be `.../api` NOT `.../api/v1`, since
+      llm.py appends `/v1/chat/completions` — `/api/v1` composes
+      `/api/v1/v1/...` and 404s; the test asserts the exact composed endpoint,
+      because a `startswith` assertion passes on the broken URL too.
+      NOT verifiable from the dev sandbox: egress to openrouter.ai is blocked,
+      so the primary slug is taken from the owner's own committed fallback
+      list rather than confirmed live. test_llm.py 8 -> 15.
 
 ---
 

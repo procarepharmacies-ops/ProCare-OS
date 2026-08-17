@@ -64,15 +64,24 @@ services:
       DEFAULT_LANGUAGE: "ar"
       DEFAULT_THEME: "light"
       PROCARE_CORS_ORIGINS: "*"
-      # Arabic AI assistant. Providers: gemini (default), anthropic (Claude API),
-      # ollama (local, no key — set AI_PROVIDER=ollama, AI_MODEL=hermes3, and
-      # AI_BASE_URL to the Ollama host), claude-cli (local Claude Code, no key).
-      # Gemini Pro = AI_MODEL=gemini-2.5-pro. With no key and no local provider,
-      # the assistant uses the offline keyword router.
+      # Arabic AI assistant. Both defaults are FREE tiers:
+      #   gemini  (default) — Gemini Pro free tier, needs GEMINI_API_KEY
+      #   hermes            — Nous Hermes free models via OpenRouter, needs
+      #                       OPENROUTER_API_KEY (same key the branch PCs'
+      #                       Hermes Agent uses). Set AI_PROVIDER=hermes.
+      #   anthropic         — Claude API, needs ANTHROPIC_API_KEY
+      #   ollama            — local server, no key; set AI_BASE_URL to its host
+      #   claude-cli        — local Claude Code, no key
+      # Leave AI_MODEL empty to take the provider's free-tier default. With no
+      # key at all the assistant falls back to the offline keyword router.
       AI_PROVIDER: "${AI_PROVIDER:-gemini}"
-      AI_MODEL: "${AI_MODEL:-gemini-flash-latest}"
+      AI_MODEL: "${AI_MODEL:-}"
+      # Extra comma-separated models tried when the primary is rate-limited or
+      # retired. hermes already carries built-in :free fallbacks.
+      AI_MODEL_FALLBACKS: "${AI_MODEL_FALLBACKS:-}"
       AI_BASE_URL: "${AI_BASE_URL:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       # CEO/manager/assistant login gate on the financial + salary endpoints
       # (accounting, employees). The frontend always requires login regardless

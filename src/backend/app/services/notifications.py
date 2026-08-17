@@ -27,6 +27,7 @@ CATEGORIES = {
     "expiry": {"ar": "الصلاحية", "en": "Expiry", "severity": "warning"},
     "low_stock": {"ar": "نواقص المخزون", "en": "Low stock", "severity": "warning"},
     "shortage": {"ar": "كشكول النواقص", "en": "Shortage sheet", "severity": "info"},
+    "below_cost": {"ar": "البيع بأقل من التكلفة", "en": "Selling below cost", "severity": "critical"},
 }
 _SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2}
 
@@ -128,6 +129,44 @@ def _shortage_events(session: Session, branch_id: int | None) -> list[dict]:
     return events
 
 
+def _below_cost_events(session: Session, branch_id: int | None) -> list[dict]:
+    """Items priced at or below cost — money lost on every scan. Only rows with
+    stock on hand reach the feed: a price-list error with nothing on the shelf
+    is real but not urgent, and would bury the actionable ones."""
+    events = []
+    for item in alerts.below_cost(session, branch_id, limit=200)["items"]:
+        if item["on_hand"] <= 0:
+            continue
+        unpriced = item["reason"] == "unpriced"
+        if unpriced:
+            title_ar, title_en = "صنف بدون سعر بيع", "Item has no selling price"
+        elif item["reason"] == "zero_margin":
+            title_ar, title_en = "بيع بدون ربح", "Zero margin"
+        else:
+            title_ar, title_en = "البيع بأقل من التكلفة", "Selling below cost"
+        events.append({
+            "key": f"below_cost:{item['product_id']}:{branch_id or 0}",
+            "category": "below_cost",
+            "severity": item["severity"],
+            "title_ar": title_ar,
+            "title_en": title_en,
+            "body_ar": (
+                f"{item['name_ar']} — البيع {item['sell_price']} / التكلفة {item['cost']}"
+                f" — خسارة {item['loss_per_unit']} للوحدة — الرصيد {item['on_hand']}"
+                f" — إجمالي {item['exposure']}"
+            ),
+            "body_en": (
+                f"{item['name_en'] or item['name_ar']} — sell {item['sell_price']} / cost {item['cost']}"
+                f" — loses {item['loss_per_unit']}/unit — on-hand {item['on_hand']}"
+                f" — exposure {item['exposure']}"
+            ),
+            "ref_type": "product",
+            "ref_id": item["product_id"],
+            "sort_date": None,
+        })
+    return events
+
+
 def _dismissed_keys(session: Session) -> set[str]:
     return set(session.scalars(select(m.NotificationDismissal.event_key)).all())
 
@@ -140,6 +179,7 @@ def _all_events(session: Session, branch_id: int | None, expiry_days: int) -> li
         lambda: _expiry_events(session, branch_id, expiry_days),
         lambda: _low_stock_events(session, branch_id),
         lambda: _shortage_events(session, branch_id),
+        lambda: _below_cost_events(session, branch_id),
     ):
         try:
             events.extend(builder())

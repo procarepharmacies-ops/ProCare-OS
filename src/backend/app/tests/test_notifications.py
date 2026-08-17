@@ -26,7 +26,10 @@ def test_center_groups_by_category():
     try:
         center = svc.notification_center(s, branch_id=1)
         cats = {g["category"] for g in center["groups"]}
-        assert cats == {"expiry", "low_stock", "shortage"}
+        # Every declared category is represented (present even at count 0, so a
+        # quiet category still renders its heading rather than vanishing).
+        assert cats == set(svc.CATEGORIES)
+        assert {"expiry", "low_stock", "shortage", "below_cost"} <= cats
         # total equals the sum of the per-category counts.
         assert center["total"] == sum(g["count"] for g in center["groups"])
         # every category carries a bilingual label.
@@ -73,8 +76,11 @@ def test_event_keys_are_stable_and_prefixed():
     try:
         tk = svc.ticker(s, branch_id=1, limit=50)
         for item in tk["items"]:
-            assert item["key"].split(":")[0] in ("expiry", "low_stock", "shortage")
             assert item["category"] in svc.CATEGORIES
+            # The key is namespaced by its own category — that pairing is what
+            # keeps a dismissal bound to the event it was clicked on, so assert
+            # the relationship rather than a hand-listed set of prefixes.
+            assert item["key"].split(":")[0] == item["category"]
     finally:
         s.close()
 

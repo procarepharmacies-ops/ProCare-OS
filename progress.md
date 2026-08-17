@@ -1204,3 +1204,222 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
 - Gemini/ollama keys item left in the backlog, unstarted — no concrete
   request behind it yet (unlike the other three, which had clear, actionable
   scope once investigated).
+
+## 2026-08-15 · Phase 6 derived alarms closed — below-cost (البيع بأقل من التكلفة) — branch claude/ibn-project-completion-59drks
+- Picked up the last unblocked Phase-6 item. Of the three derived alarms in
+  that line, the News_bar ticker shipped 2026-07-21 and cheque-due is
+  deferred with cause (both branch servers have ZERO rows in `Checks` — the
+  pharmacy doesn't use the module), leaving below-cost as the only one with
+  real data behind it. PR 2e (Gedo_* sub-ledgers) stays parked on the
+  schema-dump; Gemini/ollama keys still has no concrete request behind it.
+- **The design question was "which cost binds?"** The plan line said
+  `sell_price < buy_price`, i.e. the catalogue price — but the catalogue
+  price is exactly the field that goes stale when a vendor raises theirs.
+  What actually costs money is the weighted-average `buy_price` of the
+  SELLABLE batches on hand: those units WILL go out the door at today's
+  selling price. So `cost` = weighted avg of on-hand batches, falling back to
+  `Product.buy_price` only when we hold nothing. Both values are returned per
+  row (`cost` + `catalogue_buy_price`) — the gap between them IS the
+  "vendor raised the price and nobody updated the list" signal, and the UI
+  shows the catalogue price underneath when they differ.
+- Scoping decisions that keep the alarm readable rather than a 53K-row dump:
+  * zero-cost rows are never flagged (buy_price 0 AND no stock value is
+    missing data, not a loss — flagging it would bury the real ones);
+  * items with no stock are excluded by default (`include_zero_stock=True`
+    opts into the price-list check), and NEVER reach the notification feed;
+  * `sell_price <= 0` gets its own reason (`unpriced`) rather than being
+    lumped into below_cost — it rings up FREE at the POS, a different bug;
+  * `zero_margin` (sell == cost) is reported but only as `warning` — it
+    loses nothing today, it just leaves no room for the next price rise.
+  * `exposure = loss_per_unit x on_hand`, ordered biggest-bleeder-first, so
+    the `.limit()` keeps the rows that matter.
+- **SQL Server 2008 hazard caught before it shipped**: the weighted average
+  divides by the on-hand qty inside a `CASE` guarded on `qty > 0`. SQL Server
+  does NOT guarantee CASE short-circuits — the optimizer may evaluate the
+  division for a zero-qty row anyway, and x/0 kills the whole query on the
+  production server (SQLite would have passed happily). Denominator is
+  `NULLIF(qty, 0)`, so the worst case is NULL, not an error.
+- Surfacing: new `below_cost` notification category (so it flows into the
+  existing ticker + center screens with no frontend change — those render
+  `label_ar`/`label_en` straight from the backend), `GET /api/alerts/
+  below-cost`, and a section on `/alerts` with an inline price fix. The fix
+  reuses the audited `POST /inventory/products/{id}/pricing` from the Phase-6
+  audit work, so every correction lands in `product_changes` with who/from/
+  to/when — detect and act close the loop in one screen. Gated to ceo/manager
+  (pricing is a manager action); everyone else sees the list read-only. The
+  suggested new price prefills to the cost itself — the minimum that stops
+  the bleeding, leaving the actual margin to the manager.
+- TWO EXISTING TESTS were asserting hand-listed category/prefix sets, so
+  adding a category failed them. Both were generalised to the invariant they
+  were really protecting rather than re-listed: the center exposes exactly
+  `svc.CATEGORIES`, and an event's key prefix EQUALS its own category (that
+  pairing is what keeps a dismissal bound to the event clicked). Next
+  category added won't touch them.
+- Frontend gotcha: `btn ghost` doesn't exist in globals.css (only `.btn`,
+  `.btn.primary`, `.btn.icon`) — caught by grepping the stylesheet rather
+  than trusting the class name; also removed duplicate `save`/`cancel` i18n
+  keys I'd added on top of existing ones (a duplicate key in a JS object
+  literal silently wins, which would have changed those strings app-wide).
+- TESTS: +11 `test_below_cost.py` (exposure arithmetic, weighted average vs
+  stale catalogue price, healthy margin not flagged, zero-margin severity,
+  unpriced, zero-cost never flagged, zero-stock opt-in, ordering/totals,
+  notification round-trip + dismissal, feed excludes zero-stock, API).
+  Full suite 465 passed / 0 failed. `next build` clean (`/alerts` 2.13 kB).
+
+## 2026-08-15 · Phase 6 employee domain — Jobs mirror shipped, EMP_CONTROL deferred with cause — branch claude/ibn-project-completion-59drks
+- Two items were left open on the Phase-6 list. Checked BOTH against
+  docs/CLAUDE_CODE_ESTOCK_STRUCTURE.md before starting, and they split:
+  * **`Jobs`** — columns fully enumerated in §2 (`job_id, job_code,
+    job_name_ar/en`), same documentation quality as the payroll/shareholder
+    mirrors that already shipped. BUILDABLE.
+  * **`EMP_CONTROL`** — the doc gives the SHAPE (~200 booleans in letter
+    groups A,A1..A35, B,B1..B34, C,C1..C7, …) but not what any letter code
+    MEANS. Crucially, the human-readable names it does list
+    (`emp_edit_sell_price`, `allaw_sale_credit`, `emp_change_cash_disk`,
+    `emp_del_vendor`) are columns on the **Employee master**, not on
+    EMP_CONTROL — and `_load_employees` already mirrors those 1:1, so the
+    permission data that is actually decipherable is ALREADY IN. What's left
+    is mapping A17 to a screen, which is guesswork; and a wrong guess here
+    doesn't skip a field, it grants or denies a permission that looks
+    authoritative in the /permissions UI. Same failure mode that parked PR 2e,
+    so same verdict: deferred pending the schema dump. Recorded in
+    task_plan.md + CLAUDE.md so the reasoning isn't re-litigated.
+- **Jobs mirror.** Found `Job` (job_id, name_ar, name_en) and
+  `Employee.job_id` FK ALREADY in models.py, and the employees service already
+  returning `job_name` — but the ETL had NO job handling whatsoever (grep for
+  "job" in etl.py returned nothing), so `Employee.job_id` was always NULL in
+  production and the column was decorative. Added `Job.source_id` +
+  `Job.code`, `ensure_job_source_columns` (dialect-aware, idempotent, wired
+  into main.py startup), and ETL `_load_jobs`.
+- Ordering matters: `_load_jobs` runs BEFORE `_load_employees` and returns a
+  `{source job_id -> ProCare job_id}` map that the employee pass resolves
+  against — same pattern as the product/customer maps. An employee whose
+  source job_id isn't in the map keeps `job_id` NULL rather than writing a
+  dangling FK (tested).
+- Matching is by `source_id` **then by Arabic name**. The name fallback is not
+  decoration: seed.py creates 'مدير'/'كاشير' with no source id, so without it
+  the first real sync would have inserted a SECOND 'كاشير' next to the seeded
+  one. The test asserts the seeded row is adopted (gains the source_id) and
+  the count stays at 1.
+- Jobs are deliberately absent from `_WIPE_ORDER` — employees are never wiped,
+  so their titles must survive a full refresh too. Asserted in a test rather
+  than left as a comment, since a future edit to `_WIPE_ORDER` would silently
+  break it.
+- Fixed a latent bilingual gap found on the way: `employees._job_map` returned
+  Arabic titles ONLY, so English mode would have shown the Arabic job title
+  next to correctly-translated everything else. Now carries both names; the
+  API returns `job_name_ar`/`job_name_en` alongside the existing `job_name`
+  (kept, so nothing that consumes it breaks), and the /employees screen picks
+  by language the same way it already does for employee names.
+- `COVERED_SOURCE_TABLES` 31 → 32.
+- TESTS: +9 `test_jobs_mirror.py` — link employee→title, re-run updates in
+  place instead of duplicating (owner renames a title on eStock), seeded
+  titles adopted by name, unknown job_id leaves NULL, source with no Jobs
+  table is skipped not an error, Job absent from _WIPE_ORDER, API returns
+  both languages, migration on a legacy table + idempotent re-run + no-op on
+  current/missing schema.
+
+## 2026-08-15 · AI providers: hermes promoted to a first-class OpenRouter provider; Gemini Pro free tier — branch claude/ibn-project-completion-59drks
+- Owner asked to "replace ollama by hermes and gemini pro free tier and hermes
+  free model". This closes the long-parked "Gemini/ollama keys" backlog item,
+  which had been sitting unstarted for want of a concrete request.
+- **What "hermes" means in this project** — checked before writing anything.
+  docs/ESTOCK_MIRROR_ON_BRANCHES.md shows the branch PCs already run the
+  Hermes Agent against **OpenRouter** with `:free` slugs and an
+  `OPENROUTER_API_KEY`. And the backend was ALREADY reaching OpenRouter — but
+  by abusing the `ollama` provider:
+      AI_PROVIDER=ollama
+      AI_BASE_URL=https://openrouter.ai/api
+      AI_MODEL=openai/gpt-oss-20b:free
+      AI_MODEL_FALLBACKS=...,nousresearch/hermes-3-llama-3.1-405b:free,...
+      OLLAMA_API_KEY=sk-or-v1-...      # an OpenRouter key in the Ollama var
+  So this was never "add a provider" — it was "stop pretending a hosted
+  gateway is a local server". `hermes` was literally an ALIAS for `ollama` in
+  `_norm_provider`, and `llm._openai_headers()` already spoke OpenRouter
+  (Bearer + attribution headers) with an `AI_MODEL_FALLBACKS` loop whose
+  docstring says "so a congested free model never takes the assistant offline".
+- Changes: `hermes` is now its own provider (aliases `openrouter`, `nous`) with
+  `key_env=OPENROUTER_API_KEY`, its own OpenRouter base URL, and a default of
+  `nousresearch/hermes-3-llama-3.1-405b:free`. `ollama` goes back to meaning an
+  actual local server. Gemini's default moved from `gemini-flash-latest` to
+  `gemini-2.5-pro` (the Pro free tier the owner asked for). `OPENROUTER_API_KEY`
+  joins provider auto-detection. `_ollama_*` internals renamed `_openai_*` —
+  the transport is shared by hermes and ollama, and the old name had stopped
+  being true.
+- **`ai_base_url` is now resolved PER PROVIDER.** It was one global default of
+  `http://localhost:11434`, which is why the working config had to override it
+  by hand — a hosted provider was otherwise pointed at a machine not serving
+  it. A config-file `base_url` now applies only when that block targets the
+  ACTIVE provider, so a leftover Ollama URL can't hijack hermes.
+- **Bug caught by reading the owner's working config instead of trusting my
+  own default.** I first set the hermes base URL to
+  `https://openrouter.ai/api/v1` — the URL the API docs give. But llm.py
+  appends `/v1/chat/completions` itself, so that composes
+  `/api/v1/v1/chat/completions` and 404s. Their file says
+  `https://openrouter.ai/api` precisely because of this. Fixed, commented at
+  the definition, and the test now asserts the EXACT composed endpoint rather
+  than a prefix — `startswith("https://openrouter.ai/api/v1")` passes on the
+  doubled-/v1 URL too, so a prefix assertion would not have caught it.
+- Free `:free` slugs are retired/renamed by OpenRouter without notice, and the
+  fail-soft design turns a dead model into a SILENT drop to the keyword router
+  (the exact failure config.py already documents for the retired
+  gemini-2.0-flash). So `hermes` carries built-in `HERMES_FALLBACK_MODELS`
+  tried after AI_MODEL/AI_MODEL_FALLBACKS; every entry is itself `:free`, and
+  the last one is `openai/gpt-oss-20b:free` — the model the owner's own Hermes
+  Agent is configured with, so it is known-good on their account.
+  `llm.status()` now reports the whole chain, not just the primary.
+- COULD NOT VERIFY the current `:free` slug list from this sandbox: the egress
+  proxy blocks openrouter.ai (both curl and WebFetch). The primary
+  (`nousresearch/hermes-3-llama-3.1-405b:free`) is taken from the owner's own
+  committed fallback list, so it is grounded in their working config rather
+  than guessed — but if OpenRouter has since retired it, the fallback chain is
+  what carries the install, and `GET /api/health` shows which model answered.
+- TESTS: test_llm.py 8 -> 15. The old `test_hermes_alias_maps_to_ollama`
+  asserted exactly the behaviour being replaced, so it was rewritten rather
+  than kept: hermes resolves to its own provider/key/base URL and never
+  localhost; `openrouter`/`nous` aliases; hermes is NOT keyless (free still
+  needs a key, and treating it as keyless would make it try-and-fail instead
+  of falling back); the fallback chain is all-`:free` and de-duplicated;
+  ollama keeps its local base URL (splitting hermes out must not drag the
+  local provider to OpenRouter); gemini defaults to Pro; hermes classify hits
+  the exact OpenRouter endpoint with Bearer auth; a 429 on the primary rolls
+  to the next model.
+- Docs: .env.example rewritten with all three key options and where to get
+  them; docker-compose gains OPENROUTER_API_KEY + AI_MODEL_FALLBACKS and
+  AI_MODEL now defaults EMPTY (take the provider's free-tier default);
+  connections.example.json switched to gemini + empty model/base_url;
+  ESTOCK_MIRROR_ON_BRANCHES.md now shows the 4-line hermes setup with the old
+  ollama workaround kept below as explicitly superseded (it still works, since
+  env overrides win); CLAUDE.md gains an "AI providers" contract table.
+
+## 2026-08-15 · Runtime smoke test on a live server — found a stale duplicate of the provider rule
+- Everything so far was verified by pytest and `next build`, neither of which
+  boots the app. Ran the backend for real (`python run.py` on a throwaway
+  SQLite DB) to cover what the suite cannot: the startup lifespan, the new
+  migration against a real database, and route registration.
+- Startup clean; `/api/health` -> `{"status":"ok"}`. `PRAGMA table_info(jobs)`
+  confirms `ensure_job_source_columns` actually added `source_id` + `code` on
+  a real DB, and a SECOND boot on the SAME database proved it idempotent.
+- **Below-cost verified end to end against the live server, not fixtures.**
+  Took a seeded product with stock (أنتينال, cost 26.58, 93 on hand), dropped
+  its price to 20.00 through the same `POST /inventory/products/{id}/pricing`
+  the UI calls, and the alarm reported exactly `loss/unit 6.58 x 93 =
+  611.94` exposure, severity critical, and surfaced in the notification
+  center (bilingual label + Arabic body) and the ticker. Set the price back
+  to 48.00 and it cleared to count 0. Both edits are in
+  `/api/audit/product-changes` with old -> new and `created_at` — so the
+  detect -> act -> clear loop closes with an audit trail.
+- **Found a real bug that only a live boot would surface:** `/api/health`
+  carried its OWN copy of the "which providers have a base_url" rule
+  (`... if settings.ai_provider == "ollama" else None`). I had updated that
+  rule in `llm.status()` but this duplicate went stale the moment hermes was
+  split out of ollama, so health reported `base_url: null` for a HOSTED
+  provider — exactly the field an operator checks when the assistant is
+  silent. Fixed by building the block from `llm.status()` instead of
+  re-deriving it (one source of truth), which also surfaces the model
+  fallback chain on /health. Added a test asserting health mirrors
+  `llm.status()` so the two cannot drift again.
+- Re-verified after the fix: health now reports
+  `base_url: https://openrouter.ai/api` and all three `:free` models in order.
+- Full suite 472 passed; `next build` clean (43 pages). Smoke DB + logs live
+  under the git-ignored `data/` and `.local-run/`, and were removed.
