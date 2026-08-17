@@ -37,12 +37,14 @@ def health(session: Session = Depends(get_session)):
             "titan_drugeye_source": settings.titan_configured,
             "procare_database": settings.procare_configured,
         },
+        # Built from llm.status() rather than re-deriving it: this block used to
+        # carry its own copy of the "which providers have a base_url" rule and
+        # went stale the moment hermes was split out of ollama, reporting a null
+        # endpoint for a hosted provider. One source of truth, plus the model
+        # fallback chain so an operator can see what will actually be tried.
         "ai_assistant": {
+            **llm_svc.status(),
             "engine": settings.ai_provider if llm_svc.is_configured() else "rule-based (not configured)",
-            "provider": settings.ai_provider,
-            "model": settings.ai_model,
-            "configured": llm_svc.is_configured(),
-            "base_url": settings.ai_base_url if settings.ai_provider == "ollama" else None,
         },
         "clinical_advisory": {
             "mode": "live" if clinical_svc.is_live() else "offline (curated advisory rules)",

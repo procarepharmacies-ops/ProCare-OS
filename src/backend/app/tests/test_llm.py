@@ -81,6 +81,18 @@ def test_hermes_falls_back_to_other_free_models(reload_config):
     assert len(set(models)) == len(models)  # no duplicate attempts
 
 
+def test_health_reports_the_real_endpoint_and_model_chain(client):
+    """/health used to re-derive "which providers have a base_url" itself, and
+    went stale the moment hermes was split out of ollama — reporting a null
+    endpoint for a hosted provider. It must come from llm.status()."""
+    ai = client.get("/api/health").json()["ai_assistant"]
+    status = llm.status()
+    assert ai["provider"] == status["provider"]
+    assert ai["base_url"] == status["base_url"]
+    assert ai["models"] == status["models"]
+    assert "engine" in ai  # health-only field survives the merge
+
+
 def test_ollama_keeps_the_local_base_url(reload_config):
     """Splitting hermes out must not drag the local provider to OpenRouter."""
     cfg = reload_config(AI_PROVIDER="ollama", AI_BASE_URL=None, OLLAMA_BASE_URL=None)

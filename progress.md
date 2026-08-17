@@ -1391,3 +1391,35 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   ESTOCK_MIRROR_ON_BRANCHES.md now shows the 4-line hermes setup with the old
   ollama workaround kept below as explicitly superseded (it still works, since
   env overrides win); CLAUDE.md gains an "AI providers" contract table.
+
+## 2026-08-15 · Runtime smoke test on a live server — found a stale duplicate of the provider rule
+- Everything so far was verified by pytest and `next build`, neither of which
+  boots the app. Ran the backend for real (`python run.py` on a throwaway
+  SQLite DB) to cover what the suite cannot: the startup lifespan, the new
+  migration against a real database, and route registration.
+- Startup clean; `/api/health` -> `{"status":"ok"}`. `PRAGMA table_info(jobs)`
+  confirms `ensure_job_source_columns` actually added `source_id` + `code` on
+  a real DB, and a SECOND boot on the SAME database proved it idempotent.
+- **Below-cost verified end to end against the live server, not fixtures.**
+  Took a seeded product with stock (أنتينال, cost 26.58, 93 on hand), dropped
+  its price to 20.00 through the same `POST /inventory/products/{id}/pricing`
+  the UI calls, and the alarm reported exactly `loss/unit 6.58 x 93 =
+  611.94` exposure, severity critical, and surfaced in the notification
+  center (bilingual label + Arabic body) and the ticker. Set the price back
+  to 48.00 and it cleared to count 0. Both edits are in
+  `/api/audit/product-changes` with old -> new and `created_at` — so the
+  detect -> act -> clear loop closes with an audit trail.
+- **Found a real bug that only a live boot would surface:** `/api/health`
+  carried its OWN copy of the "which providers have a base_url" rule
+  (`... if settings.ai_provider == "ollama" else None`). I had updated that
+  rule in `llm.status()` but this duplicate went stale the moment hermes was
+  split out of ollama, so health reported `base_url: null` for a HOSTED
+  provider — exactly the field an operator checks when the assistant is
+  silent. Fixed by building the block from `llm.status()` instead of
+  re-deriving it (one source of truth), which also surfaces the model
+  fallback chain on /health. Added a test asserting health mirrors
+  `llm.status()` so the two cannot drift again.
+- Re-verified after the fix: health now reports
+  `base_url: https://openrouter.ai/api` and all three `:free` models in order.
+- Full suite 472 passed; `next build` clean (43 pages). Smoke DB + logs live
+  under the git-ignored `data/` and `.local-run/`, and were removed.
