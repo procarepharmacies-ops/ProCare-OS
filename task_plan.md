@@ -112,9 +112,14 @@ bilingual (Arabic RTL first).
       account statement** (opening balance + running balance + closing per
       account) and **Tuning_accounts تسويات named reasons** (bilingual reason
       catalog, `ledger_entries.reason_code`, adjustments tagged `ref_type=
-      'adjust'`, per-reason adjustments report). REMAINING: mirror the raw
-      Gedo_Financial journal rows verbatim (needs live eStock column audit —
-      "column audit pending" in etl.py). (2026-07-21)
+      'adjust'`, per-reason adjustments report). (2026-07-21)
+      **The "REMAINING: mirror the raw Gedo_Financial rows verbatim" note that
+      stood here was STALE** — PR 2c shipped exactly that (`etl._load_gl_journal`,
+      "Mirror eStock's Gedo_Financial (the central GL journal) verbatim",
+      `GlJournalEntry`, upserted by source_id, `GET /api/accounting/gl-journal`),
+      alongside `_load_gl_accounts` (Account_Tree) and `_load_gl_adjustments`
+      (Tuning_accounts). Corrected 2026-08-18 — the only accounting mirror still
+      outstanding is PR 2e's Gedo_* sub-ledger BALANCES, tracked below.
 - [x] Shareholders: company_Owner + Gedo_Dividends_paied — `Shareholder` +
       `DividendPayment` models, ETL `_load_shareholders` (upsert by source id,
       graceful-absent, skips deleted owners + orphan dividends), `services/
@@ -172,6 +177,8 @@ bilingual (Arabic RTL first).
       screen/action is guesswork, and a wrong guess grants or denies a
       permission that LOOKS authoritative in the UI. Needs the schema-dump (or
       an eStock screen-by-screen audit) before it is safe to build.
+      UNBLOCK PATH (2026-08-18): `deploy/Dump-eStock-Schema.bat` — one
+      double-click on any PC that reaches eStock. Same dump unblocks PR 2e.
 - [x] Jobs master mirror + employee.job_id linkage (2026-08-15): columns are
       fully enumerated in the structure doc §2 (`job_id, job_code,
       job_name_ar/en`), so unlike EMP_CONTROL this was buildable on documented
@@ -318,7 +325,8 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         source_id, not in `_WIPE_ORDER`. Read-only CEO-only API: `GET
         /api/accounting/gl-adjustments`. `COVERED_SOURCE_TABLES` now 31
         (was 30). 1 new ETL test. 383 tests green. (2026-07-24)
-  - [ ] **PR 2e — GL sub-ledger balances** (follow-up, genuinely deferred):
+  - [ ] **PR 2e — GL sub-ledger balances** (BLOCKED on the schema dump —
+        `deploy/Dump-eStock-Schema.bat` now makes that one double-click):
         `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Gedo_employee`,
         `Gedo_installment` (per-party for_him/for_me balances). Unlike every
         other Phase-7 mirror, these are NOT safely inferrable even with the
