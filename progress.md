@@ -1522,3 +1522,46 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   as a real gap in the original owner review (2026-07-23) is mirrored.
   What remains uncovered is honestly low-value or already-derived
   elsewhere, not a blind spot.
+
+## 2026-08-18 · Unblocking the schema dump — found the reason it was never run
+- With the Phase-6 work merged, every remaining plan item was either an owner
+  action or "blocked on the Elsanta schema dump" (PR 2e's Gedo_* sub-ledger
+  balances, and the EMP_CONTROL matrix). So the highest-value move was not to
+  build anything new — it was to make that dump actually runnable.
+- `tools/estock_schema_dump.py` has existed since 2026-07-23 (PR 2a) and was
+  never run: no `docs/estock-schema-dump.md` in the repo. Two concrete
+  reasons, both fixed:
+  1. **Its own documented usage does not work.** The docstring said "Usage
+     (from src/backend): python -m tools.estock_schema_dump". But there are
+     TWO `tools` packages — this file is in the REPO-ROOT `tools/`, while
+     `src/backend/tools/` holds unrelated tools (drugeye_scrape, titan_extract,
+     mcp_server, reconcile_estock). Run from `src/backend`, Python resolves to
+     the wrong package and dies with ModuleNotFoundError. Verified both ways:
+     fails from src/backend, succeeds from the repo root. Anyone who followed
+     the docstring hit an error on the first try and presumably stopped.
+  2. **No `.bat`.** Every other owner-facing operation has one
+     (ProCare-Connect-eStock, Import-Branches, Seed-Elsanta, …). This one
+     required knowing the right cwd and flags.
+- Added `deploy/Dump-eStock-Schema.bat` (repo conventions: backslash paths,
+  clear exit codes, actionable failure list). It cds to the REPO ROOT — with a
+  comment saying why, since `src\backend` is the intuitive-but-wrong choice —
+  and writes `docs/estock-schema-dump.md` + `.json`. The header spells out
+  that it is strictly read-only (table/column NAMES only, no pharmacy data)
+  and names the three features waiting on it, so the value of running it is
+  obvious to whoever double-clicks.
+- Fixed the docstring to say REPO ROOT and to explain the two-`tools`-packages
+  trap, so the next reader is not misled the same way.
+- TESTS: +2 in test_schema_dump.py. One runs the documented command as a real
+  `subprocess` from the repo root and asserts both output files appear and the
+  uncovered table is named — pinning the invocation itself, since the previous
+  tests imported `dump_schema()` directly and so never noticed the command was
+  broken. The other asserts the .bat's only `cd` targets the repo root (parsing
+  actual `cd` lines, not prose — the comments deliberately MENTION src\backend
+  to explain why it is wrong; my first attempt at that assertion was too clever
+  and failed on its own comment).
+- Also corrected a STALE plan line: Phase 6's accounting item still said
+  "REMAINING: mirror the raw Gedo_Financial journal rows verbatim", but PR 2c
+  shipped exactly that (`_load_gl_journal`, GlJournalEntry, upsert by
+  source_id, `GET /api/accounting/gl-journal`). Left as-is it overstated the
+  outstanding work. The only accounting mirror genuinely outstanding is PR 2e's
+  sub-ledger BALANCES.
