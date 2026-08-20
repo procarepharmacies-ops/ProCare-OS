@@ -575,3 +575,31 @@ def gl_adjustments(session: Session, limit: int = 500) -> list[dict]:
         }
         for a in rows
     ]
+
+
+def gl_subledgers(session: Session, party_type: str | None = None, limit: int = 500) -> list[dict]:
+    """eStock's per-party GL sub-ledger balances (Gedo_customers/Gedo_Vendors/
+    Gedo_branches/Gedo_employee/Gedo_installment mirror, read-only, most
+    recent first). ``party_source_id`` is the RAW eStock party id — NOT
+    resolved to a ProCare customer/vendor/branch/employee PK (see
+    GlSubledgerBalance's docstring for why branch specifically can't be)."""
+    q = select(m.GlSubledgerBalance).order_by(m.GlSubledgerBalance.gl_subledger_id.desc())
+    if party_type:
+        q = q.where(m.GlSubledgerBalance.party_type == party_type)
+    rows = session.scalars(q.limit(limit)).all()
+    return [
+        {
+            "gl_subledger_id": b.gl_subledger_id,
+            "party_type": b.party_type,
+            "source_id": b.source_id,
+            "gf_ref": b.gf_ref,
+            "flag": b.flag,
+            "type_code": b.type_code,
+            "party_source_id": b.party_source_id,
+            "for_him": float(b.for_him or 0),
+            "for_me": float(b.for_me or 0),
+            "total": float(b.total or 0),
+            "notes": b.notes,
+        }
+        for b in rows
+    ]

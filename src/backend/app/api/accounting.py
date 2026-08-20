@@ -156,3 +156,15 @@ def gl_adjustments(
 ):
     """eStock's manual GL adjustments (Tuning_accounts mirror), read-only, newest first."""
     return {"adjustments": accounting.gl_adjustments(session, limit)}
+
+
+@router.get("/gl-subledgers")
+def gl_subledgers(
+    party_type: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's per-party GL sub-ledger balances (Gedo_customers/Gedo_Vendors/
+    Gedo_branches/Gedo_employee/Gedo_installment mirror), read-only, newest
+    first. Optional party_type filter: customer/vendor/branch/employee/installment."""
+    return {"balances": accounting.gl_subledgers(session, party_type, limit)}

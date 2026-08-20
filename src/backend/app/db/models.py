@@ -1434,6 +1434,53 @@ class GlAdjustment(Base):
     )
 
 
+class GlSubledgerBalance(Base):
+    """Per-party GL sub-ledger balance (eStock ``Gedo_customers``/
+    ``Gedo_Vendors``/``Gedo_branches``/``Gedo_employee``/``Gedo_installment``
+    mirror, verbatim + read-only).
+
+    Confirmed via the Elsanta schema-dump (2026-08-17) — all five source
+    tables share an identical shape: an id, a link to the Gedo_Financial
+    journal (``gf_id``, VARCHAR on the source — kept as text, not cast to
+    int), a Flag, a per-table type code, a party id, for_him/for_me/total
+    money columns, insert_uid/insert_date, and (customers/vendors only) notes.
+
+    ``party_type`` is ProCare's OWN discriminator ('customer'/'vendor'/
+    'branch'/'employee'/'installment') — NOT an eStock code; each source
+    table maps 1:1 to exactly one party kind, so this is simply which loader
+    wrote the row. ``party_source_id`` is the RAW eStock party id
+    (customer_id/vendor_id/branch_id/emp_id/cu_id) — kept UNRESOLVED to a
+    ProCare PK. Branch is a special case: ``Gedo_branches.branch_id`` is
+    eStock's OWN branch-entity id (from its ``Branches`` master table), a
+    DIFFERENT namespace than ProCare's store_id-keyed branch_map — resolving
+    it needs its own mapping, out of scope here. Kept verbatim/unresolved for
+    all five so the whole GL mirror stays one consistent posture (same as
+    GlAccount/GlJournalEntry/GlAdjustment) rather than resolved for some
+    parties and not others. Upserted by (party_type, source_id); not in
+    ``_WIPE_ORDER``.
+    """
+
+    __tablename__ = "gl_subledger_balances"
+
+    gl_subledger_id: Mapped[int] = mapped_column(primary_key=True)
+    party_type: Mapped[str] = mapped_column(String(20))
+    source_id: Mapped[int | None] = mapped_column(nullable=True)  # gc_id/gv_id/gb_id/ge_id/gi_id
+    gf_ref: Mapped[str | None] = mapped_column(String(50), nullable=True)  # source gf_id (text)
+    flag: Mapped[int | None] = mapped_column(nullable=True)
+    type_code: Mapped[str | None] = mapped_column(String(5), nullable=True)  # gc_type/gv_type/...
+    party_source_id: Mapped[int | None] = mapped_column(nullable=True)  # raw eStock party id, unresolved
+    for_him: Mapped[float] = mapped_column(Money, default=0)
+    for_me: Mapped[float] = mapped_column(Money, default=0)
+    total: Mapped[float] = mapped_column(Money, default=0)
+    notes: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_subledger_type_source", "party_type", "source_id"),
+        Index("IX_gl_subledger_party", "party_type", "party_source_id"),
+    )
+
+
 class PayrollRecord(Base):
     """Monthly payroll record per employee (eStock ``Employee_salary`` mirror).
 

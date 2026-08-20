@@ -318,19 +318,64 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         source_id, not in `_WIPE_ORDER`. Read-only CEO-only API: `GET
         /api/accounting/gl-adjustments`. `COVERED_SOURCE_TABLES` now 31
         (was 30). 1 new ETL test. 383 tests green. (2026-07-24)
-  - [ ] **PR 2e — GL sub-ledger balances** (follow-up, genuinely deferred):
-        `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Gedo_employee`,
-        `Gedo_installment` (per-party for_him/for_me balances). Unlike every
-        other Phase-7 mirror, these are NOT safely inferrable even with the
-        `_pick`-tolerant pattern: the balance-column names are undocumented,
-        and a wrong guess there doesn't just skip a field — it silently
-        stores a real sub-ledger row with a zeroed/wrong balance, which
-        reads as legitimate data. Genuinely blocked on the schema-dump.
-      HONEST BASELINE: ETL now reads 31 source tables (not 48 — that's ProCare's
-      own table count); ~25 uncovered tables are empty/temp/config;
-      Employee_daily_time (2.8M) deliberately deferred.
+  - [x] **PR 2e — GL sub-ledger balances** (branch claude/phase-7-gedo-
+        subledgers; unblocked 2026-08-17 — owner ran
+        `deploy/ProCare-Schema-Dump.bat` on Elsanta and pasted the real
+        113-table dump): `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`,
+        `Gedo_employee`, `Gedo_installment` — new unified `GlSubledgerBalance`
+        model (all five share one shape: id, gf_id-as-text, Flag, a per-table
+        type code, party id, for_him/for_me/total, notes on customers/vendors
+        only). `party_type` is ProCare's own discriminator (which loader
+        wrote the row); `party_source_id` stays UNRESOLVED to a ProCare PK
+        for all five — Gedo_branches.branch_id turned out to be eStock's OWN
+        branch-entity id (from its 2-row `Branches` master table), a
+        DIFFERENT namespace than ProCare's store_id-keyed branch_map, so
+        resolving just that one and not the others would have been
+        inconsistent. `_load_gl_subledgers` loops one config table over the
+        five source tables, upserts by (party_type, source_id), not in
+        `_WIPE_ORDER`. Read-only CEO-only API: `GET
+        /api/accounting/gl-subledgers?party_type=`.
+        BUG FOUND + FIXED while building this: `_pick()` matched candidates
+        case-insensitively but returned the CANDIDATE string verbatim, not
+        the column's real casing — silently broke on
+        `Gedo_employee.flag` (lowercase; every sibling table uses `Flag`),
+        since row-mapping `.get()` lookups are case-sensitive. Fixed to
+        return the real casing from `cols`; regression test
+        `test_pick_returns_real_casing_not_candidate` + the subledger loader
+        test both exercise the exact casing mismatch found on Elsanta.
+        `COVERED_SOURCE_TABLES` now 36 (was 31). 2 new ETL tests (5-table
+        round-trip + upsert dedup, `_pick` casing regression). 445 tests
+        green (1 known-flaky test-order failure unrelated, passes solo).
+      CROSS-CHECKED the real dump against every prior Phase-7 inference:
+      Branches_Product_Amount, Cash_disk_close, Account_Tree, Gedo_Financial,
+      Tuning_accounts all matched column-for-column — every earlier PR's
+      guesses were correct. One separate finding NOT fixed here (pre-existing,
+      out of scope): `Cash_disk_close`/`Branches_Cash_disk_close` have no
+      `store_id` column at all — `_load_cash_shift_closes`'s `store` lookup
+      always falls through to `default_branch`, so `Branches_Cash_disk_close`
+      rows (a different eStock branch's shift history) currently land in the
+      wrong ProCare branch. Flagged for a future fix, not blocking.
+      HONEST BASELINE: ETL now reads 36 source tables (not 48 — that's
+      ProCare's own table count) out of 113 real eStock tables; the
+      remaining ~77 uncovered tables are mostly empty/temp/config/audit-log
+      (Branches_Product_amount_Change 1.05M rows, Product_amount_Change
+      531K, Product_amount_reg_update 47K — all raw stock-audit trails with
+      no aggregate ProCare doesn't already derive from StockMovement) or
+      genuinely dead features on this pharmacy (Gedo_installment/installment/
+      installment_state all 0 rows; Checks 0 rows; News_bar 0 rows).
+      Employee_daily_time (92 rows, not 2.8M as originally estimated pre-dump)
+      remains deliberately deferred — low value, attendance-only.
 
 ## Backlog
+- [ ] **Fix `Branches_Cash_disk_close` branch attribution**: neither
+      `Cash_disk_close` nor `Branches_Cash_disk_close` has a `store_id`
+      column (confirmed via the Elsanta schema-dump, 2026-08-17) —
+      `_load_cash_shift_closes`'s `store = _pick(cols, "store_id")` always
+      returns None, so every shift-close row (including
+      `Branches_Cash_disk_close` rows, which represent a DIFFERENT branch's
+      shift history mirrored to this server) falls through to
+      `default_branch`. Needs its own resolution strategy before the shift
+      report is trustworthy across branches.
 - [x] **Barcode-scanner count sheet** (2026-08-13): `get_count()` sheet lines
       now carry `code`/`fast_code`; `/stocktaking` count-sheet view gained a
       scan input (open sessions only) — Enter matches the scanned value
