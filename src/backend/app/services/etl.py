@@ -1258,7 +1258,8 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
 
     Reads both the centralized and branch-specific versions, accumulating shift records.
     Inferred columns: cdc_id, cdc_emp_id, cdc_shift_start_time, cdc_start_cash,
-    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, store_id.
+    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, branch_id.
+    Only Branches_Cash_disk_close carries a branch_id; Cash_disk_close defaults to default_branch.
     """
     n = 0
     shift_objs = []
@@ -1276,11 +1277,11 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
         to_emp = _pick(cols, "cdc_to_emp_id")
         trans_val = _pick(cols, "cdc_trans_value", "trans_value")
         notice = _pick(cols, "cdc_notice", "notice")
-        store = _pick(cols, "store_id")
+        branch = _pick(cols, "branch_id")
 
         rows = src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
         for r in rows:
-            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            branch_id = branch_map.get(int(r[branch])) if branch and r.get(branch) is not None else default_branch
             shift_objs.append(
                 m.CashShiftClose(
                     branch_id=branch_id or default_branch,
