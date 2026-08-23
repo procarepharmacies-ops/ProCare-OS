@@ -367,15 +367,14 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
       remains deliberately deferred — low value, attendance-only.
 
 ## Backlog
-- [ ] **Fix `Branches_Cash_disk_close` branch attribution**: neither
-      `Cash_disk_close` nor `Branches_Cash_disk_close` has a `store_id`
-      column (confirmed via the Elsanta schema-dump, 2026-08-17) —
-      `_load_cash_shift_closes`'s `store = _pick(cols, "store_id")` always
-      returns None, so every shift-close row (including
-      `Branches_Cash_disk_close` rows, which represent a DIFFERENT branch's
-      shift history mirrored to this server) falls through to
-      `default_branch`. Needs its own resolution strategy before the shift
-      report is trustworthy across branches.
+- [x] **Fix `Branches_Cash_disk_close` branch attribution** (2026-08-23):
+      `Branches_Cash_disk_close` DOES have a `branch_id` column (not `store_id`
+      as the loader was looking for); `Cash_disk_close` has neither. Fixed
+      `_load_cash_shift_closes` to look for `branch_id` instead: cross-branch
+      rows now map to their correct ProCare branch, while local shifts default
+      to `default_branch` as before. PR #67 (1 commit, 4+3 lines to etl.py),
+      all 474 tests pass, mergeable. Verified against real Elsanta
+      schema-dump (PR #63).
 - [x] **Barcode-scanner count sheet** (2026-08-13): `get_count()` sheet lines
       now carry `code`/`fast_code`; `/stocktaking` count-sheet view gained a
       scan input (open sessions only) — Enter matches the scanned value
