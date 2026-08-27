@@ -1423,3 +1423,102 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   `base_url: https://openrouter.ai/api` and all three `:free` models in order.
 - Full suite 472 passed; `next build` clean (43 pages). Smoke DB + logs live
   under the git-ignored `data/` and `.local-run/`, and were removed.
+## 2026-08-17 · Phase 7 PR 2e — GL sub-ledger balances, unblocked — branch claude/phase-7-gedo-subledgers
+- Owner ran `deploy/ProCare-Schema-Dump.bat` on the real Elsanta server and
+  pasted the full dump: 113 tables, 28 mirrored at the time (before this
+  PR), 85 not. This is the schema-dump the whole PR 2e deferral was waiting
+  on.
+- VALIDATION FIRST: cross-checked the real dump against every column name
+  inferred across PRs #47/#49/#50 before writing new code —
+  Branches_Product_Amount, Cash_disk_close/Branches_Cash_disk_close,
+  Account_Tree, Gedo_Financial, Tuning_accounts all matched EXACTLY,
+  including the specific columns `_pick`'s candidate lists already tried
+  first (e.g. Branches_Product_Amount really does have a `counter_id`
+  column, matching the first candidate rather than the `pa_id` fallback).
+  Every inferred-column PR this phase was correct — the "flag clearly,
+  proceed on inference, never guess silently" posture held up.
+- THE FIVE Gedo_* SUB-LEDGERS (the piece that was genuinely blocked, not
+  just cautiously inferred): confirmed columns show all five
+  (Gedo_customers/Gedo_Vendors/Gedo_branches/Gedo_employee/Gedo_installment)
+  share one shape — an id, `gf_id` (VARCHAR on the source, despite being
+  DECIMAL on Gedo_Financial itself — kept as text, not cast), a Flag/flag
+  column, a per-table type code, a party id, for_him/for_me/total money
+  columns, insert_uid/insert_date, and notes on customers/vendors only.
+- MODEL: unified `GlSubledgerBalance` (one table for all five, discriminated
+  by `party_type` — ProCare's OWN label for "which loader wrote this row",
+  not an eStock code, since each source table maps 1:1 to exactly one party
+  kind). `party_source_id` is kept UNRESOLVED (raw eStock id) for EVERY
+  party type, including branch — this was a real design fork: I could have
+  resolved customer_id/vendor_id/emp_id through the maps `mirror()` already
+  builds, but `Gedo_branches.branch_id` turned out to be eStock's OWN
+  branch-entity id from its 2-row `Branches` master table, a DIFFERENT
+  namespace than ProCare's store_id-keyed `branch_map` — resolving that one
+  needs its own mapping (out of scope). Rather than resolve four party
+  types and leave branch raw (inconsistent, easy to misuse), kept all five
+  raw/verbatim — same posture as GlAccount/GlJournalEntry/GlAdjustment, so
+  the whole GL mirror reads as one consistent design.
+- ETL: `_load_gl_subledgers` loops a single `_GEDO_SUBLEDGER_TABLES` config
+  (table, party_type, id_col, gf_col, flag_col, type_col, party_col,
+  for_him_col, for_me_col, notes_col) over the five source tables instead
+  of five near-duplicate functions. Each table independently has_table-
+  guarded (Gedo_installment is 0 rows on this pharmacy — unused feature,
+  loader just skips it cleanly). Upserted by (party_type, source_id) tuple
+  since e.g. gc_id and gv_id are only unique within their own table. Not in
+  `_WIPE_ORDER`. `COVERED_SOURCE_TABLES` grew 31 -> 36.
+- API: `GET /api/accounting/gl-subledgers?party_type=&limit=` — CEO-only,
+  read-only, optional party_type filter.
+- BUG FOUND WHILE BUILDING THIS (fixed, not pre-planned): `_pick()` matched
+  candidate column names case-insensitively but then returned the
+  CANDIDATE STRING verbatim rather than the column's real casing from the
+  source. This is silently wrong whenever a real column's casing differs
+  from what a candidate list happens to use — and the real dump handed me
+  exactly that case: `Gedo_employee.flag` is lowercase while every sibling
+  Gedo_* table (`Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`) uses
+  `Flag`. `_pick(cols, "Flag")` would still MATCH against Gedo_employee's
+  `flag` (case-insensitive), but return `"Flag"` — and
+  `row.get("Flag")` against a row whose real key is `"flag"` silently comes
+  back `None`, since SQLAlchemy RowMapping lookups are case-sensitive (SQL
+  Server preserves declared casing). Fixed `_pick` to return the matched
+  column's actual casing from `cols`. Verified the fix mattered by directly
+  comparing old vs. new `_pick` behavior side by side (old: `_pick({"flag"},
+  "Flag") -> "Flag"`; new: `-> "flag"`) before trusting the regression test.
+  Ran the full `test_etl.py` suite before AND after this fix to confirm no
+  existing loader's candidate-list casing already relied on the old
+  (buggy) verbatim-return behavior — all 13 passed both times, so nothing
+  was silently depending on the bug.
+- TESTS: test_etl.py +2 — `test_load_gl_subledgers` (all 5 tables round-trip
+  with the REAL confirmed column shapes, including the Flag/flag casing
+  quirk deliberately reproduced to prove the fix; upsert-by-(party_type,
+  source_id) doesn't duplicate on re-sync) + `test_pick_returns_real_casing_
+  not_candidate` (direct regression guard for the casing bug). Full suite:
+  445 passed, 1 known-flaky test-order failure (test_pos.py, seeded-DB stock
+  state depends on run order — passes solo, unrelated to this PR, seen
+  earlier in this same session before any of today's changes).
+- SEPARATE FINDING, NOT FIXED (pre-existing, out of scope for this PR): the
+  real dump shows `Cash_disk_close` AND `Branches_Cash_disk_close` have NO
+  `store_id` column at all (confirmed — neither table lists one).
+  `_load_cash_shift_closes` (merged in PR #47, before the dump existed)
+  looks up `store = _pick(cols, "store_id")`, which returns None for both
+  tables, so every shift-close row — including `Branches_Cash_disk_close`
+  rows, which represent a DIFFERENT eStock branch's shift history — falls
+  through to `default_branch`. This means cross-branch shift data currently
+  lands in the wrong ProCare branch. Not fixed here to keep this PR focused
+  on the originally-scoped Gedo_* sub-ledgers; flagged in task_plan.md as a
+  follow-up.
+- HONEST BASELINE UPDATE: the real eStock database has 113 tables (not the
+  ~112 estimated pre-dump), ProCare's ETL now reads 36 of them. The
+  remaining ~77 are mostly raw stock-audit-trail tables ProCare already
+  derives equivalent data from via StockMovement (Branches_Product_amount_
+  Change 1.05M rows, Product_amount_Change 531K, Product_amount_reg_update
+  47K), genuinely dead/unused features on this pharmacy (Gedo_installment/
+  installment/installment_state all 0 rows; Checks 0 rows; News_bar 0
+  rows), or low-value (Employee_daily_time is only 92 rows in reality, not
+  the 2.8M originally estimated before real data was available — the
+  original "deliberately deferred, huge, low value" reasoning for it no
+  longer applies at that row count, but it's still just attendance
+  clock-in/out data with no clear ProCare feature behind it, so still not
+  mirrored).
+- Phase 7's coverage arc is now essentially complete: every table flagged
+  as a real gap in the original owner review (2026-07-23) is mirrored.
+  What remains uncovered is honestly low-value or already-derived
+  elsewhere, not a blind spot.

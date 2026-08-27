@@ -74,6 +74,7 @@ COVERED_SOURCE_TABLES = frozenset({
     "Cash_depots", "Cash_disk_close", "Branches_Cash_disk_close",
     "Branch_order_header", "Branch_order_details",
     "Account_Tree", "Gedo_Financial", "Tuning_accounts",
+    "Gedo_customers", "Gedo_Vendors", "Gedo_branches", "Gedo_employee", "Gedo_installment",
     "company_Owner", "Gedo_Dividends_paied",
     "Employee_salary", "Employee_cash_advance",
     "Gedo_customers", "Gedo_Vendors", "Gedo_branches", "Gedo_employee", "Gedo_installment",
@@ -128,11 +129,19 @@ def status() -> dict:
 
 # --- extraction helpers -----------------------------------------------------
 def _pick(cols: set[str], *candidates: str) -> str | None:
-    """First candidate column present (case-insensitive), else None."""
-    lower = {c.lower() for c in cols}
+    """First candidate column present (case-insensitive) — returns the
+    column's REAL casing from ``cols``, not the candidate as typed.
+
+    SQL Server preserves declared casing, and row-mapping ``.get()`` lookups
+    are case-SENSITIVE, so returning the candidate verbatim silently breaks
+    every downstream ``r.get(picked)`` when the source's actual casing
+    differs (confirmed on the Elsanta schema dump: ``Gedo_employee.flag`` is
+    lowercase while every sibling Gedo_* table uses ``Flag``)."""
+    by_lower = {c.lower(): c for c in cols}
     for cand in candidates:
-        if cand.lower() in lower:
-            return cand
+        real = by_lower.get(cand.lower())
+        if real is not None:
+            return real
     return None
 
 
@@ -490,6 +499,7 @@ def mirror(
         _load_gl_accounts(insp, src, dst, counts)
         _load_gl_journal(insp, src, dst, counts)
         _load_gl_adjustments(insp, src, dst, counts)
+        _load_gl_subledgers(insp, src, dst, counts)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
         # Shareholders + dividends (optional, upsert by source id).
@@ -1255,7 +1265,8 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
 
     Reads both the centralized and branch-specific versions, accumulating shift records.
     Inferred columns: cdc_id, cdc_emp_id, cdc_shift_start_time, cdc_start_cash,
-    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, store_id.
+    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, branch_id.
+    Only Branches_Cash_disk_close carries a branch_id; Cash_disk_close defaults to default_branch.
     """
     n = 0
     shift_objs = []
@@ -1273,11 +1284,11 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
         to_emp = _pick(cols, "cdc_to_emp_id")
         trans_val = _pick(cols, "cdc_trans_value", "trans_value")
         notice = _pick(cols, "cdc_notice", "notice")
-        store = _pick(cols, "store_id")
+        branch = _pick(cols, "branch_id")
 
         rows = src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
         for r in rows:
-            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            branch_id = branch_map.get(int(r[branch])) if branch and r.get(branch) is not None else default_branch
             shift_objs.append(
                 m.CashShiftClose(
                     branch_id=branch_id or default_branch,
@@ -1789,6 +1800,79 @@ def _load_gl_adjustments(insp, src, dst, counts) -> None:
         n += 1
     dst.flush()
     counts["gl_adjustments"] = n
+
+
+# The five Gedo_* sub-ledger tables — CONFIRMED columns from the Elsanta
+# schema-dump (2026-08-17), all sharing one shape: (table, party_type, id_col,
+# gf_col, flag_col, type_col, party_col, for_him_col, for_me_col, notes_col).
+# Gedo_employee/Gedo_branches/Gedo_installment have no notes column (None).
+_GEDO_SUBLEDGER_TABLES = [
+    ("Gedo_customers", "customer", "gc_id", "gf_id", "Flag", "gc_type", "customer_id", "gc_for_him", "gc_for_me", "notes"),
+    ("Gedo_Vendors", "vendor", "gv_id", "gf_id", "Flag", "gv_type", "vendor_id", "gv_for_him", "gv_for_me", "notes"),
+    ("Gedo_branches", "branch", "gb_id", "gf_id", "Flag", "gb_type", "branch_id", "gb_for_him", "gb_for_me", None),
+    ("Gedo_employee", "employee", "ge_id", "gf_id", "flag", "ge_type", "emp_id", "ge_for_him", "ge_for_me", None),
+    ("Gedo_installment", "installment", "gi_id", "f_id", "flag", "gi_type", "cu_id", "gi_for_him", "gi_for_me", None),
+]
+
+
+def _load_gl_subledgers(insp, src, dst, counts) -> None:
+    """Mirror eStock's five Gedo_* per-party sub-ledger balance tables verbatim.
+
+    Was deliberately deferred through the rest of Phase 7 — unlike every
+    other GL mirror, a wrong guess at the balance-column names here would
+    have silently stored a plausible-looking but zeroed/wrong balance
+    instead of just skipping a field. Now safe: all columns confirmed via
+    the Elsanta schema-dump (2026-08-17). ``party_source_id`` is kept
+    unresolved (raw eStock id) for every party type, including branch —
+    Gedo_branches.branch_id is eStock's OWN branch-entity id, a different
+    namespace than ProCare's store_id-keyed branch_map, so resolving it
+    needs its own mapping (out of scope here; kept consistent with the
+    other four unresolved party types rather than resolved for some and not
+    others). Upserted by (party_type, source_id); not in ``_WIPE_ORDER``.
+    Each table is optional and has_table-guarded independently — a source
+    missing one (e.g. Gedo_installment, unused on this pharmacy) just skips
+    it, never an error."""
+    existing = {
+        (b.party_type, b.source_id): b
+        for b in dst.scalars(select(m.GlSubledgerBalance)).all()
+        if b.source_id is not None
+    }
+    total_n = 0
+    for tbl, party_type, id_col, gf_col, flag_col, type_col, party_col, for_him_col, for_me_col, notes_col in _GEDO_SUBLEDGER_TABLES:
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        c_id = _pick(cols, id_col)
+        c_gf = _pick(cols, gf_col)
+        c_flag = _pick(cols, flag_col)
+        c_type = _pick(cols, type_col)
+        c_party = _pick(cols, party_col)
+        c_for_him = _pick(cols, for_him_col)
+        c_for_me = _pick(cols, for_me_col)
+        c_total = _pick(cols, "total")
+        c_notes = _pick(cols, notes_col) if notes_col else None
+
+        n = 0
+        for r in src.execute(text(f"SELECT * FROM {tbl}")).mappings().all():
+            sid = int(r.get(c_id)) if c_id and r.get(c_id) is not None else None
+            key = (party_type, sid)
+            obj = existing.get(key)
+            if obj is None:
+                obj = m.GlSubledgerBalance(party_type=party_type, source_id=sid)
+                dst.add(obj)
+                existing[key] = obj
+            obj.gf_ref = _str(r.get(c_gf)) if c_gf else None
+            obj.flag = int(r[c_flag]) if c_flag and r.get(c_flag) is not None else None
+            obj.type_code = _str(r.get(c_type)) if c_type else None
+            obj.party_source_id = int(r[c_party]) if c_party and r.get(c_party) is not None else None
+            obj.for_him = _num(r.get(c_for_him)) if c_for_him else 0
+            obj.for_me = _num(r.get(c_for_me)) if c_for_me else 0
+            obj.total = _num(r.get(c_total)) if c_total else 0
+            obj.notes = _str(r.get(c_notes)) if c_notes else None
+            n += 1
+        total_n += n
+    dst.flush()
+    counts["gl_subledger_balances"] = total_n
 
 
 def _load_shareholders(insp, src, dst, counts) -> None:
