@@ -199,3 +199,191 @@ def test_sales_summary_operations_metrics(session):
     # The cash return flows into cash_refunds and reduces net cash.
     assert after["cash_refunds"] - before["cash_refunds"] == float(ret.total_net)
     assert after["net_cash"] == round(after["cash_paid"] - after["cash_refunds"], 2)
+
+
+def test_gedo_customer_balances(session):
+    """Test gedo_customer_balances service returns persisted GL sub-ledger records."""
+    # Add synthetic Gedo customer balance record
+    cust = session.scalar(select(m.Customer).limit(1))
+    assert cust is not None
+
+    balance = m.GedoCustomerBalance(
+        source_id=9001,
+        gf_id="GF001",
+        flag=0,
+        customer_id=cust.customer_id,
+        for_him=100.0,
+        for_me=50.0,
+        total=150.0,
+    )
+    session.add(balance)
+    session.commit()
+
+    result = accounting.gedo_customer_balances(session, limit=500)
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+    found = next((r for r in result if r["source_id"] == 9001), None)
+    assert found is not None
+    assert found["gf_id"] == "GF001"
+    assert found["for_him"] == 100.0
+    assert found["for_me"] == 50.0
+    assert found["total"] == 150.0
+
+
+def test_gedo_vendor_balances(session):
+    """Test gedo_vendor_balances service returns persisted GL sub-ledger records."""
+    # Add synthetic Gedo vendor balance record
+    vendor = session.scalar(select(m.Vendor).limit(1))
+
+    balance = m.GedoVendorBalance(
+        source_id=9002,
+        gf_id="GF002",
+        flag=1,
+        vendor_id=vendor.vendor_id if vendor else None,
+        for_him=200.0,
+        for_me=75.0,
+        total=275.0,
+    )
+    session.add(balance)
+    session.commit()
+
+    result = accounting.gedo_vendor_balances(session, limit=500)
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+    found = next((r for r in result if r["source_id"] == 9002), None)
+    assert found is not None
+    assert found["gf_id"] == "GF002"
+    assert found["for_him"] == 200.0
+    assert found["for_me"] == 75.0
+    assert found["total"] == 275.0
+
+
+def test_gedo_branch_balances(session):
+    """Test gedo_branch_balances service returns persisted GL sub-ledger records."""
+    branch = session.scalar(select(m.Branch).limit(1))
+
+    balance = m.GedoBranchBalance(
+        source_id=9003,
+        gf_id="GF003",
+        flag=0,
+        branch_id=branch.branch_id if branch else None,
+        for_him=300.0,
+        for_me=150.0,
+        total=450.0,
+    )
+    session.add(balance)
+    session.commit()
+
+    result = accounting.gedo_branch_balances(session, limit=500)
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+    found = next((r for r in result if r["source_id"] == 9003), None)
+    assert found is not None
+    assert found["gf_id"] == "GF003"
+    assert found["for_him"] == 300.0
+    assert found["for_me"] == 150.0
+    assert found["total"] == 450.0
+
+
+def test_gedo_employee_balances(session):
+    """Test gedo_employee_balances service returns persisted GL sub-ledger records."""
+    emp = session.scalar(select(m.Employee).limit(1))
+
+    balance = m.GedoEmployeeBalance(
+        source_id=9004,
+        gf_id="GF004",
+        flag=1,
+        employee_id=emp.employee_id if emp else None,
+        for_him=400.0,
+        for_me=200.0,
+        total=600.0,
+    )
+    session.add(balance)
+    session.commit()
+
+    result = accounting.gedo_employee_balances(session, limit=500)
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+    found = next((r for r in result if r["source_id"] == 9004), None)
+    assert found is not None
+    assert found["gf_id"] == "GF004"
+    assert found["for_him"] == 400.0
+    assert found["for_me"] == 200.0
+    assert found["total"] == 600.0
+
+
+def test_gedo_installment_balances(session):
+    """Test gedo_installment_balances service returns persisted GL sub-ledger records."""
+    cust = session.scalar(select(m.Customer).limit(1))
+    assert cust is not None
+
+    balance = m.GedoInstallmentBalance(
+        source_id=9005,
+        f_id="F005",
+        flag=0,
+        customer_id=cust.customer_id,
+        for_him=500.0,
+        for_me=250.0,
+        total=750.0,
+    )
+    session.add(balance)
+    session.commit()
+
+    result = accounting.gedo_installment_balances(session, limit=500)
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+    found = next((r for r in result if r["source_id"] == 9005), None)
+    assert found is not None
+    assert found["f_id"] == "F005"
+    assert found["for_him"] == 500.0
+    assert found["for_me"] == 250.0
+    assert found["total"] == 750.0
+
+
+def test_gedo_balances_limit_parameter(session):
+    """Test that limit parameter is respected in Gedo balance queries."""
+    cust = session.scalar(select(m.Customer).limit(1))
+
+    # Add 3 customer balances
+    for i in range(3):
+        session.add(m.GedoCustomerBalance(
+            source_id=9100 + i,
+            gf_id=f"GF_LIMIT_{i}",
+            flag=0,
+            customer_id=cust.customer_id,
+            for_him=100.0 * (i + 1),
+            for_me=50.0 * (i + 1),
+            total=150.0 * (i + 1),
+        ))
+    session.commit()
+
+    # Test with limit=2
+    result = accounting.gedo_customer_balances(session, limit=2)
+    assert len(result) <= 2
+
+
+def test_gedo_balances_unmapped_party(session):
+    """Test Gedo balances with NULL party IDs (unmapped entities)."""
+    # Add balance with no party mapping (NULL vendor_id)
+    balance = m.GedoVendorBalance(
+        source_id=9999,
+        gf_id="GF_UNMAP",
+        flag=0,
+        vendor_id=None,  # Unmapped vendor
+        for_him=50.0,
+        for_me=25.0,
+        total=75.0,
+    )
+    session.add(balance)
+    session.commit()
+
+    result = accounting.gedo_vendor_balances(session, limit=500)
+    found = next((r for r in result if r["source_id"] == 9999), None)
+    assert found is not None
+    assert found["vendor_id"] is None
+    assert found["total"] == 75.0
