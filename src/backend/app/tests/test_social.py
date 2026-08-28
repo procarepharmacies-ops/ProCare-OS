@@ -227,19 +227,23 @@ def test_publish_post_invalid_status(session):
 def test_get_month_posts_current_month(session):
     """Test retrieving posts for current month."""
     today = datetime.now()
+    # Anchor BOTH posts inside the current month. Using `today + 5 days` rolls
+    # into the next month on the last days of a month, and get_month_posts then
+    # correctly excludes it — a green suite must not depend on today's date.
+    month_start = today.replace(day=1, hour=12, minute=0, second=0, microsecond=0)
     post1 = social_svc.create_social_post(
         session,
         channel="ig",
         body_ar="محتوى 1",
         body_en="Content 1",
-        scheduled_at=today,
+        scheduled_at=month_start,
     )
     post2 = social_svc.create_social_post(
         session,
         channel="fb",
         body_ar="محتوى 2",
         body_en="Content 2",
-        scheduled_at=today + timedelta(days=5),
+        scheduled_at=month_start + timedelta(days=5),
     )
     session.commit()
 
