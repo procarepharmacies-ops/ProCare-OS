@@ -1,5 +1,8 @@
 # Secrets / local config — NEVER commit
 config/connections.json
+# ...and any hand-made backup of it: those hold the same passwords and were
+# showing up as untracked, one `git add -A` away from being committed.
+config/connections.json.*
 *.env
 .env*
 !.env.example

@@ -29,6 +29,9 @@ Design notes
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import os
 import time
 from datetime import date, datetime, timedelta
@@ -39,6 +42,33 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import models as m
 from app.db.base import Base, SessionLocal, engine
+from app.db.models import EstockRawMirror, EstockRawWatermark
+
+# SQL Server 2008 hard-caps a single statement at 2100 parameters. A naive
+# bulk insert of N rows x ~10 cols blows past that and the server TERMINATES
+# the connection (pyodbc HY000 "Unspecified error... connection terminated"),
+# which poisons the shared pool and takes the whole backend down. Chunk every
+# bulk path well under the limit (200 rows x <=10 cols ~= 2000 params).
+_BULK_CHUNK = 200
+
+
+def _bulk_add(dst: Session, objs: list) -> None:
+    """Chunked ORM bulk insert that stays inside SQL Server's 2100-param limit
+    AND bounds transaction size — SQL Server 2008 kills one gigantic transaction
+    ('08S01' connection drop), so we commit every chunk."""
+    for i in range(0, len(objs), _BULK_CHUNK):
+        dst.add_all(objs[i : i + _BULK_CHUNK])
+        dst.flush()
+        dst.commit()
+
+
+def _bulk_insert(dst: Session, table, rows: list) -> None:
+    """Chunked Core multi-row INSERT (same 2100-param + transaction-size rationale)."""
+    if not rows:
+        return
+    for i in range(0, len(rows), _BULK_CHUNK):
+        dst.execute(insert(table), rows[i : i + _BULK_CHUNK])
+        dst.commit()
 
 # eStock source table -> ProCare destination, with the cleaning rule applied.
 # (Row counts are from the 2026-06-23 audit; see docs/02 and docs/06.)
@@ -90,6 +120,17 @@ _WIPE_ORDER = [
     m.StockAdjustment if hasattr(m, "StockAdjustment") else None,
     # ProductChange references products — must be cleared before Product.
     m.ProductChange if hasattr(m, "ProductChange") else None,
+    # So do the derived/analytics tables. Leaving them out made a full wipe fail
+    # with "FOREIGN KEY constraint failed ... DELETE FROM products" on any
+    # database that had ever produced a decision card or a forecast — every
+    # model carrying an FK to products has to be listed here, not just the
+    # transactional ones.
+    m.DecisionCard if hasattr(m, "DecisionCard") else None,
+    m.Forecast if hasattr(m, "Forecast") else None,
+    m.ProductAffinity if hasattr(m, "ProductAffinity") else None,
+    m.IncentiveLedger if hasattr(m, "IncentiveLedger") else None,
+    m.ShortageItem if hasattr(m, "ShortageItem") else None,
+    m.BranchOrderLine if hasattr(m, "BranchOrderLine") else None,
     m.LedgerEntry, m.PurchaseOrderDraft, m.StockBatch, m.Product, m.Customer, m.Vendor,
 ]
 
@@ -431,8 +472,14 @@ def mirror(
         customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
         _load_employees(insp, src, dst, counts)
-        _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
-        _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map, default_branch)
+        # Product_Amount and Branches_Product_Amount overlap the same way the
+        # sales tables do — one identity set spans both so a batch is mirrored
+        # once, under the branch that actually holds it.
+        seen_stock: set = set()
+        _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch,
+                    seen=seen_stock)
+        _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map,
+                                    default_branch, seen=seen_stock)
 
         # Cashier attribution: eStock stores the cashier as a username on each
         # sale; map it to the ProCare employee so per-cashier reports work.
@@ -454,19 +501,26 @@ def mirror(
             ("Back_sales_header", "Back_Sales_details", True, "returns"),
             ("Branches_back_sales_header", "Branches_back_sales_details", True, "returns"),
         ]
+        # ...but the two tables OVERLAP: the branch table repeats every
+        # head-office row under branch_id = 1 and adds the other branch's rows
+        # on top. One identity set per stream (shared across that stream's
+        # tables) keeps each bill exactly once — see _load_sales.
+        seen_sales: dict[str, set] = {"sales": set(), "returns": set()}
         for h, d, ret, ck in sales_tables:
             _load_sales(
                 insp, src, dst, counts, product_map, customer_map, branch_map,
                 default_branch, employee_map, header_tbl=h, detail_tbl=d, returns=ret, count_key=ck,
-                window_cutoff=window_cutoff,
+                window_cutoff=window_cutoff, seen=seen_sales[ck],
             )
 
+        seen_purchases: set = set()
         for h, d in [
             ("Purchase_header", "Purchase_details"),
             ("Branches_purchase_header", "Branches_purchase_details"),
         ]:
             _load_purchases(insp, src, dst, counts, product_map, branch_map, default_branch,
-                            header_tbl=h, detail_tbl=d, window_cutoff=window_cutoff)
+                            header_tbl=h, detail_tbl=d, window_cutoff=window_cutoff,
+                            seen=seen_purchases)
 
         # Mirror high-value uncovered tables (Phase 7).
         _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch)
@@ -484,6 +538,11 @@ def mirror(
         _load_payroll(insp, src, dst, counts)
         # Salary advances ledger (optional, upsert by source id).
         _load_salary_advances(insp, src, dst, counts)
+
+        # 100% eStock coverage: mirror all remaining source tables verbatim into
+        # the generic EstockRawMirror table (~84 tables in one pass).  Read-only
+        # SELECT on eStock, never a write.
+        _load_uncovered_tables(insp, src, dst, counts, branch_map, default_branch)
 
         dst.commit()
     finally:
@@ -512,15 +571,31 @@ def _ensure_branch_code(dst: Session, code: str, name_ar: str | None = None, nam
 
 
 def _distinct_store_ids(insp, src) -> set[int]:
-    """Every store_id present on the source (across the branch-bearing tables)."""
+    """Every branch key present on the source, across the branch-bearing tables.
+
+    Both discriminators feed the one map: ``store_id`` on the head-office tables
+    and ``branch_id`` on the ``Branches_*`` ones (see ``_row_branch``). Without
+    the branch_id half a branch that appears ONLY in the Branches_* tables is
+    never discovered — Mas-hala's rows all carry store_id 1 — so it silently
+    inherits the default branch instead of getting one of its own.
+    """
     ids: set[int] = set()
-    for tbl in ("Product_Amount", "Sales_header", "Back_sales_header", "Purchase_header"):
+    sources = (
+        ("Product_Amount", "store_id"),
+        ("Sales_header", "store_id"),
+        ("Back_sales_header", "store_id"),
+        ("Purchase_header", "store_id"),
+        ("Branches_Product_amount", "branch_id"),
+        ("Branches_sales_header", "branch_id"),
+        ("Branches_purchase_header", "branch_id"),
+    )
+    for tbl, col in sources:
         if not insp.has_table(tbl):
             continue
-        cols = {c["name"] for c in insp.get_columns(tbl)}
-        if "store_id" not in cols:
+        cols = {c["name"].lower() for c in insp.get_columns(tbl)}
+        if col not in cols:
             continue
-        for (v,) in src.execute(text(f"SELECT DISTINCT store_id FROM {tbl}")):
+        for (v,) in src.execute(text(f"SELECT DISTINCT {col} FROM {tbl}")):
             if v is not None:
                 ids.add(int(v))
     return ids
@@ -529,10 +604,15 @@ def _distinct_store_ids(insp, src) -> set[int]:
 def _resolve_branch_map(
     dst: Session, store_branch_map: dict | None, store_ids: set[int] | None = None
 ) -> dict[int, int]:
-    """store_id (eStock) -> branch_id (ProCare).
+    """eStock branch key -> branch_id (ProCare).
 
-    Honours an operator-provided map ({store_id: 'CODE'} or {store_id: branch_id}),
-    creating any named ProCare branch that doesn't exist yet. Any store_id seen on
+    The key is whichever discriminator the source table carries: ``store_id`` on
+    the head-office tables, ``branch_id`` on the ``Branches_*`` ones. They share
+    one numbering here — 1 = Elsanta, 2 = Mas-hala — so one map serves both; see
+    ``_row_branch``.
+
+    Honours an operator-provided map ({key: 'CODE'} or {key: branch_id}),
+    creating any named ProCare branch that doesn't exist yet. Any key seen on
     the source but not mapped gets its own auto-created branch, so a new branch
     (e.g. Mashal) never silently merges into another.
     """
@@ -580,6 +660,22 @@ def _resolve_branch_map(
     return out or {1: next(iter(by_code.values()))}
 
 
+def _row_branch(row, *, branch_col, store_col, branch_map, default_branch) -> int:
+    """Resolve one source row's ProCare branch.
+
+    eStock keeps the real branch discriminator in ``branch_id`` on its
+    ``Branches_*`` tables. ``store_id`` is the till number and is 1 on EVERY row
+    of this schema — including Mas-hala's — so resolving a Branches_* row on
+    store_id collapses both pharmacies onto one branch. Prefer branch_id
+    wherever the table carries it; fall back to store_id for the head-office
+    tables that don't.
+    """
+    col = branch_col or store_col
+    if col and row.get(col) is not None:
+        return branch_map.get(int(row[col])) or default_branch
+    return default_branch
+
+
 def _wipe_destination(dst: Session) -> None:
     # The full wipe is the single most destructive operation in the system —
     # make sure a recent backup exists first (throttled; fail-soft).
@@ -604,6 +700,12 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
         return
     sale_ids = select(m.Sale.sale_id).where(m.Sale.branch_id.in_(ids))
     dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
+    # incentive_ledger points at sale_lines.line_id, so it has to go before the
+    # lines do — otherwise the branch wipe (every sync cycle) dies on
+    # "FOREIGN KEY constraint failed ... DELETE FROM sale_lines" as soon as one
+    # cashier has earned points on a mirrored sale.
+    if hasattr(m, "IncentiveLedger"):
+        dst.execute(delete(m.IncentiveLedger).where(m.IncentiveLedger.sale_id.in_(sale_ids)))
     dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
     # Returns first (self-FK sales.original_sale_id), then the originals.
     dst.execute(
@@ -670,6 +772,10 @@ def _wipe_branch_sales_window(dst: Session, branch_ids: set[int], cutoff: date) 
         m.Sale.branch_id.in_(ids), m.Sale.sale_date >= cutoff
     )
     dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
+    # See _wipe_branch_rows: incentive_ledger references sale_lines.line_id and
+    # has to be cleared before the lines it points at.
+    if hasattr(m, "IncentiveLedger"):
+        dst.execute(delete(m.IncentiveLedger).where(m.IncentiveLedger.sale_id.in_(sale_ids)))
     dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
     dst.execute(
         delete(m.Sale).where(
@@ -1064,14 +1170,30 @@ def _load_employees(insp, src, dst, counts) -> None:
     counts["employees_updated"] = updated
 
 
-def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
+def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch,
+                seen: set | None = None) -> None:
+    """Mirror the head-office ``Product_Amount`` (current per-batch stock).
+
+    ``seen`` collects this load's ``(branch, pa_id)`` batches so
+    ``_load_branch_product_amount`` can skip the copies of them that
+    ``Branches_Product_Amount`` repeats — see _load_sales for the same overlap
+    on the transactional tables.
+
+    The identity is ``pa_id``, the table's own row id, and NEVER ``counter_id``:
+    counter_id is the shelf/counter number and takes just 77 distinct values
+    across 67,447 batches, so keying on it collapses the entire stock table onto
+    77 rows. A source with no pa_id simply skips the dedup — mirroring a batch
+    twice is recoverable, dropping 99.9% of them is not.
+    """
     if not insp.has_table("Product_Amount"):
         counts["stock_batches"] = 0
         return
     cols = {c["name"] for c in insp.get_columns("Product_Amount")}
     pid = _pick(cols, "product_id")
     store = _pick(cols, "store_id")
+    branch_col = _pick(cols, "branch_id")
     counter = _pick(cols, "counter_id")
+    ident = _pick(cols, "pa_id")          # the row id — see the docstring
     amount = _pick(cols, "amount")
     buy = _pick(cols, "buy_price")
     sell = _pick(cols, "sell_price")
@@ -1086,11 +1208,16 @@ def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
         dst_pid = product_map.get(src_pid)
         if dst_pid is None:
             continue  # orphan batch (no matching product) — skip, don't invent
-        branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        branch_id = _row_branch(
+            r, branch_col=branch_col, store_col=store,
+            branch_map=branch_map, default_branch=default_branch,
+        )
+        if seen is not None and ident and r.get(ident) is not None:
+            seen.add((branch_id, int(r[ident])))
         batch_objs.append(
             m.StockBatch(
                 product_id=dst_pid,
-                branch_id=branch_id or default_branch,
+                branch_id=branch_id,
                 source_counter=int(r[counter]) if counter and r.get(counter) is not None else None,
                 amount=max(_num(r.get(amount)), 0),  # CK_stock_amount: never negative
                 buy_price=_num(r.get(buy)) if buy else 0,
@@ -1100,25 +1227,37 @@ def _load_stock(insp, src, dst, counts, product_map, branch_map, default_branch)
             )
         )
         n += 1
-    dst.add_all(batch_objs)
-    dst.flush()
+    _bulk_add(dst, batch_objs)
     counts["stock_batches"] = n
 
 
-def _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
+def _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map, default_branch,
+                                seen: set | None = None) -> None:
     """Mirror eStock's Branches_Product_Amount (per-branch batch stock).
 
-    Inferred columns (pending schema-dump confirmation from Elsanta):
+    This table REPEATS every head-office ``Product_Amount`` batch under its own
+    branch and adds the other branch's batches on top (measured 2026-08-31:
+    67,447 head-office + 67,434 the same again under branch 1 + 55,957 that are
+    branch 2's alone = the 190,838 rows ProCare was holding, every one of them
+    stamped branch 1). ``seen`` carries the head-office load's
+    ``(branch, pa_id)`` batches so the repeats are skipped instead of doubling
+    Elsanta's stock, and the branch is read from ``branch_id`` — never
+    ``store_id``, which is 1 on every row here.
+
+    Columns (confirmed against Elsanta 2026-08-31):
     - product_id, amount, buy_price, sell_price, tax_price, exp_date (like Product_Amount)
-    - counter_id (or pa_id) for dedup
-    - store_id or branch_id mapping
+    - pa_id — the row id, and the ONLY safe dedup key (see _load_stock)
+    - counter_id — the shelf number, kept as StockBatch.source_counter
+    - branch_id — the branch; store_id is 1 on every row and must not be used
     """
     if not insp.has_table("Branches_Product_Amount"):
         return
     cols = {c["name"] for c in insp.get_columns("Branches_Product_Amount")}
     pid = _pick(cols, "product_id")
     store = _pick(cols, "store_id")
+    branch_col = _pick(cols, "branch_id")
     counter = _pick(cols, "counter_id", "pa_id")  # try counter_id first, fallback to pa_id
+    ident = _pick(cols, "pa_id")                  # the row id — see _load_stock
     amount = _pick(cols, "amount")
     buy = _pick(cols, "buy_price")
     sell = _pick(cols, "sell_price")
@@ -1127,17 +1266,27 @@ def _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map,
 
     rows = src.execute(text("SELECT * FROM Branches_Product_Amount")).mappings().all()
     n = 0
+    n_dupes = 0
     batch_objs = []
     for r in rows:
         src_pid = int(r[pid]) if pid and r.get(pid) is not None else None
         dst_pid = product_map.get(src_pid)
         if dst_pid is None:
             continue
-        branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+        branch_id = _row_branch(
+            r, branch_col=branch_col, store_col=store,
+            branch_map=branch_map, default_branch=default_branch,
+        )
+        if seen is not None and ident and r.get(ident) is not None:
+            key = (branch_id, int(r[ident]))
+            if key in seen:
+                n_dupes += 1
+                continue
+            seen.add(key)
         batch_objs.append(
             m.StockBatch(
                 product_id=dst_pid,
-                branch_id=branch_id or default_branch,
+                branch_id=branch_id,
                 source_counter=int(r[counter]) if counter and r.get(counter) is not None else None,
                 amount=max(_num(r.get(amount)), 0),
                 buy_price=_num(r.get(buy)) if buy else 0,
@@ -1147,10 +1296,13 @@ def _load_branch_product_amount(insp, src, dst, counts, product_map, branch_map,
             )
         )
         n += 1
+    counts["stock_batches_duplicates_skipped"] = (
+        counts.get("stock_batches_duplicates_skipped", 0) + n_dupes
+    )
     if batch_objs:
         counts.setdefault("stock_batches", 0)
         counts["stock_batches"] += n
-        dst.add_all(batch_objs)
+        _bulk_add(dst, batch_objs)
         dst.flush()
 
 
@@ -1293,7 +1445,7 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
 def _load_sales(
     insp, src, dst, counts, product_map, customer_map, branch_map, default_branch,
     employee_map=None, *, header_tbl, detail_tbl, returns: bool, count_key: str,
-    window_cutoff: date | None = None,
+    window_cutoff: date | None = None, seen: set | None = None,
 ) -> None:
     """Mirror one sales header/detail table pair into ProCare.
 
@@ -1301,6 +1453,16 @@ def _load_sales(
     head-office ``Sales_header`` AND the branch ``Branches_sales_header`` (which
     can hold MORE rows than the main table), plus the ``Back_*`` return variants.
     Counts ACCUMULATE across calls under ``count_key`` (sales / returns).
+
+    ``seen`` is the caller's cross-table identity set. eStock ships every
+    head-office bill TWICE — once in ``Sales_header`` and again in
+    ``Branches_sales_header`` tagged ``branch_id = 1`` — while Mas-hala's bills
+    exist ONLY in the Branches_* table. Mirroring both tables blindly therefore
+    double-counted every Elsanta sale (measured 2026-08-31: 173 mirrored rows
+    for a day that held 104 real bills, inflating revenue by the duplicated
+    half). A bill is identified by ``(branch, source id)`` and never by the id
+    alone — each branch numbers its bills from 1, so the two branches' id ranges
+    overlap almost completely.
     """
     employee_map = employee_map or {}
     if not insp.has_table(header_tbl):
@@ -1310,6 +1472,12 @@ def _load_sales(
     hcols = {c["name"] for c in insp.get_columns(header_tbl)}
     sid = _pick(hcols, "sales_id")
     store = _pick(hcols, "store_id")
+    branch_col = _pick(hcols, "branch_id")
+    # Identity for the cross-table dedup: this header's OWN row id. For the
+    # sales tables that is sales_id; Back_sales_header numbers its rows with
+    # back_sales_id and carries sales_id only as the bill being returned, so
+    # two returns against one bill must stay two rows.
+    ident = _pick(hcols, "back_sales_id") or sid
     cust = _pick(hcols, "customer_id")
     cashier = _pick(hcols, "cashier_id")
     bill_date = _pick(hcols, "bill_date")
@@ -1341,8 +1509,14 @@ def _load_sales(
     else:
         header_chunks = _iter_rows(src, header_tbl, sid)
 
-    sale_id_map: dict[int, int] = {}
+    # Keyed (branch, source sales_id): the id alone is ambiguous across branches.
+    sale_id_map: dict[tuple[int, int], int] = {}
+    # Detail tables with no branch column of their own (the head-office
+    # Sales_details) can only be matched on the source id, so keep an
+    # unambiguous-id fallback — an id this call mapped onto exactly one branch.
+    by_src_id: dict[int, int | None] = {}
     n_headers = 0
+    n_dupes = 0
     for hrows in header_chunks:
         pairs = []  # (src row, Sale) — only the rows actually kept
         for r in hrows:
@@ -1356,7 +1530,18 @@ def _load_sales(
             # the window wipe didn't clear.
             if window_cutoff is not None and sale_dt.date() < window_cutoff:
                 continue
-            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            branch_id = _row_branch(
+                r, branch_col=branch_col, store_col=store,
+                branch_map=branch_map, default_branch=default_branch,
+            )
+            # Already mirrored from the other table of the pair — same branch,
+            # same bill. Skip rather than insert the twin.
+            if seen is not None and ident and r.get(ident) is not None:
+                key = (branch_id, int(r[ident]))
+                if key in seen:
+                    n_dupes += 1
+                    continue
+                seen.add(key)
             # eStock cashier_id is a username (varchar) -> map to a ProCare employee.
             cashier_id = None
             if cashier and r.get(cashier) not in (None, "", 0):
@@ -1364,7 +1549,7 @@ def _load_sales(
             pairs.append((
                 r,
                 m.Sale(
-                    branch_id=branch_id or default_branch,
+                    branch_id=branch_id,
                     customer_id=customer_map.get(src_cust) if src_cust else None,
                     cashier_id=cashier_id,
                     sale_date=sale_dt,
@@ -1381,9 +1566,17 @@ def _load_sales(
         dst.flush()
         for r, obj in pairs:
             if sid and r.get(sid) is not None:
-                sale_id_map[int(r[sid])] = obj.sale_id
+                src_id = int(r[sid])
+                sale_id_map[(obj.branch_id, src_id)] = obj.sale_id
+                # Second sighting of an id means a second branch: mark it
+                # ambiguous so a branchless detail row is dropped rather than
+                # attached to the wrong pharmacy's bill.
+                by_src_id[src_id] = None if src_id in by_src_id else obj.sale_id
         n_headers += len(pairs)
     counts[count_key] = counts.get(count_key, 0) + n_headers
+    counts[count_key + "_duplicates_skipped"] = (
+        counts.get(count_key + "_duplicates_skipped", 0) + n_dupes
+    )
 
     # Lines
     if not insp.has_table(detail_tbl):
@@ -1391,6 +1584,8 @@ def _load_sales(
         return
     dcols = {c["name"] for c in insp.get_columns(detail_tbl)}
     d_sid = _pick(dcols, "sales_id")
+    d_branch = _pick(dcols, "branch_id")
+    d_store = _pick(dcols, "store_id")
     d_pid = _pick(dcols, "product_id")
     d_amount = _pick(dcols, "amount", "back_amount")
     d_sell = _pick(dcols, "sell_price", "back_price")
@@ -1403,16 +1598,32 @@ def _load_sales(
     # happen to fall inside the range but aren't in the map are skipped below.
     detail_bounds = None
     if window_cutoff is not None:
-        if not sale_id_map:
+        if not by_src_id:
             counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0)
             return
-        detail_bounds = (min(sale_id_map), max(sale_id_map))
+        detail_bounds = (min(by_src_id), max(by_src_id))
 
     n_lines = 0
     for drows in _iter_rows(src, detail_tbl, d_sid, bounds=detail_bounds):
         line_rows = []
         for r in drows:
-            sale_pk = sale_id_map.get(int(r[d_sid])) if d_sid and r.get(d_sid) is not None else None
+            sale_pk = None
+            if d_sid and r.get(d_sid) is not None:
+                src_id = int(r[d_sid])
+                if d_branch or d_store:
+                    # The detail row names its own branch — match it exactly.
+                    # No fallback to the id-only map here: this table's twin
+                    # headers were skipped as duplicates, and the same id in
+                    # the OTHER branch would silently steal the line.
+                    sale_pk = sale_id_map.get((
+                        _row_branch(
+                            r, branch_col=d_branch, store_col=d_store,
+                            branch_map=branch_map, default_branch=default_branch,
+                        ),
+                        src_id,
+                    ))
+                else:
+                    sale_pk = by_src_id.get(src_id)
             dst_pid = product_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
             if sale_pk is None or dst_pid is None:
                 continue
@@ -1434,7 +1645,7 @@ def _load_sales(
                 }
             )
         if line_rows:
-            dst.execute(insert(m.SaleLine), line_rows)
+            _bulk_insert(dst, m.SaleLine, line_rows)
         n_lines += len(line_rows)
     counts[count_key + "_lines"] = counts.get(count_key + "_lines", 0) + n_lines
 
@@ -1442,11 +1653,18 @@ def _load_sales(
 def _load_purchases(
     insp, src, dst, counts, product_map, branch_map, default_branch,
     vendor_map=None, *, header_tbl="Purchase_header", detail_tbl="Purchase_details",
-    window_cutoff: date | None = None,
+    window_cutoff: date | None = None, seen: set | None = None,
 ) -> None:
     """Mirror one purchase header/detail table pair. Called for both the
     head-office ``Purchase_header`` and the branch ``Branches_purchase_header``
-    so purchase totals match eStock. Counts accumulate."""
+    so purchase totals match eStock. Counts accumulate.
+
+    Carries the same ``(branch, source id)`` dedup as ``_load_sales`` — the two
+    tables overlap exactly the same way (measured 2026-08-31: 12,822 head-office
+    bills, the identical 12,822 again under branch 1, plus 12,510 that are
+    Mas-hala's alone), so mirroring both blindly double-counted every Elsanta
+    purchase.
+    """
     vendor_map = vendor_map or {}
     if not insp.has_table(header_tbl):
         counts.setdefault("purchases", 0)
@@ -1455,6 +1673,7 @@ def _load_purchases(
     pid = _pick(hcols, "purchase_id")
     vendor = _pick(hcols, "vendor_id")
     store = _pick(hcols, "store_id")
+    branch_col = _pick(hcols, "branch_id")
     bill_date = _pick(hcols, "bill_date")
     bill_num = _pick(hcols, "bill_number")
     gross = _pick(hcols, "total_bill")
@@ -1481,8 +1700,13 @@ def _load_purchases(
     else:
         header_chunks = _iter_rows(src, header_tbl, pid)
 
-    purch_map: dict[int, int] = {}
+    # Keyed (branch, source purchase_id) — see _load_sales for why the id alone
+    # is not an identity — with an unambiguous-id fallback for the head-office
+    # Purchase_details, which carries no branch column.
+    purch_map: dict[tuple[int, int], int] = {}
+    by_src_id: dict[int, int | None] = {}
     n_headers = 0
+    n_dupes = 0
     for hrows in header_chunks:
         pairs = []  # (src row, Purchase) — only the rows actually kept
         for r in hrows:
@@ -1491,12 +1715,21 @@ def _load_purchases(
             # fetch must not re-insert history the window wipe didn't clear.
             if window_cutoff is not None and bd < window_cutoff:
                 continue
-            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            branch_id = _row_branch(
+                r, branch_col=branch_col, store_col=store,
+                branch_map=branch_map, default_branch=default_branch,
+            )
+            if seen is not None and pid and r.get(pid) is not None:
+                key = (branch_id, int(r[pid]))
+                if key in seen:
+                    n_dupes += 1
+                    continue
+                seen.add(key)
             src_vendor = int(r[vendor]) if vendor and r.get(vendor) not in (None, 0) else None
             pairs.append((
                 r,
                 m.Purchase(
-                    branch_id=branch_id or default_branch,
+                    branch_id=branch_id,
                     vendor_id=vendor_map.get(src_vendor, any_vendor) if src_vendor else any_vendor,
                     bill_date=bd,
                     bill_number=r.get(bill_num) if bill_num else None,
@@ -1510,15 +1743,22 @@ def _load_purchases(
         dst.flush()
         for r, obj in pairs:
             if pid and r.get(pid) is not None:
-                purch_map[int(r[pid])] = obj.purchase_id
+                src_id = int(r[pid])
+                purch_map[(obj.branch_id, src_id)] = obj.purchase_id
+                by_src_id[src_id] = None if src_id in by_src_id else obj.purchase_id
         n_headers += len(pairs)
     counts["purchases"] = counts.get("purchases", 0) + n_headers
+    counts["purchases_duplicates_skipped"] = (
+        counts.get("purchases_duplicates_skipped", 0) + n_dupes
+    )
 
     if not insp.has_table(detail_tbl):
         counts.setdefault("purchase_lines", 0)
         return
     dcols = {c["name"] for c in insp.get_columns(detail_tbl)}
     d_pid = _pick(dcols, "purchase_id")
+    d_branch = _pick(dcols, "branch_id")
+    d_store = _pick(dcols, "store_id")
     d_prod = _pick(dcols, "product_id")
     d_amount = _pick(dcols, "amount")
     d_bonus = _pick(dcols, "bouns", "bonus")
@@ -1528,16 +1768,28 @@ def _load_purchases(
 
     detail_bounds = None
     if window_cutoff is not None:
-        if not purch_map:
+        if not by_src_id:
             counts["purchase_lines"] = counts.get("purchase_lines", 0)
             return
-        detail_bounds = (min(purch_map), max(purch_map))
+        detail_bounds = (min(by_src_id), max(by_src_id))
 
     n_lines = 0
     for drows in _iter_rows(src, detail_tbl, d_pid, bounds=detail_bounds):
         line_rows = []
         for r in drows:
-            purch_pk = purch_map.get(int(r[d_pid])) if d_pid and r.get(d_pid) is not None else None
+            purch_pk = None
+            if d_pid and r.get(d_pid) is not None:
+                src_id = int(r[d_pid])
+                if d_branch or d_store:
+                    purch_pk = purch_map.get((
+                        _row_branch(
+                            r, branch_col=d_branch, store_col=d_store,
+                            branch_map=branch_map, default_branch=default_branch,
+                        ),
+                        src_id,
+                    ))
+                else:
+                    purch_pk = by_src_id.get(src_id)
             dst_prod = product_map.get(int(r[d_prod])) if d_prod and r.get(d_prod) is not None else None
             qty = _num(r.get(d_amount))
             if purch_pk is None or dst_prod is None or qty <= 0:
@@ -1554,7 +1806,7 @@ def _load_purchases(
                 }
             )
         if line_rows:
-            dst.execute(insert(m.PurchaseLine), line_rows)
+            _bulk_insert(dst, m.PurchaseLine, line_rows)
         n_lines += len(line_rows)
     counts["purchase_lines"] = counts.get("purchase_lines", 0) + n_lines
 
@@ -2083,6 +2335,384 @@ def import_branch_backup(database: str, branch_code: str, *, append: bool = True
         source_engine.dispose()
     return {"ran": True, "database": database, "branch": branch_code.strip().upper(),
             "mode": "append" if append else "fresh", "counts": counts}
+
+
+
+# ============================================================================
+# 100% eStock coverage: raw mirror of all tables not handled by dedicated
+# _load_* functions above. One EstockRawMirror row per source row, JSON-encoded,
+# deduped on (source_table, source_id). Read-only SELECT on eStock — never a
+# write. Takes ProCare from "28 of 114 tables" to 100% coverage without hand-
+# modelling ~86 more tables.
+# ============================================================================
+
+_RAW_ROWS_PER_CHUNK = 20_000   # rows we AIM to pull per SELECT
+_RAW_CHUNK_MIN = 20_000        # narrowest id-range window
+_RAW_CHUNK_MAX = 5_000_000     # widest, so a dense patch cannot blow up memory
+_RAW_ANTIJOIN_CHUNK = 900      # IN(...) size; SQL Server caps a batch at 2100 params
+
+def _raw_mirror_enabled() -> bool:
+    return str(os.environ.get("RAW_MIRROR", "1")).strip().lower() in ("1", "true", "yes", "on")
+
+def _raw_refresh_max_rows() -> int:
+    try: return max(0, int(os.environ.get("RAW_MIRROR_REFRESH_MAX_ROWS", "50000")))
+    except ValueError: return 50_000
+
+def _raw_skip_above_rows() -> int:
+    try: return max(0, int(os.environ.get("RAW_MIRROR_SKIP_ABOVE_ROWS", "0")))
+    except ValueError: return 0
+
+def _raw_try_lock(dst) -> bool:
+    """Take an exclusive advisory lock on the raw pass, without waiting.
+
+    The backend syncs every 5 minutes and an off-peak backfill of the change logs
+    runs for far longer than one cycle, so without this the two passes read and
+    insert the same keys at once — each with its own anti-join snapshot, so the
+    duplicates they create are the kind the anti-join cannot see.
+
+    ``@LockOwner='Transaction'`` releases the lock when the mirror's transaction
+    commits or rolls back, so a crashed backfill cannot strand it. Anything other
+    than SQL Server (the SQLite test source) has no contention to arbitrate and is
+    granted it. A lock that cannot be taken is never allowed to fail a sync — on
+    error the pass proceeds, exactly as it did before this existed.
+    """
+    try:
+        if dst.bind is None or dst.bind.dialect.name != "mssql":
+            return True
+        r = dst.execute(text(
+            "DECLARE @r int; EXEC @r = sp_getapplock @Resource = 'procare_raw_mirror', "
+            "@LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 0; SELECT @r"
+        )).scalar()
+        return int(r) >= 0
+    except Exception:
+        return True
+
+
+def _raw_watermark(table: str) -> int | None:
+    try:
+        with SessionLocal() as s:
+            r = s.execute(text("SELECT last_value FROM estock_raw_watermark WHERE source_table = :t"), {"t": table}).first()
+            return int(r[0]) if r else None
+    except Exception: return None
+
+def _raw_save_watermark(table: str, value: int) -> None:
+    try:
+        with SessionLocal() as s:
+            s.execute(text("IF NOT EXISTS (SELECT 1 FROM estock_raw_watermark WHERE source_table = :t) INSERT INTO estock_raw_watermark (source_table, last_value) VALUES (:t, :v) ELSE UPDATE estock_raw_watermark SET last_value = :v, updated_at = GETDATE() WHERE source_table = :t"), {"t": table, "v": value})
+            s.commit()
+    except Exception: pass
+
+def _scalar(value) -> str:
+    if value is None: return ""
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value): return ""
+        value = int(value) if float(value).is_integer() else value
+    if hasattr(value, "isoformat"): return value.isoformat()
+    if hasattr(value, "quantize"): return str(value)
+    return str(value)
+
+def _row_to_json(row) -> str:
+    d = {}
+    for k, v in row.items():
+        if isinstance(v, bytes): d[k] = v.hex()
+        elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)): d[k] = None
+        elif hasattr(v, "isoformat"): d[k] = v.isoformat()
+        elif hasattr(v, "quantize"): d[k] = float(v)
+        else: d[k] = v
+    return json.dumps(d, ensure_ascii=False)
+
+def _pk_cols(insp, table: str) -> list[str]:
+    """Every primary-key column, in constraint order, when all of them are numeric.
+
+    Returning the *whole* key matters: keying on the first column alone collapsed
+    ``Branches_Product_amount_Change``'s 1,052,383 rows onto its two distinct
+    ``branch_id`` values.  A non-numeric member means the table cannot be read
+    forward safely, so the caller falls back to the row-digest path.
+    """
+    try:
+        cols = insp.get_pk_constraint(table).get("constrained_columns", []) or []
+    except Exception:
+        return []
+    if not cols:
+        return []
+    try:
+        types = {c["name"]: str(c["type"]).upper() for c in insp.get_columns(table)}
+    except Exception:
+        return []
+    for name in cols:
+        t = types.get(name, "")
+        if not ("INT" in t or "DECIMAL" in t or "NUMERIC" in t):
+            return []
+    return list(cols)
+
+
+def _raw_key(row, pk_cols: list[str]) -> str:
+    """Dedup key for one source row: every primary-key column, in order.
+
+    eStock ids are DECIMAL(18,0), so values go through ``_scalar`` — otherwise one
+    cycle renders an id as '123' and the next as '1.23E+2' and every row looks new.
+    A key longer than the 60-char ``source_id`` column is hashed, never truncated:
+    truncation would make distinct rows collide and silently drop data.
+    """
+    key = "|".join(_scalar(row.get(c)) for c in pk_cols)
+    return hashlib.sha1(key.encode("utf-8")).hexdigest() if len(key) > 60 else key
+
+
+def _row_digest(row) -> str:
+    """Stable scalar rendering of a whole row — the dedup key for keyless tables."""
+    return json.dumps({k: _scalar(v) for k, v in row.items()}, ensure_ascii=False)
+
+
+def _raw_forward_col(src, table: str, pk_cols: list[str]) -> str | None:
+    """Which key column to read forward on.
+
+    In a composite eStock key the first column is the low-cardinality one
+    (``branch_id``, MAX 2) and watermarking on it strands the table permanently:
+    after one cycle ``MAX(branch_id) <= last_value`` and every later cycle
+    short-circuits.  The column with the widest range is the one that advances.
+    """
+    if not pk_cols:
+        return None
+    if len(pk_cols) == 1:
+        return pk_cols[0]
+    best, best_max = None, None
+    for c in pk_cols:
+        try:
+            raw = src.execute(text(f"SELECT MAX({c}) FROM {table}")).scalar()
+            m = int(raw) if raw is not None else None
+        except Exception:
+            continue
+        if m is None:
+            continue
+        if best_max is None or m > best_max:
+            best, best_max = c, m
+    return best
+
+
+def _raw_save_watermark_in(dst, table: str, value: int) -> None:
+    """Advance the watermark **in the caller's session**, so it commits with the
+    rows it describes.  A watermark committed separately can end up ahead of rows
+    that were rolled back, and those rows would then never be read again."""
+    row = dst.get(EstockRawWatermark, table)
+    if row is None:
+        dst.add(EstockRawWatermark(source_table=table, last_value=int(value)))
+    else:
+        row.last_value = int(value)
+        row.updated_at = datetime.now()
+
+
+def _source_table_branch_id(insp, src, tbl: str, bm: dict[int, int] | None, db: int | None) -> dict[int, int] | None:
+    """For tables with a ``store_id`` column, return a `{source_store_id: branch_id}`
+    map so rows get tagged to the right ProCare branch.
+
+    ``src`` may be a raw connection OR a ``_ResilientSource`` — both expose
+    ``.execute()``.
+    """
+    if not insp.has_table(tbl): return None
+    if "store_id" not in {c["name"] for c in insp.get_columns(tbl)}: return None
+    try:
+        rows = src.execute(text("SELECT DISTINCT store_id FROM " + tbl)).mappings().all()
+    except Exception: return None
+    sids = {int(r["store_id"]) for r in rows if r["store_id"] is not None}
+    if not sids: return None
+    if not bm: return {s: db for s in sids} if db is not None else None
+    return {s: bm.get(s, db) for s in sids}
+
+
+def _mirror_one_raw_table(insp, src, dst, tbl: str, bm: dict[int, int] | None = None,
+                          max_ref: int = 50_000) -> int:
+    """Mirror ONE source table into ``estock_raw_mirror``. Returns rows added.
+
+    Three shapes, because eStock has three:
+      * **no usable key** — dedup on the row digest, refreshed wholesale;
+      * **keyed and small** (<= ``max_ref``) — refreshed wholesale, so the tables
+        eStock edits in place (balances, config) come back verbatim;
+      * **keyed and large** — read forward from a watermark and anti-joined
+        against the keys already held, so a 5-minute cadence stays cheap.
+
+    Raises on a source it cannot read; the caller runs it inside a SAVEPOINT.
+    """
+    try:
+        est = int(src.execute(text("SELECT COUNT(*) FROM " + tbl)).scalar() or 0)
+    except Exception:
+        est = 0
+    pk_cols = _pk_cols(insp, tbl)
+
+    def _branch_of(row):
+        if bm and row.get("store_id") is not None:
+            try:
+                return bm.get(int(row["store_id"]))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    new: list = []
+    n_new = 0
+
+    def _flush(force=False):
+        nonlocal new
+        if new and (force or len(new) >= _RAW_ANTIJOIN_CHUNK):
+            dst.add_all(new)
+            new = []
+
+    forward = _raw_forward_col(src, tbl, pk_cols) if pk_cols and est > max_ref else None
+
+    # -- wholesale refresh: keyless, small, or no column safe to read forward on
+    if not forward:
+        dst.execute(text("DELETE FROM estock_raw_mirror WHERE source_table = :t"), {"t": tbl})
+        rows = src.execute(text("SELECT * FROM " + tbl)).mappings().all()
+        seen: set = set()
+        for row in rows:
+            digest = _row_digest(row)
+            sid = _raw_key(row, pk_cols) if pk_cols else None
+            dedup = sid if pk_cols else digest
+            if dedup in seen:
+                continue
+            seen.add(dedup)
+            new.append(EstockRawMirror(source_table=tbl, source_id=sid,
+                                       raw=_row_to_json(row) if pk_cols else digest,
+                                       branch_id=_branch_of(row)))
+            n_new += 1
+            _flush()
+        _flush(force=True)
+        return n_new
+
+    # -- incremental: read forward, anti-join against what is already held
+    existing = {
+        "" if r["source_id"] is None else str(r["source_id"])
+        for r in dst.execute(
+            text("SELECT source_id FROM estock_raw_mirror WHERE source_table = :t"),
+            {"t": tbl},
+        ).mappings()
+    }
+
+    wm = _raw_watermark(tbl)
+    if wm is None:
+        # First fill: start below the smallest key, not at 0. eStock does issue
+        # negative ids (Branches_shortcoming.product_id reaches -21670), and a
+        # loop anchored at 0 would skip every row beneath it without a word.
+        try:
+            lo = int(src.execute(text(f"SELECT MIN({forward}) FROM {tbl}")).scalar()) - 1
+        except Exception:
+            lo = 0
+    else:
+        lo = int(wm)
+
+    try:
+        hi = int(src.execute(text(f"SELECT MAX({forward}) FROM {tbl}")).scalar())
+    except Exception:
+        hi = lo
+
+    if hi > lo:
+        # Size the window by key DENSITY, not by row count: Branches_convert_details
+        # holds 62K rows spread over 7.3M ids, so a fixed 20K-id step would issue
+        # ~365 requests, nearly all of them empty.
+        span = hi - lo
+        width = int(span / est * _RAW_ROWS_PER_CHUNK) if est > 0 and span > 0 else _RAW_ROWS_PER_CHUNK
+        width = max(_RAW_CHUNK_MIN, min(_RAW_CHUNK_MAX, width))
+        # `hi + 1`, so the row AT the maximum key is always inside a window. With
+        # `range(lo, hi, ...)` a span that is an exact multiple of the width ends
+        # on `< hi`, dropping that row -- and the watermark still advances past it,
+        # so it is never read again.
+        for start in range(lo, hi + 1, width):
+            end = min(start + width, hi + 1)
+            rows = src.execute(
+                text(f"SELECT * FROM {tbl} WHERE {forward} >= :lo AND {forward} < :hi"),
+                {"lo": start, "hi": end},
+            ).mappings().all()
+            for row in rows:
+                sid = _raw_key(row, pk_cols)
+                if sid in existing:
+                    continue
+                existing.add(sid)
+                new.append(EstockRawMirror(source_table=tbl, source_id=sid,
+                                           raw=_row_to_json(row), branch_id=_branch_of(row)))
+                n_new += 1
+                _flush()
+        _flush(force=True)
+
+    if hi:
+        _raw_save_watermark_in(dst, tbl, hi)
+    return n_new
+
+
+def _load_uncovered_tables(insp, src, dst, counts: dict,
+                           branch_map: dict[int, int] | None = None,
+                           default_branch_id: int | None = None) -> None:
+    """Mirror every eStock source table NOT already handled by a dedicated _load_*
+    function into the generic ``estock_raw_mirror`` table.
+
+    Each table runs inside its own SAVEPOINT: the raw pass shares the mirror's
+    single transaction with everything the dedicated loaders just wrote, so one
+    unreadable source table must unwind only its own work, never the whole sync.
+    """
+    if not _raw_mirror_enabled():
+        counts["raw_enabled"] = False
+        counts["raw_ok"] = True
+        return
+
+    # An off-peak backfill outlasts several 5-minute cycles; the cycles it overlaps
+    # skip the raw pass rather than fight it for the same rows. Their dedicated
+    # loaders still run, so the POS mirror stays current throughout.
+    if not _raw_try_lock(dst):
+        counts["raw_enabled"] = True
+        counts["raw_locked"] = True
+        counts["raw_ok"] = True
+        return
+
+    covered = COVERED_SOURCE_TABLES
+    all_t = sorted(insp.get_table_names())
+    uncov = [t for t in all_t if t not in covered]
+    skip_above = _raw_skip_above_rows()
+    max_ref = _raw_refresh_max_rows()
+
+    counts.update(raw_enabled=True, raw_tables_total=len(all_t),
+                  raw_tables_dedicated=len(all_t) - len(uncov))
+
+    work, skipped = [], []
+    if skip_above:
+        for t in uncov:
+            try:
+                n = src.execute(text("SELECT COUNT(*) FROM " + t)).scalar()
+                if n is not None and n > skip_above:
+                    skipped.append(t)
+                    continue
+            except Exception:
+                pass
+            work.append(t)
+    else:
+        work = list(uncov)
+    counts["raw_skipped"] = skipped
+
+    failed: list[str] = []
+    mirrored = 0
+    total_new = 0
+
+    for tbl in work:
+        if not insp.has_table(tbl):
+            continue
+        bm = _source_table_branch_id(insp, src, tbl, branch_map, default_branch_id)
+        sp = dst.begin_nested()
+        try:
+            n = _mirror_one_raw_table(insp, src, dst, tbl, bm, max_ref)
+            sp.commit()
+        except Exception as exc:
+            sp.rollback()
+            failed.append(f"{tbl}: {type(exc).__name__}")
+            continue
+        mirrored += 1
+        total_new += n
+        counts[f"raw_{tbl}"] = n
+
+    counts["raw_tables_mirrored"] = mirrored
+    counts["raw_failed"] = failed
+    counts["raw_total_rows"] = total_new
+    counts["raw_ok"] = not failed
+    counts["raw_coverage_pct"] = (
+        round((counts["raw_tables_dedicated"] + mirrored) * 100.0 / len(all_t), 1)
+        if all_t else 100.0
+    )
+
 
 
 if __name__ == "__main__":

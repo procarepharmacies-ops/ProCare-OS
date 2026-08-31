@@ -465,3 +465,165 @@ def test_load_gl_adjustments(estock_source):
             assert s.query(m.GlAdjustment).count() == 2
     finally:
         reset_and_seed()
+
+def test_branch_tables_do_not_duplicate_head_office_bills(estock_source):
+    """eStock ships every head-office bill twice, and both pharmacies number
+    their bills from 1, so a bill is identified by (branch, sales_id) and never
+    by sales_id alone.
+
+    Mirroring both tables blindly double-counted Elsanta and hid Mas-hala —
+    measured on live data 2026-08-31: 173 mirrored rows for a day that held 104
+    real bills, every one of them stamped branch 1.
+
+    Shape reproduced exactly as the live DB has it:
+      Sales_header            — head office only, store_id, no branch_id
+      Branches_sales_header   — repeats those same sales_ids under their branch,
+                                and reuses the ids again for the other branch
+      Sales_details           — no branch column (match on the id alone)
+      Branches_sales_details  — branch_id (match on branch + id)
+    """
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branches_sales_header (branch_id INT, sales_id INT, store_id INT, "
+                "customer_id INT, bill_date TEXT, insert_date TEXT, total_bill REAL, "
+                "total_bill_net REAL, total_disc_money REAL, bill_cash REAL, network_money REAL, "
+                "money_change REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_sales_header VALUES "
+                # The two bills already mirrored from Sales_header, repeated.
+                # store_id is 1 on every row here, exactly as on the live server —
+                # only branch_id says which pharmacy rang the sale.
+                "(1,1001,1,0,NULL,'2026-06-20 10:00:00',24,24,0,24,0,0,'N'),"
+                "(2,1002,1,5,'2026-06-21 12:00:00','2026-06-21 12:00:00',60,60,0,0,0,0,'N'),"
+                # Branch 2's OWN bill, reusing sales_id 1001.
+                "(2,1001,1,0,'2026-06-21 18:00:00','2026-06-21 18:00:00',35,35,0,35,0,0,'N')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branches_sales_details (branch_id INT, details_id INT, sales_id INT, "
+                "product_id INT, counter_id INT, amount REAL, sell_price REAL, buy_price REAL, "
+                "disc_money REAL, total_sell REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_sales_details VALUES "
+                "(1,1,1001,101,500,2,12,7,0,24,'N'),"
+                "(2,2,1002,102,501,1,60,40,0,60,'N'),"
+                "(2,3,1001,102,500,3,12,7,0,35,'N')"   # branch 2's own line
+            ))
+
+        with SessionLocal() as dst:
+            counts = etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+
+        # 2 head-office bills + 1 that only branch 2 has — NOT 5.
+        assert counts["sales"] == 3
+        assert counts["sales_duplicates_skipped"] == 2
+
+        with SessionLocal() as s:
+            live = s.query(m.Sale).filter(m.Sale.is_return == False).all()  # noqa: E712
+            assert len(live) == 3
+            per_branch: dict[int, int] = {}
+            for sale in live:
+                per_branch[sale.branch_id] = per_branch.get(sale.branch_id, 0) + 1
+            assert per_branch == {1: 1, 2: 2}, per_branch
+
+            # Branch 2's bill kept its own total instead of colliding with the
+            # branch-1 bill that shares its sales_id.
+            own = s.query(m.Sale).filter(
+                m.Sale.branch_id == 2, m.Sale.total_net == 35
+            ).one()
+
+            # ...and its line landed on ITS sale.
+            lines = s.query(m.SaleLine).filter(m.SaleLine.sale_id == own.sale_id).all()
+            assert len(lines) == 1 and float(lines[0].amount) == 3
+
+            # The repeats added no second copy of anyone's lines.
+            for sale in live:
+                assert len(sale.lines) == 1, (sale.sale_id, sale.branch_id, len(sale.lines))
+    finally:
+        reset_and_seed()
+
+
+def test_branch_purchase_table_does_not_duplicate_head_office(estock_source):
+    """The purchase side overlaps identically — 12,822 head-office bills, the
+    same 12,822 again under branch 1, plus 12,510 that are branch 2's alone."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Purchase_header (purchase_id INT, store_id INT, vendor_id INT, "
+                "bill_date TEXT, bill_number TEXT, total_bill REAL, bill_disc_money REAL, "
+                "bill_tax REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Purchase_header VALUES (9001,1,301,'2026-06-19','INV-1',500,0,0,'N')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branches_purchase_header (branch_id INT, purchase_id INT, "
+                "store_id INT, vendor_id INT, bill_date TEXT, bill_number TEXT, total_bill REAL, "
+                "bill_disc_money REAL, bill_tax REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_purchase_header VALUES "
+                "(1,9001,1,301,'2026-06-19','INV-1',500,0,0,'N'),"   # repeat of the head-office row
+                "(2,9001,1,301,'2026-06-19','INV-2',700,0,0,'N')"    # branch 2, same purchase_id
+            ))
+
+        with SessionLocal() as dst:
+            counts = etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+
+        assert counts["purchases"] == 2                      # one per branch
+        assert counts["purchases_duplicates_skipped"] == 1
+
+        with SessionLocal() as s:
+            per_branch: dict[int, int] = {}
+            for p in s.query(m.Purchase).all():
+                per_branch[p.branch_id] = per_branch.get(p.branch_id, 0) + 1
+            assert per_branch == {1: 1, 2: 1}, per_branch
+    finally:
+        reset_and_seed()
+
+
+def test_branch_product_amount_does_not_duplicate_head_office_stock(estock_source):
+    """Branches_Product_Amount repeats every Product_Amount batch under its own
+    branch — measured live 2026-08-31: 67,447 head-office batches, 67,434 of the
+    same again under branch 1, and 55,957 that are branch 2's alone, which is
+    exactly the 190,838 stock rows ProCare held with every one on branch 1."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branches_Product_Amount ("
+                "branch_id INT, pa_id INT, counter_id INT, product_id INT, amount REAL, "
+                "buy_price REAL, sell_price REAL, tax_price REAL, exp_date TEXT, store_id INT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_Product_Amount VALUES "
+                # The two Product_Amount batches repeated under their branches
+                # (pa_id 1 is branch 1's, pa_id 2 branch 2's); store_id is 1 on
+                # every row here, exactly as on the live server.
+                "(1,1,500,101,5,7,12,0,'2027-01-01',1),"
+                "(2,2,501,102,3,40,60,0,'2027-01-01',1),"
+                # Branch 2's OWN batch, reusing pa_id 1 AND counter_id 500 —
+                # counter_id has only 77 distinct values over 67k live batches,
+                # so it must never be treated as an identity.
+                "(2,1,500,101,9,7,12,0,'2027-05-05',1)"
+            ))
+        with SessionLocal() as dst:
+            counts = etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+
+        # 2 head-office batches + 1 that only branch 2 has — not 5.
+        assert counts["stock_batches"] == 3
+        assert counts["stock_batches_duplicates_skipped"] == 2
+
+        with SessionLocal() as s:
+            per_branch: dict[int, int] = {}
+            for b in s.query(m.StockBatch).all():
+                per_branch[b.branch_id] = per_branch.get(b.branch_id, 0) + 1
+            assert per_branch == {1: 1, 2: 2}, per_branch
+            # Branch 2's own batch survived under ITS branch, with its own
+            # amount, rather than being folded into branch 1's counter 500.
+            own = s.query(m.StockBatch).filter(
+                m.StockBatch.branch_id == 2, m.StockBatch.source_counter == 500
+            ).one()
+            assert float(own.amount) == 9
+    finally:
+        reset_and_seed()
