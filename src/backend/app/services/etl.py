@@ -1314,7 +1314,20 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
     cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, store_id.
     """
     n = 0
+    n_dupes = 0
     shift_objs = []
+    # cash_shift_closes is never wiped between cycles and eStock ships the FULL
+    # shift history on every read, so without an identity check each 5-minute
+    # sync appended another complete copy — 26,558,791 rows for 3,625 real
+    # shifts (7,327 copies) by 2026-09-01. Seed from what is already mirrored
+    # and skip anything we hold: the loader becomes idempotent.
+    seen: set[tuple[int, int]] = {
+        (b, sid_)
+        for b, sid_ in dst.execute(
+            select(m.CashShiftClose.branch_id, m.CashShiftClose.source_shift_id)
+        ).all()
+        if sid_ is not None
+    }
     for tbl in ("Cash_disk_close", "Branches_Cash_disk_close"):
         if not insp.has_table(tbl):
             continue
@@ -1334,10 +1347,18 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
         rows = src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
         for r in rows:
             branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            branch_id = branch_id or default_branch
+            src_shift = int(r[shift_id]) if shift_id and r.get(shift_id) is not None else None
+            if src_shift is not None:
+                key = (branch_id, src_shift)
+                if key in seen:
+                    n_dupes += 1
+                    continue
+                seen.add(key)
             shift_objs.append(
                 m.CashShiftClose(
-                    branch_id=branch_id or default_branch,
-                    source_shift_id=int(r[shift_id]) if shift_id and r.get(shift_id) is not None else None,
+                    branch_id=branch_id,
+                    source_shift_id=src_shift,
                     employee_id=None,  # would need employee_map to resolve username
                     cash_depot_id=int(r[cash_depot]) if cash_depot and r.get(cash_depot) is not None else None,
                     shift_start_time=_as_dt(r.get(start_time)) if start_time else None,
@@ -1349,8 +1370,9 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
                 )
             )
             n += 1
+    counts["shift_closes"] = n
+    counts["shift_closes_duplicates_skipped"] = n_dupes
     if shift_objs:
-        counts["shift_closes"] = n
         dst.add_all(shift_objs)
         dst.flush()
 
@@ -1376,10 +1398,25 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
     h_notice = _pick(h_cols, "notice")
 
     h_rows = src.execute(text("SELECT * FROM Branch_order_header")).mappings().all()
-    h_map: dict[int, int] = {}  # source bo_id -> dest order_id
+    # branch_order_headers is never wiped between cycles (its child
+    # branch_order_lines IS), so re-inserting the full header set every
+    # 5-minute sync grew it to 20,522,124 rows by 2026-09-01. Start from the
+    # headers already mirrored and reuse them by source id.
+    h_map: dict[int, int] = {
+        int(sid_): oid
+        for sid_, oid in dst.execute(
+            select(m.BranchOrderHeader.source_order_id, m.BranchOrderHeader.order_id)
+        ).all()
+        if sid_ is not None
+    }
+    n_dupes = 0
     header_objs = []
+    pending: list[tuple[int, object]] = []  # (source id, new header), resolved after flush
     for r in h_rows:
         src_order_id = int(r[h_id]) if h_id and r.get(h_id) is not None else None
+        if src_order_id is not None and src_order_id in h_map:
+            n_dupes += 1
+            continue
         from_branch = branch_map.get(int(r[h_from_store])) if h_from_store and r.get(h_from_store) is not None else default_branch
         to_branch = branch_map.get(int(r[h_to_store])) if h_to_store and r.get(h_to_store) is not None else default_branch
         header = m.BranchOrderHeader(
@@ -1392,14 +1429,19 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
             note=str(r.get(h_notice)).strip() if h_notice and r.get(h_notice) else None,
         )
         header_objs.append(header)
-        if src_order_id:
-            h_map[src_order_id] = len(header_objs) - 1  # provisional index (before flush)
+        if src_order_id is not None:
+            pending.append((src_order_id, header))
 
     if header_objs:
         dst.add_all(header_objs)
         dst.flush()
-        # Re-map to actual inserted IDs
-        h_map = {src_id: obj.order_id for src_id, obj in zip(h_map.keys(), header_objs)}
+        # Map each source id to ITS OWN header. The previous
+        # zip(h_map.keys(), header_objs) walked two differently-filtered lists —
+        # h_map skipped headers without a source id, header_objs kept them — so
+        # one such header shifted every later pairing and attached that order's
+        # lines to the wrong header.
+        for src_id_, obj in pending:
+            h_map[src_id_] = obj.order_id
 
     # Load details if available
     if not insp.has_table("Branch_order_details"):
@@ -1440,6 +1482,7 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
         dst.flush()
 
     counts["branch_orders"] = len(header_objs)
+    counts["branch_orders_duplicates_skipped"] = n_dupes
 
 
 def _load_sales(
