@@ -4,7 +4,7 @@
 // Sessions list → count sheet (book qty vs physical count) → post adjustments.
 // Posting (ضبط الأصناف) is manager/CEO only; counting is open to all staff.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Shell from "../components/Shell";
 import StockScanMode from "../components/StockScanMode";
 import { useUI } from "../providers";
@@ -25,6 +25,8 @@ export default function StocktakingPage() {
   const [newType, setNewType] = useState("full");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [scan, setScan] = useState("");
+  const scanRef = useRef(null);
 
   const loadList = useCallback(async () => {
     try {
@@ -131,6 +133,29 @@ export default function StocktakingPage() {
     return sheet.lines.filter((l) => l.variance !== null && l.variance !== 0);
   }, [sheet, varianceOnly]);
 
+  // Barcode-scanner count entry: a scan types the code + Enter (like a fast
+  // keyboard entry). Each scan adds 1 to that line's physical count, so
+  // scanning the same item N times counts N units — the standard "scan to
+  // count" workflow for a handheld/gun scanner during a physical count.
+  function handleScan(e) {
+    if (e.key !== "Enter") return;
+    const code = scan.trim();
+    setScan("");
+    if (!code || !sheet) return;
+    const match = sheet.lines.find(
+      (l) => (l.code && l.code === code) || (l.fast_code && l.fast_code === code)
+    );
+    if (!match) {
+      setMsg({ kind: "danger", text: L("stk_scan_not_found") });
+      return;
+    }
+    setMsg(null);
+    setDrafts((d) => {
+      const current = d[match.line_id] !== undefined ? Number(d[match.line_id]) : Number(match.counted_qty ?? 0);
+      return { ...d, [match.line_id]: String((Number.isFinite(current) ? current : 0) + 1) };
+    });
+  }
+
   const statusBadge = (s) =>
     s === "open" ? (
       <span className="badge warn">{L("stk_open")}</span>
@@ -227,6 +252,22 @@ export default function StocktakingPage() {
         )}
         {msg && <span className={`badge ${msg.kind === "ok" ? "ok" : "danger"}`}>{msg.text}</span>}
       </div>
+
+      {sheet?.status === "open" && (
+        <div className="card" style={{ marginBottom: 16, display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            ref={scanRef}
+            className="input"
+            placeholder={L("stk_scan_ph")}
+            value={scan}
+            onChange={(e) => setScan(e.target.value)}
+            onKeyDown={handleScan}
+            style={{ maxWidth: 260 }}
+            autoFocus
+          />
+          <span className="muted" style={{ fontSize: 12 }}>{L("stk_scan_hint_inc")}</span>
+        </div>
+      )}
 
       {s && (
         <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 16 }}>

@@ -126,18 +126,43 @@ _notify = _data.get("notifications", {})
 # Code) and need NO API key — the assistant works fully offline on the LAN.
 _AI_PROVIDER_DEFAULTS = {
     "anthropic": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY"},
-    # Pinning a dated Gemini model strands the install when Google retires it:
-    # gemini-2.0-flash now answers "no longer available", which the fail-soft
-    # paths turn into a silent drop to the keyword router (and, for the
-    # prescription reader, back to manual entry) with no obvious cause. The
-    # floating -latest alias keeps following the current flash model.
-    "gemini": {"model": "gemini-flash-latest", "key_env": "GEMINI_API_KEY"},
-    # Ollama serves an OpenAI-compatible API at http://localhost:11434. "Hermes"
-    # is just a model served by Ollama (default hermes3), so hermes -> ollama.
-    "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True},
+    # Gemini Pro on Google AI Studio's FREE tier. `gemini-2.5-pro` is the
+    # floating alias, deliberately NOT a dated build: pinning a dated model
+    # strands the install when Google retires it (gemini-2.0-flash now answers
+    # "no longer available"), and the fail-soft paths turn that into a silent
+    # drop to the keyword router — and, for the prescription reader, back to
+    # manual entry — with no obvious cause. Set AI_MODEL=gemini-flash-latest
+    # for the faster/cheaper flash tier.
+    "gemini": {"model": "gemini-2.5-pro", "key_env": "GEMINI_API_KEY"},
+    # Hermes (Nous Research) served through OpenRouter's free tier — hosted,
+    # so no local server is required. This is the same gateway the Hermes Agent
+    # already uses on the branch PCs (docs/ESTOCK_MIRROR_ON_BRANCHES.md), so
+    # one OPENROUTER_API_KEY covers both. Free slugs rotate and rate-limit, so
+    # HERMES_FALLBACK_MODELS below is part of the contract, not a nicety.
+    "hermes": {
+        "model": "nousresearch/hermes-3-llama-3.1-405b:free",
+        "key_env": "OPENROUTER_API_KEY",
+        # NO trailing /v1 — llm.py appends "/v1/chat/completions" itself, so
+        # ".../api/v1" here would request ".../api/v1/v1/chat/completions"
+        # and 404. This matches the base URL the branch PCs already run with.
+        "base_url": "https://openrouter.ai/api",
+    },
+    # Local Ollama, OpenAI-compatible at http://localhost:11434. Kept for
+    # fully-offline installs; it is no longer where "hermes" points.
+    "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True,
+               "base_url": "http://localhost:11434"},
     # Shell out to a locally installed & logged-in Claude Code CLI.
     "claude-cli": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY", "keyless": True},
 }
+
+# Ordered fallbacks tried when the primary free model is retired or rate-limits
+# (429). A free slug going away must degrade to another free model, never to a
+# dead assistant. The last entry is the model the owner's own Hermes Agent
+# install is already configured with, so it is known-good on their account.
+HERMES_FALLBACK_MODELS = [
+    "nousresearch/deephermes-3-llama-3-8b-preview:free",
+    "openai/gpt-oss-20b:free",
+]
 
 # Providers that need no API key to be considered "configured".
 _KEYLESS_PROVIDERS = {p for p, d in _AI_PROVIDER_DEFAULTS.items() if d.get("keyless")}
@@ -147,7 +172,12 @@ def _norm_provider(p: str) -> str:
     p = (p or "").strip().lower()
     if p in ("gemini", "google"):
         return "gemini"
-    if p in ("ollama", "hermes", "local"):
+    # "hermes" now means the hosted Nous Hermes models on OpenRouter, NOT a
+    # model served by a local Ollama. An install that genuinely wants the local
+    # server must ask for "ollama" explicitly.
+    if p in ("hermes", "openrouter", "nous"):
+        return "hermes"
+    if p in ("ollama", "local"):
         return "ollama"
     if p in ("claude-cli", "claude_cli", "cli"):
         return "claude-cli"
@@ -166,6 +196,8 @@ def _detect_ai_provider() -> str:
         return _norm_provider(explicit)
     if os.environ.get("GEMINI_API_KEY"):
         return "gemini"
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return "hermes"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
     return "anthropic"
@@ -225,12 +257,17 @@ class Settings:
     ai_provider: str = _detect_ai_provider()
     ai_model: str = _ai_model_for(ai_provider)
     ai_api_key_env: str = _ai_key_env_for(ai_provider)
-    # Base URL for local/OpenAI-compatible providers (Ollama). Override with
-    # AI_BASE_URL (or OLLAMA_BASE_URL) to point at another host on the LAN.
+    # Base URL for the OpenAI-compatible providers. Per-provider default —
+    # hermes goes to OpenRouter, ollama to the local server — because a single
+    # localhost default silently pointed hosted providers at a machine that
+    # isn't serving them. The config "base_url" only applies when the config
+    # block targets the ACTIVE provider, so a leftover Ollama URL cannot
+    # hijack hermes. AI_BASE_URL (or OLLAMA_BASE_URL) still overrides everything.
     ai_base_url: str = (
         os.environ.get("AI_BASE_URL")
         or os.environ.get("OLLAMA_BASE_URL")
-        or _ai.get("base_url")
+        or (_ai.get("base_url") if _config_is_for(ai_provider) else None)
+        or _AI_PROVIDER_DEFAULTS.get(ai_provider, {}).get("base_url")
         or "http://localhost:11434"
     )
 

@@ -86,6 +86,46 @@ def test_purchase_line_discount_cannot_exceed_line_value(client, session):
     assert r.json()["detail"]["code"] == "bad_discount"
 
 
+def test_purchase_header_disc_percent_and_other_expenses(client, session):
+    """تسوية/خصم نقدي at the header: a discount RATE (on top of any flat header/
+    line discount) plus other invoice expenses (شحن) that ADD to the net."""
+    vendor = session.scalars(select(m.Vendor)).first()
+    product = session.scalars(select(m.Product)).first()
+    # 10 @ 10 = 100 gross; 5% header discount = 5 off; + 8 shipping → net 103.
+    create = client.post(
+        "/api/purchasing/purchases",
+        json={
+            "branch_id": 1,
+            "vendor_id": vendor.vendor_id,
+            "lines": [{"product_id": product.product_id, "amount": 10, "buy_price": 10.0}],
+            "disc_percent": 5.0,
+            "other_expenses": 8.0,
+        },
+    )
+    assert create.status_code == 200
+    pid = create.json()["purchase_id"]
+    detail = client.get(f"/api/purchasing/purchases/{pid}").json()
+    assert detail["disc_percent"] == pytest.approx(5.0)
+    assert detail["other_expenses"] == pytest.approx(8.0)
+    assert detail["total_discount"] == pytest.approx(5.0)  # 100 * 5%
+    assert detail["total_net"] == pytest.approx(103.0)  # 100 - 5 + 8
+
+
+def test_purchase_disc_percent_out_of_range_rejected(client, session):
+    vendor = session.scalars(select(m.Vendor)).first()
+    product = session.scalars(select(m.Product)).first()
+    r = client.post(
+        "/api/purchasing/purchases",
+        json={
+            "branch_id": 1,
+            "vendor_id": vendor.vendor_id,
+            "lines": [{"product_id": product.product_id, "amount": 1, "buy_price": 5.0}],
+            "disc_percent": 150.0,
+        },
+    )
+    assert r.status_code == 422  # pydantic Field(le=100) rejects it before the service layer
+
+
 def test_purchase_return_restores_vendor_balance_and_stock(client, session):
     vendor = session.scalars(select(m.Vendor)).first()
     product = session.scalars(select(m.Product)).first()

@@ -112,9 +112,14 @@ bilingual (Arabic RTL first).
       account statement** (opening balance + running balance + closing per
       account) and **Tuning_accounts تسويات named reasons** (bilingual reason
       catalog, `ledger_entries.reason_code`, adjustments tagged `ref_type=
-      'adjust'`, per-reason adjustments report). REMAINING: mirror the raw
-      Gedo_Financial journal rows verbatim (needs live eStock column audit —
-      "column audit pending" in etl.py). (2026-07-21)
+      'adjust'`, per-reason adjustments report). (2026-07-21)
+      **The "REMAINING: mirror the raw Gedo_Financial rows verbatim" note that
+      stood here was STALE** — PR 2c shipped exactly that (`etl._load_gl_journal`,
+      "Mirror eStock's Gedo_Financial (the central GL journal) verbatim",
+      `GlJournalEntry`, upserted by source_id, `GET /api/accounting/gl-journal`),
+      alongside `_load_gl_accounts` (Account_Tree) and `_load_gl_adjustments`
+      (Tuning_accounts). Corrected 2026-08-18 — the only accounting mirror still
+      outstanding is PR 2e's Gedo_* sub-ledger BALANCES, tracked below.
 - [x] Shareholders: company_Owner + Gedo_Dividends_paied — `Shareholder` +
       `DividendPayment` models, ETL `_load_shareholders` (upsert by source id,
       graceful-absent, skips deleted owners + orphan dividends), `services/
@@ -131,8 +136,25 @@ bilingual (Arabic RTL first).
       to etl `_WIPE_ORDER` (FK-safe full sync). 7 tests. (2026-07-21)
       [Mirroring the raw eStock change tables verbatim still needs their
       column audit; ProCare-side logging is live now.]
-- [ ] Derived alarms: cheque due (Checks.ch_valid_date), below-cost
-      (sell_price < buy_price), News_bar ticker; expiry/low-stock already exist
+- [x] Derived alarms — COMPLETE (News_bar ticker + below-cost; cheque-due
+      deferred with cause). Below-cost البيع بأقل من التكلفة (2026-08-15):
+      `alerts.below_cost()` compares sell_price against the cost that actually
+      binds — the weighted-average `buy_price` of the SELLABLE batches on hand
+      (real money: those units will be sold at that loss), falling back to the
+      catalogue `Product.buy_price` when nothing is held (`include_zero_stock`,
+      a price-list check with no exposure yet). Both are returned per row so a
+      vendor rise that never reached the price list shows as the gap. Reasons
+      `below_cost` / `zero_margin` / `unpriced` (sell_price 0 = rings up free);
+      zero-cost rows are NOT flagged (missing data, not a loss — otherwise every
+      unpriced catalogue row buries the real ones). `exposure = loss_per_unit x
+      on_hand`, ordered biggest-bleeder-first. New `below_cost` notification
+      category (feed carries stock-bearing rows only). `GET /api/alerts/
+      below-cost`; `/alerts` screen section with an inline manager-only price
+      fix via the existing audited `POST /inventory/products/{id}/pricing`.
+      SQL Server 2008: NULLIF-guarded denominator (CASE is not guaranteed to
+      short-circuit, so x/0 could still be evaluated), `.limit()` only.
+      11 tests + 2 existing notification tests generalised to track
+      `CATEGORIES` instead of hand-listed prefixes. 465 tests green.
 - [x] Payroll depth: `Employee_salary` mirrored → `payroll_records` (base,
       commission+over, deduction+absence, advance, net recomputed). ETL
       `_load_payroll` resolves emp_id→username→ProCare employee, upserts by
@@ -145,8 +167,31 @@ bilingual (Arabic RTL first).
       (own sub-table). ETL `_load_salary_advances` (shared emp_id→ProCare
       resolver, upsert by cash_advance_id, graceful-absent). Advances ledger +
       total added to the payroll panel. 2 tests. (2026-07-21)
-- [ ] EMP_CONTROL full matrix mapping (beyond the Employee-row flags)
-- [ ] Jobs master mirror + employee.job_id linkage
+- [~] EMP_CONTROL full matrix mapping (beyond the Employee-row flags) —
+      DEFERRED, same reasoning as PR 2e. The structure doc gives the SHAPE
+      (~200 boolean columns in letter groups A,A1..A35, B,B1..B34, …) but not
+      what each letter code MEANS. The named examples it lists
+      (`emp_edit_sell_price`, `allaw_sale_credit`, `emp_change_cash_disk`, …)
+      are columns on the **Employee master**, which `_load_employees` already
+      mirrors 1:1 — so the useful permission data is in. Decoding A17 → a real
+      screen/action is guesswork, and a wrong guess grants or denies a
+      permission that LOOKS authoritative in the UI. Needs the schema-dump (or
+      an eStock screen-by-screen audit) before it is safe to build.
+      UNBLOCK PATH (2026-08-18): `deploy/Dump-eStock-Schema.bat` — one
+      double-click on any PC that reaches eStock. Same dump unblocks PR 2e.
+- [x] Jobs master mirror + employee.job_id linkage (2026-08-15): columns are
+      fully enumerated in the structure doc §2 (`job_id, job_code,
+      job_name_ar/en`), so unlike EMP_CONTROL this was buildable on documented
+      shapes. `Job.source_id` + `Job.code` columns + idempotent dialect-aware
+      `ensure_job_source_columns`; ETL `_load_jobs` (`has_table`-guarded, runs
+      BEFORE `_load_employees` and hands it a source→ProCare map, upsert by
+      `source_id` then by Arabic name so the seeded titles are adopted rather
+      than duplicated, NOT in `_WIPE_ORDER` since employees are never wiped);
+      `_load_employees` resolves each row's `job_id`, leaving it NULL when the
+      source id is unknown (never a dangling FK). `_job_map` now carries both
+      names — it was Arabic-only, so English mode showed the Arabic title —
+      and the employees API returns `job_name_ar`/`job_name_en` alongside the
+      existing `job_name`. 9 tests. `COVERED_SOURCE_TABLES` now 32 (was 31).
 
 ### eStock tutorial feature-map gaps (from owner's illustrated report, 2026-07-20)
 - [x] Item sales-movement report (تقرير حركة مبيعات صنف في فترة): per-day
@@ -280,7 +325,55 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
         source_id, not in `_WIPE_ORDER`. Read-only CEO-only API: `GET
         /api/accounting/gl-adjustments`. `COVERED_SOURCE_TABLES` now 31
         (was 30). 1 new ETL test. 383 tests green. (2026-07-24)
-  - [ ] **PR 2e — GL sub-ledger balances** (follow-up, genuinely deferred):
+  - [x] **PR 2e — GL sub-ledger balances** (branch claude/phase-7-gedo-
+        subledgers; unblocked 2026-08-17 — owner ran
+        `deploy/ProCare-Schema-Dump.bat` on Elsanta and pasted the real
+        113-table dump): `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`,
+        `Gedo_employee`, `Gedo_installment` — new unified `GlSubledgerBalance`
+        model (all five share one shape: id, gf_id-as-text, Flag, a per-table
+        type code, party id, for_him/for_me/total, notes on customers/vendors
+        only). `party_type` is ProCare's own discriminator (which loader
+        wrote the row); `party_source_id` stays UNRESOLVED to a ProCare PK
+        for all five — Gedo_branches.branch_id turned out to be eStock's OWN
+        branch-entity id (from its 2-row `Branches` master table), a
+        DIFFERENT namespace than ProCare's store_id-keyed branch_map, so
+        resolving just that one and not the others would have been
+        inconsistent. `_load_gl_subledgers` loops one config table over the
+        five source tables, upserts by (party_type, source_id), not in
+        `_WIPE_ORDER`. Read-only CEO-only API: `GET
+        /api/accounting/gl-subledgers?party_type=`.
+        BUG FOUND + FIXED while building this: `_pick()` matched candidates
+        case-insensitively but returned the CANDIDATE string verbatim, not
+        the column's real casing — silently broke on
+        `Gedo_employee.flag` (lowercase; every sibling table uses `Flag`),
+        since row-mapping `.get()` lookups are case-sensitive. Fixed to
+        return the real casing from `cols`; regression test
+        `test_pick_returns_real_casing_not_candidate` + the subledger loader
+        test both exercise the exact casing mismatch found on Elsanta.
+        `COVERED_SOURCE_TABLES` now 36 (was 31). 2 new ETL tests (5-table
+        round-trip + upsert dedup, `_pick` casing regression). 445 tests
+        green (1 known-flaky test-order failure unrelated, passes solo).
+      CROSS-CHECKED the real dump against every prior Phase-7 inference:
+      Branches_Product_Amount, Cash_disk_close, Account_Tree, Gedo_Financial,
+      Tuning_accounts all matched column-for-column — every earlier PR's
+      guesses were correct. One separate finding NOT fixed here (pre-existing,
+      out of scope): `Cash_disk_close`/`Branches_Cash_disk_close` have no
+      `store_id` column at all — `_load_cash_shift_closes`'s `store` lookup
+      always falls through to `default_branch`, so `Branches_Cash_disk_close`
+      rows (a different eStock branch's shift history) currently land in the
+      wrong ProCare branch. Flagged for a future fix, not blocking.
+      HONEST BASELINE: ETL now reads 36 source tables (not 48 — that's
+      ProCare's own table count) out of 113 real eStock tables; the
+      remaining ~77 uncovered tables are mostly empty/temp/config/audit-log
+      (Branches_Product_amount_Change 1.05M rows, Product_amount_Change
+      531K, Product_amount_reg_update 47K — all raw stock-audit trails with
+      no aggregate ProCare doesn't already derive from StockMovement) or
+      genuinely dead features on this pharmacy (Gedo_installment/installment/
+      installment_state all 0 rows; Checks 0 rows; News_bar 0 rows).
+      Employee_daily_time (92 rows, not 2.8M as originally estimated pre-dump)
+      remains deliberately deferred — low value, attendance-only.
+  - [ ] **PR 2e — GL sub-ledger balances** (BLOCKED on the schema dump —
+        `deploy/Dump-eStock-Schema.bat` now makes that one double-click):
         `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Gedo_employee`,
         `Gedo_installment` (per-party for_him/for_me balances). Unlike every
         other Phase-7 mirror, these are NOT safely inferrable even with the
@@ -292,9 +385,75 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
       own table count); ~25 uncovered tables are empty/temp/config;
       Employee_daily_time (2.8M) deliberately deferred.
 
-## Backlog (not started)
-- [ ] Purchase entry extra fields (تسوية/خصم نقدي) — purchases come from eStock sync
-- [ ] Barcode-scanner count sheet; small-unit price override; Gemini/ollama keys
+## Backlog
+- [x] **Fix `Branches_Cash_disk_close` branch attribution** (2026-08-23):
+      `Branches_Cash_disk_close` DOES have a `branch_id` column (not `store_id`
+      as the loader was looking for); `Cash_disk_close` has neither. Fixed
+      `_load_cash_shift_closes` to look for `branch_id` instead: cross-branch
+      rows now map to their correct ProCare branch, while local shifts default
+      to `default_branch` as before. PR #67 (1 commit, 4+3 lines to etl.py),
+      all 474 tests pass, mergeable. Verified against real Elsanta
+      schema-dump (PR #63).
+- [x] **Barcode-scanner count sheet** (2026-08-13): `get_count()` sheet lines
+      now carry `code`/`fast_code`; `/stocktaking` count-sheet view gained a
+      scan input (open sessions only) — Enter matches the scanned value
+      against a line's code/fast_code and adds 1 to that line's physical
+      count (repeat scans = repeat units, standard handheld-scanner count
+      workflow), or shows "not on this sheet" if no line matches.
+- [x] **Small-unit price override** (2026-08-13): POS cart line gained an
+      editable per-unit price input (shows/edits the price in whichever unit
+      is currently selected — علبة or شريط/أمبول — converting through
+      `unit_factor` to the big-unit-equivalent `sell_price` actually sent).
+      Fixed a latent gap in the same pass: `completeSale`'s payload wasn't
+      sending `sell_price` at all (cart tracked it, but checkout silently
+      used the live product default), so the override wouldn't have taken
+      effect even after adding the input — now every line sends its
+      (possibly overridden) `sell_price` explicitly. Backend already
+      supported this (`SaleLineInput.sell_price` override existed since
+      Phase 3); no service changes needed there.
+- [x] **Purchase entry extra fields — تسوية/خصم نقدي** (2026-08-13): confirmed
+      NOT stale — `create_purchase` is a real ProCare-native write path
+      (receive-goods screen), separate from the eStock purchase-history
+      mirror. Added `Purchase.disc_percent` (header discount RATE, eStock's
+      `bill_disc_per`) + `Purchase.other_expenses` (شحن/مصاريف أخرى, eStock's
+      `bill_other_expenses`) + `ensure_purchase_header_extra_columns`
+      migration. `disc_percent` computes on gross BEFORE the flat header/line
+      discounts and folds into `total_discount`; `other_expenses` adds to net
+      (same direction as tax). Both validated (0..100% / >=0). Receive-goods
+      form gained two header inputs + a live running-total that reflects
+      them. `purchase_detail` exposes both fields + a corrected `total_net`
+      (previous formula omitted other_expenses).
+      Tests: +2 test_ops.py (percent+expenses round-trip and net math,
+      out-of-range percent rejected), +2 test_migrate.py (legacy-DB column
+      add, idempotent re-run), +2 test_pos_invoice.py (line sell_price
+      override — service + API round-trip), +1 test_stocktaking.py (code/
+      fast_code present on sheet lines). Full suite 389 (was 383); the lone
+      failure (`test_insights_daily_and_productivity`) is pre-existing on
+      main, unrelated to these changes (date-rotted seed-data assumption —
+      not investigated further, out of scope here) — reported separately.
+      `next build` clean (`/pos` 10.1 kB, `/purchasing` 3.4 kB, `/stocktaking`
+      2.76 kB).
+- [x] **AI providers: hermes (OpenRouter free) + Gemini Pro free tier**
+      (2026-08-15) — closes the parked "Gemini/ollama keys" item once the owner
+      gave concrete direction. `hermes` was an ALIAS for `ollama`, and the
+      backend was already reaching OpenRouter by abusing that provider
+      (AI_BASE_URL override + an OpenRouter key in `OLLAMA_API_KEY`), so this
+      was "stop pretending a hosted gateway is a local server", not a new
+      integration. `hermes` is now its own provider (aliases `openrouter`,
+      `nous`; `OPENROUTER_API_KEY`; default
+      `nousresearch/hermes-3-llama-3.1-405b:free`) with built-in all-`:free`
+      `HERMES_FALLBACK_MODELS` — OpenRouter retires free slugs without notice
+      and the fail-soft path turns that into a SILENT drop to the keyword
+      router. Gemini default `gemini-flash-latest` -> `gemini-2.5-pro` (Pro
+      free tier). `ai_base_url` resolved per provider (one localhost default
+      was pointing hosted providers at a machine not serving them). Caught
+      before shipping: base URL must be `.../api` NOT `.../api/v1`, since
+      llm.py appends `/v1/chat/completions` — `/api/v1` composes
+      `/api/v1/v1/...` and 404s; the test asserts the exact composed endpoint,
+      because a `startswith` assertion passes on the broken URL too.
+      NOT verifiable from the dev sandbox: egress to openrouter.ai is blocked,
+      so the primary slug is taken from the owner's own committed fallback
+      list rather than confirmed live. test_llm.py 8 -> 15.
 
 ---
 

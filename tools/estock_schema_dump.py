@@ -9,11 +9,19 @@ Strictly READ-ONLY: it only inspects table/column metadata (via SQLAlchemy's
 dialect-agnostic Inspector, so it works on SQL Server 2008 and SQLite alike) and
 optionally COUNT(*)s. It never writes to eStock.
 
-Usage (from src/backend, with config/connections.json pointing at eStock):
+Usage — run from the REPO ROOT, with config/connections.json pointing at
+eStock (or just double-click ``deploy/Dump-eStock-Schema.bat`` on Windows):
+
     python -m tools.estock_schema_dump                 # metadata only
     python -m tools.estock_schema_dump --counts        # + row counts (slower)
     python -m tools.estock_schema_dump --url "sqlite:///…"   # explicit source
     python -m tools.estock_schema_dump --out docs/estock-schema-dump.md
+
+NOT from ``src/backend``: there is a SECOND, unrelated ``tools`` package there
+(drugeye_scrape, titan_extract, …), so ``-m tools.estock_schema_dump`` resolves
+to that one and dies with ModuleNotFoundError. This file lives in the repo-root
+``tools/``. The sys.path shim below only fixes importing ``app.services.etl``
+from here; it cannot fix which ``tools`` package Python picked.
 
 Writes a Markdown report (and a .json beside it) listing every table, its
 columns, primary key, row counts (if requested), and a COVERAGE section.

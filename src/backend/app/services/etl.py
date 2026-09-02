@@ -97,13 +97,14 @@ DEFERRED_PLAN = [
 # live eStock tables ProCare does NOT yet mirror. NB: this is the count that
 # matters for "how much of eStock do we cover", not ProCare's own table count.
 COVERED_SOURCE_TABLES = frozenset({
-    "Products", "Customer", "Vendor", "Employee", "Product_Amount", "Branches_Product_Amount",
+    "Products", "Customer", "Vendor", "Employee", "Jobs", "Product_Amount", "Branches_Product_Amount",
     "Sales_header", "Sales_details", "Branches_sales_header", "Branches_sales_details",
     "Back_sales_header", "Back_Sales_details", "Branches_back_sales_header", "Branches_back_sales_details",
     "Purchase_header", "Purchase_details", "Branches_purchase_header", "Branches_purchase_details",
     "Cash_depots", "Cash_disk_close", "Branches_Cash_disk_close",
     "Branch_order_header", "Branch_order_details",
     "Account_Tree", "Gedo_Financial", "Tuning_accounts",
+    "Gedo_customers", "Gedo_Vendors", "Gedo_branches", "Gedo_employee", "Gedo_installment",
     "company_Owner", "Gedo_Dividends_paied",
     "Employee_salary", "Employee_cash_advance",
 })
@@ -168,11 +169,19 @@ def status() -> dict:
 
 # --- extraction helpers -----------------------------------------------------
 def _pick(cols: set[str], *candidates: str) -> str | None:
-    """First candidate column present (case-insensitive), else None."""
-    lower = {c.lower() for c in cols}
+    """First candidate column present (case-insensitive) — returns the
+    column's REAL casing from ``cols``, not the candidate as typed.
+
+    SQL Server preserves declared casing, and row-mapping ``.get()`` lookups
+    are case-SENSITIVE, so returning the candidate verbatim silently breaks
+    every downstream ``r.get(picked)`` when the source's actual casing
+    differs (confirmed on the Elsanta schema dump: ``Gedo_employee.flag`` is
+    lowercase while every sibling Gedo_* table uses ``Flag``)."""
+    by_lower = {c.lower(): c for c in cols}
     for cand in candidates:
-        if cand.lower() in lower:
-            return cand
+        real = by_lower.get(cand.lower())
+        if real is not None:
+            return real
     return None
 
 
@@ -225,6 +234,16 @@ def _as_dt(value):
     try:
         return datetime.fromisoformat(str(value))
     except ValueError:
+        return None
+
+
+def _int_or_none(value) -> int | None:
+    """Coerce a source key to int, or None when it is missing/not a number."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
         return None
 
 
@@ -471,7 +490,10 @@ def mirror(
         product_map = _load_products(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         customer_map = _load_customers(insp, src, dst, counts, dedup=dedup, update_on_match=update_on_match)
         _load_vendors(insp, src, dst, counts, dedup=dedup)
-        _load_employees(insp, src, dst, counts)
+        # Job titles before employees: the employee pass resolves each row's
+        # source job_id through this map.
+        job_map = _load_jobs(insp, src, dst, counts)
+        _load_employees(insp, src, dst, counts, job_map)
         # Product_Amount and Branches_Product_Amount overlap the same way the
         # sales tables do — one identity set spans both so a batch is mirrored
         # once, under the branch that actually holds it.
@@ -530,6 +552,7 @@ def mirror(
         _load_gl_accounts(insp, src, dst, counts)
         _load_gl_journal(insp, src, dst, counts)
         _load_gl_adjustments(insp, src, dst, counts)
+        _load_gl_subledgers(insp, src, dst, counts)
 
         _load_treasury(insp, src, dst, counts, branch_map, default_branch)
         # Shareholders + dividends (optional, upsert by source id).
@@ -1050,7 +1073,83 @@ def _load_vendors(insp, src, dst, counts, dedup: bool = False) -> None:
     counts["vendors"] = len(objs)
 
 
-def _load_employees(insp, src, dst, counts) -> None:
+def _load_jobs(insp, src, dst, counts) -> dict[int, int]:
+    """Mirror eStock's ``Jobs`` master (job titles / المسمى الوظيفي).
+
+    Returns ``{source job_id -> ProCare job_id}`` so ``_load_employees`` can
+    resolve each employee's title. Absent source table -> empty map (the
+    employee loader then simply leaves ``job_id`` untouched).
+
+    Matching is by ``source_id`` first, then by Arabic name — the name fallback
+    is what stops the mirror from duplicating the job titles already created by
+    the seed (which carry no source id). Titles are a tiny company-wide master
+    and are NOT in ``_WIPE_ORDER``: employees are never wiped, so their titles
+    must survive a full refresh too.
+    """
+    counts["jobs"] = 0
+    counts["jobs_updated"] = 0
+    if not insp.has_table("Jobs"):
+        return {}
+    cols = {c["name"] for c in insp.get_columns("Jobs")}
+    jid = _pick(cols, "job_id")
+    if jid is None:
+        return {}  # without the source key there is nothing to attribute
+    code = _pick(cols, "job_code", "code")
+    name_ar = _pick(cols, "job_name_ar", "name_ar")
+    name_en = _pick(cols, "job_name_en", "name_en")
+
+    by_source: dict[int, int] = {}
+    by_name: dict[str, int] = {}
+    for j in dst.scalars(select(m.Job)).all():
+        if j.source_id is not None:
+            by_source[int(j.source_id)] = j.job_id
+        key = (j.name_ar or "").strip()
+        if key and key not in by_name:
+            by_name[key] = j.job_id
+
+    mapping: dict[int, int] = {}
+    created = updated = 0
+    for r in src.execute(text("SELECT * FROM Jobs")).mappings().all():
+        if r.get(jid) is None:
+            continue
+        source_id = int(r[jid])
+        title_ar = _ar(
+            r.get(name_ar) if name_ar else None,
+            r.get(name_en) if name_en else None,
+            placeholder=f"وظيفة {source_id}",
+        )
+        fields = {
+            "source_id": source_id,
+            "code": (_str(r.get(code)) or None) if code else None,
+            "name_ar": title_ar,
+            "name_en": r.get(name_en) if name_en else None,
+        }
+        existing_id = by_source.get(source_id) or by_name.get(title_ar.strip())
+        if existing_id is not None:
+            dst.execute(
+                m.Job.__table__.update()
+                .where(m.Job.__table__.c.job_id == existing_id)
+                .values(**fields)
+            )
+            updated += 1
+        else:
+            obj = m.Job(**fields)
+            dst.add(obj)
+            # Flush per new title to get its id: Jobs is a handful of rows, and
+            # the map must be complete before the employee pass runs.
+            dst.flush()
+            existing_id = obj.job_id
+            created += 1
+        by_source[source_id] = existing_id
+        by_name.setdefault(title_ar.strip(), existing_id)
+        mapping[source_id] = existing_id
+    dst.flush()
+    counts["jobs"] = created
+    counts["jobs_updated"] = updated
+    return mapping
+
+
+def _load_employees(insp, src, dst, counts, job_map: dict[int, int] | None = None) -> None:
     """Mirror eStock's Employee master (the POS users) into ProCare.
 
     eStock keeps the per-cashier permission flags ON the Employee row
@@ -1089,6 +1188,7 @@ def _load_employees(insp, src, dst, counts) -> None:
     show_money = _pick(cols, "emp_show_money")
     active = _pick(cols, "active")
     deleted = _pick(cols, "deleted")
+    source_job = _pick(cols, "job_id")
 
     existing = {
         (u or "").strip().lower(): (eid, ph)
@@ -1120,6 +1220,13 @@ def _load_employees(insp, src, dst, counts) -> None:
             can_see_buy_price=_b(r.get(show_money)) if show_money else False,
             is_active=is_active,
         )
+        # Job title (المسمى الوظيفي). Only set when the source id resolves to a
+        # mirrored title — an unknown/absent job_id must leave the field alone
+        # rather than write a dangling FK.
+        if source_job and job_map:
+            resolved = job_map.get(_int_or_none(r.get(source_job)))
+            if resolved is not None:
+                fields["job_id"] = resolved
         eid, cur_hash = existing.get(uname.lower(), (None, None))
         if eid is not None:
             # A usable ProCare password marks a REAL ProCare login (roster or
@@ -1311,7 +1418,8 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
 
     Reads both the centralized and branch-specific versions, accumulating shift records.
     Inferred columns: cdc_id, cdc_emp_id, cdc_shift_start_time, cdc_start_cash,
-    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, store_id.
+    cdc_curr_cash, cdc_act_cash, cdc_to_emp_id, cdc_trans_value, cdc_notice, branch_id.
+    Only Branches_Cash_disk_close carries a branch_id; Cash_disk_close defaults to default_branch.
     """
     n = 0
     n_dupes = 0
@@ -1342,11 +1450,11 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
         to_emp = _pick(cols, "cdc_to_emp_id")
         trans_val = _pick(cols, "cdc_trans_value", "trans_value")
         notice = _pick(cols, "cdc_notice", "notice")
-        store = _pick(cols, "store_id")
+        branch = _pick(cols, "branch_id")
 
         rows = src.execute(text(f"SELECT * FROM {tbl}")).mappings().all()
         for r in rows:
-            branch_id = branch_map.get(int(r[store])) if store and r.get(store) is not None else default_branch
+            branch_id = branch_map.get(int(r[branch])) if branch and r.get(branch) is not None else default_branch
             branch_id = branch_id or default_branch
             src_shift = int(r[shift_id]) if shift_id and r.get(shift_id) is not None else None
             if src_shift is not None:
@@ -1990,6 +2098,79 @@ def _load_gl_adjustments(insp, src, dst, counts) -> None:
     counts["gl_adjustments"] = n
 
 
+# The five Gedo_* sub-ledger tables — CONFIRMED columns from the Elsanta
+# schema-dump (2026-08-17), all sharing one shape: (table, party_type, id_col,
+# gf_col, flag_col, type_col, party_col, for_him_col, for_me_col, notes_col).
+# Gedo_employee/Gedo_branches/Gedo_installment have no notes column (None).
+_GEDO_SUBLEDGER_TABLES = [
+    ("Gedo_customers", "customer", "gc_id", "gf_id", "Flag", "gc_type", "customer_id", "gc_for_him", "gc_for_me", "notes"),
+    ("Gedo_Vendors", "vendor", "gv_id", "gf_id", "Flag", "gv_type", "vendor_id", "gv_for_him", "gv_for_me", "notes"),
+    ("Gedo_branches", "branch", "gb_id", "gf_id", "Flag", "gb_type", "branch_id", "gb_for_him", "gb_for_me", None),
+    ("Gedo_employee", "employee", "ge_id", "gf_id", "flag", "ge_type", "emp_id", "ge_for_him", "ge_for_me", None),
+    ("Gedo_installment", "installment", "gi_id", "f_id", "flag", "gi_type", "cu_id", "gi_for_him", "gi_for_me", None),
+]
+
+
+def _load_gl_subledgers(insp, src, dst, counts) -> None:
+    """Mirror eStock's five Gedo_* per-party sub-ledger balance tables verbatim.
+
+    Was deliberately deferred through the rest of Phase 7 — unlike every
+    other GL mirror, a wrong guess at the balance-column names here would
+    have silently stored a plausible-looking but zeroed/wrong balance
+    instead of just skipping a field. Now safe: all columns confirmed via
+    the Elsanta schema-dump (2026-08-17). ``party_source_id`` is kept
+    unresolved (raw eStock id) for every party type, including branch —
+    Gedo_branches.branch_id is eStock's OWN branch-entity id, a different
+    namespace than ProCare's store_id-keyed branch_map, so resolving it
+    needs its own mapping (out of scope here; kept consistent with the
+    other four unresolved party types rather than resolved for some and not
+    others). Upserted by (party_type, source_id); not in ``_WIPE_ORDER``.
+    Each table is optional and has_table-guarded independently — a source
+    missing one (e.g. Gedo_installment, unused on this pharmacy) just skips
+    it, never an error."""
+    existing = {
+        (b.party_type, b.source_id): b
+        for b in dst.scalars(select(m.GlSubledgerBalance)).all()
+        if b.source_id is not None
+    }
+    total_n = 0
+    for tbl, party_type, id_col, gf_col, flag_col, type_col, party_col, for_him_col, for_me_col, notes_col in _GEDO_SUBLEDGER_TABLES:
+        if not insp.has_table(tbl):
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        c_id = _pick(cols, id_col)
+        c_gf = _pick(cols, gf_col)
+        c_flag = _pick(cols, flag_col)
+        c_type = _pick(cols, type_col)
+        c_party = _pick(cols, party_col)
+        c_for_him = _pick(cols, for_him_col)
+        c_for_me = _pick(cols, for_me_col)
+        c_total = _pick(cols, "total")
+        c_notes = _pick(cols, notes_col) if notes_col else None
+
+        n = 0
+        for r in src.execute(text(f"SELECT * FROM {tbl}")).mappings().all():
+            sid = int(r.get(c_id)) if c_id and r.get(c_id) is not None else None
+            key = (party_type, sid)
+            obj = existing.get(key)
+            if obj is None:
+                obj = m.GlSubledgerBalance(party_type=party_type, source_id=sid)
+                dst.add(obj)
+                existing[key] = obj
+            obj.gf_ref = _str(r.get(c_gf)) if c_gf else None
+            obj.flag = int(r[c_flag]) if c_flag and r.get(c_flag) is not None else None
+            obj.type_code = _str(r.get(c_type)) if c_type else None
+            obj.party_source_id = int(r[c_party]) if c_party and r.get(c_party) is not None else None
+            obj.for_him = _num(r.get(c_for_him)) if c_for_him else 0
+            obj.for_me = _num(r.get(c_for_me)) if c_for_me else 0
+            obj.total = _num(r.get(c_total)) if c_total else 0
+            obj.notes = _str(r.get(c_notes)) if c_notes else None
+            n += 1
+        total_n += n
+    dst.flush()
+    counts["gl_subledger_balances"] = total_n
+
+
 def _load_shareholders(insp, src, dst, counts) -> None:
     """Mirror eStock's ``company_Owner`` (shareholders) + ``Gedo_Dividends_paied``
     (dividends per year). Upserts by source id so re-syncing from either branch
@@ -2262,21 +2443,51 @@ def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:
 def preflight() -> dict:
     """On-prem connectivity + read-only check before a first mirror run.
 
-    Confirms (1) we can connect to the configured eStock source, and (2) the
+    Confirms (1) we can connect to EVERY configured eStock source, and (2) EACH
     login truly cannot write — a blocked write is the SUCCESS case (roadmap
-    Phase 0). Run this on a machine that can reach the DB.
+    Phase 0). Run this on a machine that can reach the DB(s).
+
+    For multi-source setups (branch servers), reports per-source connectivity
+    and discovered store_ids so the operator can map them via ESTOCK_STORE_BRANCH_MAP.
     """
-    url = settings.estock_sqlalchemy_url()
-    if not url:
+    sources = settings.estock_sources()
+    if not sources:
         return {"ok": False, "reason": "No eStock credentials configured (config/connections.json)."}
+
+    if len(sources) == 1:
+        # Single-source: return flat result for backward compat.
+        return _preflight_one(sources[0])
+
+    # Multi-source: report per-source so the operator knows which server maps to which branch.
+    results = {}
+    all_ok = True
+    for src_block in sources:
+        name = src_block.get("name", "unknown")
+        results[name] = _preflight_one(src_block)
+        if not results[name]["ok"]:
+            all_ok = False
+
+    return {
+        "ok": all_ok,
+        "multi_source": True,
+        "sources": results,
+        "hint": "Map each source's store_ids to branches via ESTOCK_STORE_BRANCH_MAP, ESTOCK2_STORE_BRANCH_MAP, etc.; "
+        "unmapped ids auto-create STORE<id> branches.",
+    }
+
+
+def _preflight_one(source_block: dict) -> dict:
+    """Test connectivity + read-only for one eStock source."""
+    url = _get_odbc_url(source_block)
+    if not url:
+        return {"ok": False, "reason": f"Missing credentials in source block (database={source_block.get('database')})."}
     try:
         src = create_engine(url, echo=False)
         with src.connect() as c:
             c.execute(text("SELECT 1"))
             insp = inspect(src)
             tables = insp.get_table_names()
-            # Discover the branches present so the operator can name them (e.g.
-            # which store_id is Mashal) before/after the first sync.
+            # Discover the branches present so the operator can name them.
             try:
                 store_ids = sorted(_distinct_store_ids(insp, c))
             except Exception:  # noqa: BLE001
@@ -2286,8 +2497,7 @@ def preflight() -> dict:
             "connected": True,
             "source_tables": len(tables),
             "store_ids_found": store_ids,
-            "hint": "Map each store_id to a branch via ESTOCK_STORE_BRANCH_MAP; "
-            "unmapped ids auto-create a STORE<id> branch.",
+            "hint": "Map each store_id to a branch code via store_branch_map.",
         }
         # Verify the login is read-only: a write MUST be rejected.
         try:
@@ -2302,6 +2512,16 @@ def preflight() -> dict:
         return result
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "connected": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _get_odbc_url(block: dict) -> str | None:
+    """Build a pyodbc SQLAlchemy URL from a connection block, or None if not configured.
+
+    Uses config.py's internal helper directly since that one is the canonical impl.
+    """
+    from app.config import _odbc_url as config_odbc_url
+
+    return config_odbc_url(block)
 
 
 def sync_customers_only(source_engine) -> dict:
@@ -2331,27 +2551,50 @@ def sync_customers_only(source_engine) -> dict:
 
 
 def run_full_load() -> dict:
-    """Entry point for the Phase-1 full mirror against the live eStock DB.
+    """Entry point for the Phase-1+ full mirror against live eStock DB(s).
+
+    For single-source: full refresh of ProCare's data from one eStock server.
+    For multi-source: full refresh of EACH branch server's data independently
+    (branch_scoped=True so sources never wipe each other).
 
     Refuses to run (rather than guess) until a real read-only eStock login is
     configured, keeping the read-only guardrail explicit and safe.
     """
-    url = settings.estock_sqlalchemy_url()
-    if not url:
+    sources = settings.estock_sources()
+    if not sources:
         return {
             "ran": False,
             "reason": "No read-only eStock credentials configured. "
-            "Fill config/connections.json:estock_source, then re-run. "
+            "Fill config/connections.json:estock_source or estock_sources, then re-run. "
             "The system runs on its own seeded data until then.",
         }
+
     Base.metadata.create_all(engine)
-    # Read-only intent: the login itself has no write perms; we also never issue
-    # anything but SELECT against the source.
-    source_engine = create_engine(url, echo=False)
-    store_map = settings.estock_store_branch_map()
-    with SessionLocal() as dst:
-        counts = mirror(source_engine, dst, store_map)
-    return {"ran": True, "source": "eStock (read-only)", "counts": counts}
+
+    all_counts: dict = {}
+    for src_block in sources:
+        url = _get_odbc_url(src_block)
+        if not url:
+            continue
+        try:
+            # Multi-source: each source is branch-scoped so they don't wipe each other.
+            source_engine = create_engine(url, echo=False)
+            store_map = src_block.get("store_branch_map")
+            with SessionLocal() as dst:
+                counts = mirror(
+                    source_engine, dst, store_map, branch_scoped=len(sources) > 1
+                )
+            all_counts[src_block.get("name", "source")] = counts
+        except Exception as e:  # noqa: BLE001
+            all_counts[src_block.get("name", "source")] = {
+                "error": f"{type(e).__name__}: {e}"
+            }
+
+    return {
+        "ran": bool(all_counts),
+        "source": "eStock (read-only)" + (" — multi-branch" if len(sources) > 1 else ""),
+        "counts": all_counts,
+    }
 
 
 def import_branch_backup(database: str, branch_code: str, *, append: bool = True) -> dict:

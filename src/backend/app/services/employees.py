@@ -13,9 +13,18 @@ from app.services import auth as auth_svc
 ROLES = ("ceo", "manager", "assistant")
 
 
-def _job_map(session: Session) -> dict[int, str]:
-    rows = session.execute(select(m.Job.job_id, m.Job.name_ar)).all()
-    return {jid: name for jid, name in rows}
+def _job_map(session: Session) -> dict[int, tuple[str, str | None]]:
+    """job_id -> (name_ar, name_en). Both names are carried so the UI can label
+    the title in the language it is rendering — an Arabic-only map showed the
+    Arabic title in English mode."""
+    rows = session.execute(select(m.Job.job_id, m.Job.name_ar, m.Job.name_en)).all()
+    return {jid: (ar, en) for jid, ar, en in rows}
+
+
+def _job_fields(jobs: dict[int, tuple[str, str | None]], job_id: int | None) -> dict:
+    ar, en = jobs.get(job_id, (None, None)) if job_id else (None, None)
+    # job_name kept as the Arabic title for existing callers/screens.
+    return {"job_id": job_id, "job_name": ar, "job_name_ar": ar, "job_name_en": en}
 
 
 def _branch_name(session: Session, branch_id: int | None) -> str | None:
@@ -38,8 +47,7 @@ def list_employees(session: Session, branch_id: int | None = None, limit: int = 
             "name_en": e.name_en,
             "username": e.username,
             "role": e.role,
-            "job_id": e.job_id,
-            "job_name": jobs.get(e.job_id) if e.job_id else None,
+            **_job_fields(jobs, e.job_id),
             "branch_id": e.branch_id,
             "basic_salary": float(e.basic_salary or 0),
             "max_disc_per": float(e.max_disc_per or 0),
@@ -70,8 +78,7 @@ def employee_detail(session: Session, employee_id: int) -> dict | None:
         "name_en": e.name_en,
         "username": e.username,
         "role": e.role,
-        "job_id": e.job_id,
-        "job_name": jobs.get(e.job_id) if e.job_id else None,
+        **_job_fields(jobs, e.job_id),
         "branch_id": e.branch_id,
         "branch_name": _branch_name(session, e.branch_id),
         "basic_salary": float(e.basic_salary or 0),

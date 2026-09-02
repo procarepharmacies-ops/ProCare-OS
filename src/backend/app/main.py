@@ -38,6 +38,8 @@ from app.db.migrate import (
     ensure_product_change_table,
     ensure_estock_raw_mirror_tables,
     ensure_purchase_line_discount_column,
+    ensure_purchase_header_extra_columns,
+    ensure_job_source_columns,
     ensure_held_invoice_table,
     ensure_salary_advance_table,
     ensure_sale_note_column,
@@ -113,6 +115,10 @@ async def lifespan(_app: FastAPI):
     ensure_purchase_line_discount_column(engine)
     # 100% eStock coverage: the generic raw mirror + its read watermarks.
     ensure_estock_raw_mirror_tables(engine)
+    # Phase 7: purchase header discount rate + other expenses (تسوية/خصم نقدي)
+    ensure_purchase_header_extra_columns(engine)
+    # Phase 6: eStock Jobs master mirror (job titles / المسمى الوظيفي)
+    ensure_job_source_columns(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     #
     # Opt out with STARTUP_BACKUP=0 where a scheduled job already owns backups.

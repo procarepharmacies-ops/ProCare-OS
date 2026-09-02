@@ -122,6 +122,8 @@ export const api = {
   expiry: (branch, horizon = 90) => http(`/alerts/expiry${bq(branch, `horizon_days=${horizon}`)}`),
   lowStock: (branch) => http(`/alerts/low-stock${bq(branch)}`),
   reorder: (branch) => http(`/alerts/reorder${bq(branch)}`),
+  belowCost: (branch, includeZeroStock = false) =>
+    http(`/alerts/below-cost${bq(branch, includeZeroStock ? "include_zero_stock=true" : "")}`),
 
   recentSales: (branch) => http(`/sales/recent${bq(branch)}`),
   createSale: (payload) => http("/sales", { method: "POST", body: JSON.stringify(payload) }),

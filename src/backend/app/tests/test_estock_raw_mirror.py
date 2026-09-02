@@ -49,9 +49,10 @@ def _build_source(path):
 
         # Single integer PK -- the watermark shape.
         c.execute(text(
-            "CREATE TABLE Gedo_customers (gc_id INTEGER PRIMARY KEY, customer_id INT, total REAL)"
+            "CREATE TABLE Back_purchase_header "
+            "(back_purchase_id INTEGER PRIMARY KEY, vendor_id INT, total_bill REAL)"
         ))
-        c.execute(text("INSERT INTO Gedo_customers VALUES (1,5,100.0),(2,6,250.0)"))
+        c.execute(text("INSERT INTO Back_purchase_header VALUES (1,5,100.0),(2,6,250.0)"))
 
         # Empty source table -- still counts as covered.
         c.execute(text("CREATE TABLE Checks (check_id INTEGER PRIMARY KEY, money REAL)"))
@@ -105,7 +106,7 @@ def test_every_uncovered_table_is_mirrored_and_covered_ones_are_not(source):
             # Tables with a dedicated loader must not be mirrored twice.
             assert not ({t.lower() for t in mirrored}
                         & {t.lower() for t in etl.COVERED_SOURCE_TABLES})
-            assert {"Branches_shortcoming", "Flag", "Gedo_customers"} <= mirrored
+            assert {"Branches_shortcoming", "Flag", "Back_purchase_header"} <= mirrored
     finally:
         reset_and_seed()
 
@@ -163,11 +164,11 @@ def test_edited_source_row_is_refreshed_not_appended(source):
     try:
         _counts(source)
         with source.begin() as c:
-            c.execute(text("UPDATE Gedo_customers SET total = 999.0 WHERE gc_id = 1"))
+            c.execute(text("UPDATE Back_purchase_header SET total_bill = 999.0 WHERE back_purchase_id = 1"))
         _counts(source)
 
         with SessionLocal() as s:
-            rows = _raw_rows(s, "Gedo_customers")
+            rows = _raw_rows(s, "Back_purchase_header")
             assert len(rows) == 2                       # not 3, not 4
             assert "999" in "".join(r[1] for r in rows)
             assert "100.0" not in "".join(r[1] for r in rows)
@@ -191,13 +192,13 @@ def test_watermark_path_reads_rows_with_negative_keys(source, monkeypatch):
     it and reports success, so the first fill must start below the smallest key."""
     try:
         with source.begin() as c:
-            c.execute(text("INSERT INTO Gedo_customers VALUES (-5, 9, 1.0)"))
-            c.execute(text("INSERT INTO Gedo_customers VALUES (-1, 9, 2.0)"))
+            c.execute(text("INSERT INTO Back_purchase_header VALUES (-5, 9, 1.0)"))
+            c.execute(text("INSERT INTO Back_purchase_header VALUES (-1, 9, 2.0)"))
         monkeypatch.setenv("RAW_MIRROR_REFRESH_MAX_ROWS", "1")   # force incremental
         _counts(source)
 
         with SessionLocal() as s:
-            ids = {r[0] for r in _raw_rows(s, "Gedo_customers")}
+            ids = {r[0] for r in _raw_rows(s, "Back_purchase_header")}
             assert {"-5", "-1", "1", "2"} <= ids
     finally:
         reset_and_seed()
@@ -210,12 +211,12 @@ def test_row_at_the_highest_key_is_not_skipped(source, monkeypatch):
     watermark still advances, so the newest row would never be read again."""
     try:
         with source.begin() as c:
-            c.execute(text("INSERT INTO Gedo_customers VALUES (5000000, 9, 3.0)"))
+            c.execute(text("INSERT INTO Back_purchase_header VALUES (5000000, 9, 3.0)"))
         monkeypatch.setenv("RAW_MIRROR_REFRESH_MAX_ROWS", "1")   # force incremental
         _counts(source)
 
         with SessionLocal() as s:
-            ids = {r[0] for r in _raw_rows(s, "Gedo_customers")}
+            ids = {r[0] for r in _raw_rows(s, "Back_purchase_header")}
             assert "5000000" in ids          # the row at MAX(key) arrives
             assert {"1", "2"} <= ids         # and the dense ones still do too
     finally:
@@ -229,24 +230,24 @@ def test_watermark_path_pulls_only_new_rows(source, monkeypatch):
         monkeypatch.setenv("RAW_MIRROR_REFRESH_MAX_ROWS", "1")
         _counts(source)
         with SessionLocal() as s:
-            assert len(_raw_rows(s, "Gedo_customers")) == 2
+            assert len(_raw_rows(s, "Back_purchase_header")) == 2
             wm = s.execute(
                 text("SELECT last_value FROM estock_raw_watermark WHERE source_table = :t"),
-                {"t": "Gedo_customers"},
+                {"t": "Back_purchase_header"},
             ).scalar()
             assert int(wm) == 2
 
         with source.begin() as c:
-            c.execute(text("INSERT INTO Gedo_customers VALUES (3,7,42.0)"))
+            c.execute(text("INSERT INTO Back_purchase_header VALUES (3,7,42.0)"))
         _counts(source)
 
         with SessionLocal() as s:
-            rows = _raw_rows(s, "Gedo_customers")
+            rows = _raw_rows(s, "Back_purchase_header")
             assert len(rows) == 3                       # the new row, and only once
             assert int(
                 s.execute(
                     text("SELECT last_value FROM estock_raw_watermark WHERE source_table = :t"),
-                    {"t": "Gedo_customers"},
+                    {"t": "Back_purchase_header"},
                 ).scalar()
             ) == 3
     finally:
@@ -274,7 +275,7 @@ def test_source_is_never_written(source):
             before = {
                 t: c.execute(text(f"SELECT COUNT(*) FROM [{t}]")).scalar()
                 for t in ("Products", "Customer", "Branches_shortcoming", "Flag",
-                          "Gedo_customers", "Checks")
+                          "Back_purchase_header", "Checks")
             }
         _counts(source)
         with source.connect() as c:
@@ -321,7 +322,7 @@ def test_one_unreadable_table_does_not_take_down_the_pass(source, monkeypatch):
             # The failed table left nothing behind...
             assert _raw_rows(s, "Flag") == []
             # ...while its neighbours committed, dedicated loaders included.
-            assert len(_raw_rows(s, "Gedo_customers")) == 2
+            assert len(_raw_rows(s, "Back_purchase_header")) == 2
             assert s.query(m.Product).count() > 0
     finally:
         reset_and_seed()

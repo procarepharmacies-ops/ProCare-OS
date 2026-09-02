@@ -95,12 +95,13 @@
     }
   },
   "ai": {
-    "_providers": "anthropic | gemini | ollama (local, no key; 'hermes' is an alias) | claude-cli (local Claude Code, no key). Gemini Pro = set model gemini-2.5-pro.",
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-6",
-    "api_key_env": "ANTHROPIC_API_KEY",
-    "_base_url": "For provider=ollama only; the local server. Override with AI_BASE_URL / OLLAMA_BASE_URL.",
-    "base_url": "http://localhost:11434"
+    "_providers": "gemini (Gemini Pro FREE tier, GEMINI_API_KEY) | hermes (Nous Hermes FREE models via OpenRouter, OPENROUTER_API_KEY; aliases: openrouter, nous) | anthropic (ANTHROPIC_API_KEY) | ollama (local server, no key) | claude-cli (local Claude Code, no key).",
+    "_model": "Leave empty to take the provider's free-tier default (gemini -> gemini-2.5-pro, hermes -> a Nous Hermes :free slug). Set gemini-flash-latest for the faster/cheaper Gemini tier.",
+    "provider": "gemini",
+    "model": "",
+    "api_key_env": "GEMINI_API_KEY",
+    "_base_url": "Only used by the OpenAI-compatible providers, and only when this block targets the ACTIVE provider. hermes defaults to https://openrouter.ai/api/v1, ollama to http://localhost:11434. Override with AI_BASE_URL / OLLAMA_BASE_URL.",
+    "base_url": ""
   },
   "ui": {
     "default_language": "ar",

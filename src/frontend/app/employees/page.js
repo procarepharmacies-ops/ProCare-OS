@@ -9,6 +9,10 @@ import { api } from "../api";
 export default function EmployeesPage() {
   const { lang, branch, branches, user } = useUI();
   const L = (k) => t(lang, k);
+  // eStock job title (المسمى الوظيفي), in the language being rendered. Falls
+  // back to Arabic — the source often carries no English title.
+  const jobTitle = (e) =>
+    (lang === "ar" ? e?.job_name_ar : e?.job_name_en || e?.job_name_ar) || e?.job_name;
   const [employees, setEmployees] = useState([]);
   const [summary, setSummary] = useState(null);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -127,7 +131,7 @@ export default function EmployeesPage() {
                 <strong>{L("system_role")}:</strong> {selectedEmployee.role ? L(`role_${selectedEmployee.role}`) : "-"}
               </div>
               <div>
-                <strong>{L("job")}:</strong> {selectedEmployee.job_name || "-"}
+                <strong>{L("job")}:</strong> {jobTitle(selectedEmployee) || "-"}
               </div>
               <div>
                 <strong>{L("basic_salary")}:</strong> {parseFloat(selectedEmployee.basic_salary).toLocaleString("en-US")}
@@ -266,7 +270,7 @@ export default function EmployeesPage() {
                     <td>{lang === "ar" ? e.name_ar : e.name_en || e.name_ar}</td>
                     <td>{e.username}</td>
                     <td>{e.role ? L(`role_${e.role}`) : "-"}</td>
-                    <td>{e.job_name || "-"}</td>
+                    <td>{jobTitle(e) || "-"}</td>
                     <td>{parseFloat(e.basic_salary).toLocaleString("en-US")}</td>
                     <td>{e.is_active ? "✓" : "✗"}</td>
                   </tr>

@@ -543,6 +543,95 @@ def test_branch_tables_do_not_duplicate_head_office_bills(estock_source):
     finally:
         reset_and_seed()
 
+def test_load_gl_subledgers(estock_source):
+    """Mirror the five Gedo_* sub-ledger balance tables verbatim, using the
+    REAL column shapes confirmed via the Elsanta schema-dump (2026-08-17).
+
+    Deliberately includes Gedo_employee's lowercase `flag` column (every
+    sibling table uses `Flag`) to exercise the _pick casing fix — before that
+    fix, `_pick` would match `flag` case-insensitively but return the
+    candidate `Flag` verbatim, and `r.get("Flag")` against a row whose real
+    key is `flag` would silently come back None."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Gedo_customers (gc_id INT, gf_id TEXT, Flag INT, gc_type TEXT, "
+                "customer_id INT, gc_for_him REAL, gc_for_me REAL, total REAL, "
+                "insert_date TEXT, insert_uid TEXT, notes TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_customers VALUES "
+                "(1,'900',1,'C',10,120.5,0,120.5,'2026-08-01','u1','Invoice #900')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Gedo_Vendors (gv_id INT, gf_id TEXT, Flag INT, gv_type TEXT, "
+                "vendor_id INT, gv_for_him REAL, gv_for_me REAL, total REAL, "
+                "insert_date TEXT, insert_uid TEXT, notes TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_Vendors VALUES "
+                "(1,'901',1,'V',20,0,300.0,-300.0,'2026-08-02','u1','PO #901')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Gedo_branches (gb_id INT, gf_id TEXT, Flag INT, gb_type TEXT, "
+                "branch_id INT, gb_for_him REAL, gb_for_me REAL, total REAL, "
+                "insert_date TEXT, insert_uid TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_branches VALUES "
+                "(1,'902',1,'B',5,50.0,0,50.0,'2026-08-03','u1')"
+            ))
+            # Gedo_employee: lowercase `flag` — the casing quirk this test targets.
+            c.execute(text(
+                "CREATE TABLE Gedo_employee (ge_id INT, gf_id TEXT, flag INT, ge_type TEXT, "
+                "emp_id INT, ge_for_him REAL, ge_for_me REAL, total REAL, "
+                "insert_uid TEXT, insert_date TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_employee VALUES "
+                "(1,'903',9,'E',7,0,80.0,-80.0,'u1','2026-08-04')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Gedo_installment (gi_id INT, f_id TEXT, flag INT, gi_type TEXT, "
+                "cu_id INT, gi_for_him REAL, gi_for_me REAL, total REAL, "
+                "insert_uid TEXT, insert_date TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Gedo_installment VALUES "
+                "(1,'904',1,'I',30,200.0,0,200.0,'u1','2026-08-05')"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            rows = {b.party_type: b for b in s.query(m.GlSubledgerBalance).all()}
+            assert set(rows) == {"customer", "vendor", "branch", "employee", "installment"}
+
+            cust = rows["customer"]
+            assert cust.party_source_id == 10 and cust.for_him == 120.5 and cust.total == 120.5
+            assert cust.gf_ref == "900" and cust.notes == "Invoice #900"
+
+            vend = rows["vendor"]
+            assert vend.party_source_id == 20 and vend.for_me == 300.0
+
+            branch = rows["branch"]
+            assert branch.party_source_id == 5 and branch.type_code == "B"
+
+            # The casing-fix assertion: Gedo_employee's lowercase `flag` must
+            # still resolve to 9, not silently come back None.
+            emp = rows["employee"]
+            assert emp.party_source_id == 7 and emp.flag == 9 and emp.for_me == 80.0
+
+            inst = rows["installment"]
+            assert inst.party_source_id == 30 and inst.for_him == 200.0
+
+        # Re-run to prove upsert-by-(party_type, source_id) doesn't duplicate.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.GlSubledgerBalance).count() == 5
+    finally:
+        reset_and_seed()
+
 
 def test_branch_purchase_table_does_not_duplicate_head_office(estock_source):
     """The purchase side overlaps identically — 12,822 head-office bills, the
@@ -627,3 +716,13 @@ def test_branch_product_amount_does_not_duplicate_head_office_stock(estock_sourc
             assert float(own.amount) == 9
     finally:
         reset_and_seed()
+
+
+def test_pick_returns_real_casing_not_candidate():
+    """Regression guard for the _pick casing bug: a candidate matched
+    case-insensitively must resolve to the column's ACTUAL casing, since
+    row-mapping .get() lookups are case-sensitive."""
+    assert etl._pick({"flag"}, "Flag") == "flag"
+    assert etl._pick({"Flag"}, "flag") == "Flag"
+    assert etl._pick({"product_id"}, "PRODUCT_ID", "other") == "product_id"
+    assert etl._pick({"x"}, "nope") is None

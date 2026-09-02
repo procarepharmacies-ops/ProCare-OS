@@ -165,6 +165,8 @@ def get_count(session: Session, count_id: int) -> dict:
                 "product_id": line.product_id,
                 "name_ar": product.name_ar if product is not None else line.name_ar,
                 "name_en": product.name_en if product is not None else None,
+                "code": product.code if product is not None else None,
+                "fast_code": product.fast_code if product is not None else None,
                 "shelf_location": product.shelf_location if product is not None else None,
                 "exp_date": batch.exp_date.isoformat() if batch is not None and batch.exp_date else None,
                 "buy_price": money(buy_price),

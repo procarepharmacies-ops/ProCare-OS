@@ -217,9 +217,19 @@ class Vendor(Base):
 
 
 class Job(Base):
+    """Job title (المسمى الوظيفي) — eStock's ``Jobs`` master.
+
+    ``source_id`` is eStock's own ``job_id``. Both branch servers are clones of
+    the same eStock install and carry the same small job list, so upserting by
+    ``source_id`` keeps ONE titles master rather than a per-server copy — the
+    same posture as shareholders (see CLAUDE.md).
+    """
+
     __tablename__ = "jobs"
 
     job_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     name_ar: Mapped[str] = mapped_column(String(80))
     name_en: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
@@ -383,6 +393,15 @@ class Purchase(Base):
     bill_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     total_gross: Mapped[float] = mapped_column(Money, default=0)
     total_discount: Mapped[float] = mapped_column(Money, default=0)
+    # Header discount PERCENTAGE (eStock's bill_disc_per), kept alongside the
+    # money discount above (bill_disc_money) — mirrors eStock's own purchase
+    # invoice, which carries both. The percentage's money-equivalent is folded
+    # into total_discount when the purchase is created; this column is kept so
+    # the invoice can display/reprint the rate the vendor actually quoted.
+    disc_percent: Mapped[float] = mapped_column(Money, default=0)
+    # Other invoice expenses (شحن/مصاريف أخرى, eStock's bill_other_expenses) —
+    # a vendor charge that adds to what's owed, same direction as tax.
+    other_expenses: Mapped[float] = mapped_column(Money, default=0)
     total_tax: Mapped[float] = mapped_column(Money, default=0)
     is_return: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -1413,6 +1432,53 @@ class GlAdjustment(Base):
     __table_args__ = (
         Index("IX_gl_adjustment_source", "source_id"),
         Index("IX_gl_adjustment_who", "who_class", "who_id"),
+    )
+
+
+class GlSubledgerBalance(Base):
+    """Per-party GL sub-ledger balance (eStock ``Gedo_customers``/
+    ``Gedo_Vendors``/``Gedo_branches``/``Gedo_employee``/``Gedo_installment``
+    mirror, verbatim + read-only).
+
+    Confirmed via the Elsanta schema-dump (2026-08-17) — all five source
+    tables share an identical shape: an id, a link to the Gedo_Financial
+    journal (``gf_id``, VARCHAR on the source — kept as text, not cast to
+    int), a Flag, a per-table type code, a party id, for_him/for_me/total
+    money columns, insert_uid/insert_date, and (customers/vendors only) notes.
+
+    ``party_type`` is ProCare's OWN discriminator ('customer'/'vendor'/
+    'branch'/'employee'/'installment') — NOT an eStock code; each source
+    table maps 1:1 to exactly one party kind, so this is simply which loader
+    wrote the row. ``party_source_id`` is the RAW eStock party id
+    (customer_id/vendor_id/branch_id/emp_id/cu_id) — kept UNRESOLVED to a
+    ProCare PK. Branch is a special case: ``Gedo_branches.branch_id`` is
+    eStock's OWN branch-entity id (from its ``Branches`` master table), a
+    DIFFERENT namespace than ProCare's store_id-keyed branch_map — resolving
+    it needs its own mapping, out of scope here. Kept verbatim/unresolved for
+    all five so the whole GL mirror stays one consistent posture (same as
+    GlAccount/GlJournalEntry/GlAdjustment) rather than resolved for some
+    parties and not others. Upserted by (party_type, source_id); not in
+    ``_WIPE_ORDER``.
+    """
+
+    __tablename__ = "gl_subledger_balances"
+
+    gl_subledger_id: Mapped[int] = mapped_column(primary_key=True)
+    party_type: Mapped[str] = mapped_column(String(20))
+    source_id: Mapped[int | None] = mapped_column(nullable=True)  # gc_id/gv_id/gb_id/ge_id/gi_id
+    gf_ref: Mapped[str | None] = mapped_column(String(50), nullable=True)  # source gf_id (text)
+    flag: Mapped[int | None] = mapped_column(nullable=True)
+    type_code: Mapped[str | None] = mapped_column(String(5), nullable=True)  # gc_type/gv_type/...
+    party_source_id: Mapped[int | None] = mapped_column(nullable=True)  # raw eStock party id, unresolved
+    for_him: Mapped[float] = mapped_column(Money, default=0)
+    for_me: Mapped[float] = mapped_column(Money, default=0)
+    total: Mapped[float] = mapped_column(Money, default=0)
+    notes: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gl_subledger_type_source", "party_type", "source_id"),
+        Index("IX_gl_subledger_party", "party_type", "party_source_id"),
     )
 
 

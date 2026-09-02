@@ -31,15 +31,33 @@ data = {}
 p = block("PROCARE_DB")
 if p:
     data["procare_database"] = p
-e = block("ESTOCK_DB")
-if e:
-    sm = os.environ.get("ESTOCK_STORE_BRANCH_MAP")
-    if sm:
-        try:
-            e["store_branch_map"] = json.loads(sm)
-        except Exception:
-            pass
-    data["estock_source"] = e
+
+# Multi-source eStock (one per branch server): ESTOCK_DB_*, ESTOCK2_DB_*, ESTOCK3_DB_*, ...
+# Fall back to a single ESTOCK_DB_* block for backward compatibility.
+estock_sources = []
+for i in range(1, 10):  # support up to 9 sources
+    prefix = "ESTOCK_DB" if i == 1 else f"ESTOCK{i}_DB"
+    e = block(prefix)
+    if e:
+        # Each source gets its own store_branch_map from env or defaults.
+        sm_env = f"ESTOCK{i}_STORE_BRANCH_MAP" if i > 1 else "ESTOCK_STORE_BRANCH_MAP"
+        sm = os.environ.get(sm_env)
+        if sm:
+            try:
+                e["store_branch_map"] = json.loads(sm)
+            except Exception:
+                pass
+        # Multi-source list: each source gets a readable name (database or "elsanta", etc).
+        e["name"] = e.get("database", f"estock{i}").replace("stock", "").replace("_", "").lower() or f"estock{i}"
+        estock_sources.append(e)
+
+if estock_sources:
+    if len(estock_sources) == 1:
+        # Single source: keep legacy format for backward compat.
+        data["estock_source"] = estock_sources[0]
+    else:
+        # Multi-source: use the list format.
+        data["estock_sources"] = estock_sources
 
 if data:
     os.makedirs("/app/config", exist_ok=True)
