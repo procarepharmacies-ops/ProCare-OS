@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -1536,3 +1537,55 @@ class ProductBarcode(Base):
         Index("IX_product_barcodes_product", "product_id"),
         Index("IX_product_barcodes_code", "product_code"),
     )
+
+
+class EstockRawMirror(Base):
+    """Generic read-only mirror for every eStock source table not otherwise
+    modelled in ProCare.
+
+    One row per source-table row, keyed by (source_table, source_id).
+    The 'raw' column holds the verbatim row as a JSON string — all 114 eStock
+    tables, including the ~84 not otherwise mirrored (Gedo ledgers, EMP_CONTROL,
+    change-history, edit-logs, config tables, empty tables, …).  This is what
+    makes ProCare cover 100% of eStock without 84 individual models: a single
+    table, one _load_uncovered_tables() pass.
+
+    Read-only SELECT against eStock (never a write); dedup on
+    (source_table, source_id) so re-syncs are idempotent.  NOT in _WIPE_ORDER —
+    rows survive a full mirror refresh.
+    """
+
+    __tablename__ = "estock_raw_mirror"
+
+    row_id: Mapped[int] = mapped_column(primary_key=True)
+    source_table: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    raw: Mapped[str] = mapped_column(Text, nullable=False)
+    branch_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_estock_raw_table_id", "source_table", "source_id"),
+        Index("IX_estock_raw_table_branch", "source_table", "branch_id"),
+    )
+
+
+class EstockRawWatermark(Base):
+    """How far the raw mirror has read into each large append-only eStock table.
+
+    Only the change-log tables use this (Branches_Product_amount_Change ~1.05M
+    rows, Product_amount_Change ~533K): storing the highest source id already
+    mirrored is what lets a 5-minute sync cadence pull only what is new instead
+    of re-reading a million rows of history every cycle. Small tables are
+    refreshed wholesale each cycle and never appear here.
+
+    The watermark is an optimisation, never the correctness guarantee — inserts
+    are anti-joined against the keys already mirrored, so a stale, missing or
+    non-unique watermark can only cost time, never duplicate a row.
+    """
+
+    __tablename__ = "estock_raw_watermark"
+
+    source_table: Mapped[str] = mapped_column(String(100), primary_key=True)
+    last_value: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())

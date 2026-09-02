@@ -301,6 +301,52 @@ plan/progress files after every meaningful task; amend CLAUDE.md only when a
 schema, rule, or architectural invariant changes. On tool failure: analyze the
 real stack trace, patch, re-test, then record the learning in `findings.md`.
 
+## eStock coverage: two tiers, 100% of the source
+
+ProCare holds **all 114 tables** of the live eStock database, in two tiers. Know
+which tier you are touching before you change anything here.
+
+**Dedicated (28 tables)** — read into real ProCare models by a `_load_*` function
+in `app/services/etl.py`, listed in `COVERED_SOURCE_TABLES`. Cleaned, typed,
+queryable, what the UI shows. Products, customers, sales, purchases, stock, GL
+journal, payroll, treasury.
+
+**Raw (86 tables)** — mirrored verbatim by `_load_uncovered_tables` into
+`estock_raw_mirror`: one row per source row, the row itself as JSON, keyed on
+`(source_table, source_id)`, tagged with `branch_id` where the source carries a
+`store_id`. Exact but not modelled. Gedo_* sub-ledgers, EMP_CONTROL, the
+`*_Change` / `*_edit` history logs, config and lookup tables, empty tables.
+
+Rules:
+
+- **Never mirror a table in both tiers.** A table with a `_load_*` function must
+  be in `COVERED_SOURCE_TABLES`, which is exactly what excludes it from the raw
+  pass. Miss that and its rows are counted twice.
+- **Promoting raw → dedicated** = write the loader, add the name to
+  `COVERED_SOURCE_TABLES`. The rows are already local, so confirming an unknown
+  column encoding (the `Gedo_*` party-type question) is a query against
+  `estock_raw_mirror`, not another trip to the pharmacy server.
+- **The raw mirror is read-only, like everything else pointed at eStock.** It only
+  ever `SELECT`s. `test_estock_raw_mirror.py::test_source_is_never_written`
+  guards it.
+- **Dedup keys use the WHOLE primary key.** eStock's keys are routinely composite
+  (`Branches_Product_amount_Change` is `(branch_id, id)`); keying on the first
+  column collapses a million rows onto two. Keyless tables key on a digest of the
+  row. Both hash to sha1 when they would overflow `source_id` (60 chars).
+- **Big tables are read forward from a watermark** (`estock_raw_watermark`), small
+  ones (≤ `RAW_MIRROR_REFRESH_MAX_ROWS`, default 50,000) are refreshed wholesale
+  each cycle because eStock edits those in place. The watermark is an
+  optimisation only — correctness comes from anti-joining every insert against
+  the keys already held, so re-running a sync can never duplicate.
+- **`estock_raw_mirror` and `estock_raw_watermark` are NOT in `_WIPE_ORDER`.** A
+  full mirror refresh must not throw the raw rows away.
+
+Switches: `RAW_MIRROR=0` disables the pass; `RAW_MIRROR_SKIP_ABOVE_ROWS=N` stages
+the first fill (~2.01M rows / ~1 GB) so it can be taken off-peak. Skipped tables
+are reported in `raw_skipped` and are NOT counted as covered. Runbook:
+`docs/RAW-MIRROR-FIRST-FILL.md`. Coverage report:
+`python -m tools.estock_schema_dump --counts` (run from `src/backend`).
+
 ## Data Schemas
 
 ### Stocktaking (الجرد) — `stock_counts` / `stock_count_lines`

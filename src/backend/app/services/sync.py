@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from app.config import settings
 from app.db import models as m
-from app.db.base import SessionLocal
+from app.db.base import IS_MSSQL, SessionLocal, engine
 from app.services import etl
 
 
@@ -97,6 +98,99 @@ def is_enabled() -> bool:
     return flag and is_configured()
 
 
+# --- Cross-process cycle guard -----------------------------------------------
+#
+# INC-2026-0829-B: the in-process ``threading.Lock`` below guards only the
+# _state dict. It cannot see a SECOND PROCESS running a cycle -- and several do:
+# the backend's own 5-minute thread, the 03:00 ProCare_RawMirror_OffpeakFill
+# task, ``.local-run/sync_offpeak.py``, and any ad-hoc ``sync.run_once()`` an
+# operator starts by hand. Two cycles against the same branch interleave
+# ``_wipe_branch_sales_window()`` with another cycle's ``_load_sales()``, which
+# both corrupts the load (FK violation on a parent row the other cycle just
+# deleted) and, as seen on 2026-08-29, leaves them blocking each other on
+# gl_accounts/estock_raw_watermark until someone kills a session by hand --
+# 3h40m with no sync and no error reported.
+#
+# A SQL Server APPLICATION LOCK is visible to every process on the instance, so
+# it is the guard that actually holds. ``@LockOwner='Session'`` (not the default
+# 'Transaction') is required: a cycle commits many times, and a transaction-owned
+# lock would be released at the first commit.
+_APPLOCK_NAME = "ProCare_SyncCycle"
+
+
+def applock_timeout_ms() -> int:
+    """How long a cycle waits for the guard before giving up. 0 = skip at once,
+    which is what the background loop wants: the next tick is only minutes away,
+    so queueing cycles up behind each other only deepens the pile."""
+    try:
+        return max(0, int(os.environ.get("SYNC_APPLOCK_TIMEOUT_MS", "0")))
+    except (TypeError, ValueError):
+        return 0
+
+
+def lock_timeout_ms() -> int:
+    """SQL Server LOCK_TIMEOUT for the cycle's own connections (-1 = wait for
+    ever, the SQL Server default and what hung the mirror). A bounded wait turns
+    'blocked until a human notices' into a recorded, retried failure."""
+    try:
+        return int(os.environ.get("SYNC_LOCK_TIMEOUT_MS", "120000"))
+    except (TypeError, ValueError):
+        return 120000
+
+
+@contextmanager
+def _cycle_guard():
+    """Hold the instance-wide sync guard for one cycle.
+
+    Yields True when this process owns the cycle, False when another process is
+    already running one (caller must then skip). A no-op that always yields True
+    off SQL Server (SQLite dev/test is single-process by construction).
+    """
+    if not IS_MSSQL:
+        yield True
+        return
+    conn = None
+    acquired = False
+    try:
+        conn = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+        rc = conn.exec_driver_sql(
+            "DECLARE @rc int; "
+            "EXEC @rc = sp_getapplock @Resource=?, @LockMode='Exclusive', "
+            "@LockOwner='Session', @LockTimeout=?; SELECT @rc",
+            (_APPLOCK_NAME, applock_timeout_ms()),
+        ).scalar()
+        acquired = rc is not None and int(rc) >= 0
+        yield acquired
+    except Exception:  # noqa: BLE001 — the guard must never be the thing that fails a cycle
+        # Could not reach the guard at all: fall back to running, since refusing
+        # to sync is worse than the race the guard protects against.
+        yield True
+    finally:
+        if conn is not None:
+            try:
+                if acquired:
+                    conn.exec_driver_sql(
+                        "EXEC sp_releaseapplock @Resource=?, @LockOwner='Session'",
+                        (_APPLOCK_NAME,),
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                conn.close()  # closing the session releases the lock regardless
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _apply_lock_timeout(session) -> None:
+    """Bound how long this cycle's writes wait on someone else's lock."""
+    if not IS_MSSQL:
+        return
+    try:
+        session.execute(text(f"SET LOCK_TIMEOUT {lock_timeout_ms()}"))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def run_once(source_engine=None) -> dict:
     """One sync cycle: mirror EVERY configured eStock source → ProCare.
 
@@ -138,41 +232,50 @@ def run_once(source_engine=None) -> dict:
     all_counts: dict[str, dict] = {}
     errors: dict[str, str] = {}
     try:
-        for s in sources:
-            try:
-                # Customers-only source: its operational data already arrives
-                # from the main server, so only the customer register is pulled.
-                if s.get("sync_mode") == "customers_only":
-                    counts = etl.sync_customers_only(s["engine"])
-                else:
-                    # Incremental only after this source has completed a FULL load
-                    # (recorded in sync_state) — a fresh/reset database, or demo
-                    # data sitting in the branch, must never suppress the initial
-                    # history pull.
-                    with SessionLocal() as st:
-                        state = st.get(m.SyncState, s["name"])
-                        inc = incremental_days() if (state and state.full_synced_at) else 0
-                    with SessionLocal() as dst:
-                        counts = etl.mirror(
-                            s["engine"], dst, s["store_branch_map"], branch_scoped=True,
-                            incremental_days=inc or None,
-                        )
-                all_counts[s["name"]] = counts
-                _record_cycle(s["name"], counts.get("sync_mode", ""))
-            except Exception as e:  # noqa: BLE001 — soft-fail per source
-                errors[s["name"]] = f"{type(e).__name__}: {e}"
-        ok = not errors
-        with _lock:
-            _state.update(
-                runs=_state["runs"] + 1,
-                last_run_at=datetime.now(timezone.utc).isoformat(),
-                last_status="ok" if ok else ("error" if not all_counts else "partial"),
-                last_counts=all_counts or None,
-                last_error="; ".join(f"{k}: {v}" for k, v in errors.items()) or None,
-            )
-        if all_counts:
-            return {"ran": True, "counts": all_counts, **({"errors": errors} if errors else {})}
-        return {"ran": False, "errors": errors}
+        with _cycle_guard() as owned:
+            if not owned:
+                # Another process (offpeak fill, a hand-started run_once, a second
+                # backend) is mid-cycle. Skipping is correct: cycles are idempotent
+                # and the next tick is minutes away.
+                with _lock:
+                    _state["last_status"] = "skipped (another sync cycle is running)"
+                return {"ran": False, "reason": "another sync cycle is already running"}
+            for s in sources:
+                try:
+                    # Customers-only source: its operational data already arrives
+                    # from the main server, so only the customer register is pulled.
+                    if s.get("sync_mode") == "customers_only":
+                        counts = etl.sync_customers_only(s["engine"])
+                    else:
+                        # Incremental only after this source has completed a FULL load
+                        # (recorded in sync_state) — a fresh/reset database, or demo
+                        # data sitting in the branch, must never suppress the initial
+                        # history pull.
+                        with SessionLocal() as st:
+                            state = st.get(m.SyncState, s["name"])
+                            inc = incremental_days() if (state and state.full_synced_at) else 0
+                        with SessionLocal() as dst:
+                            _apply_lock_timeout(dst)
+                            counts = etl.mirror(
+                                s["engine"], dst, s["store_branch_map"], branch_scoped=True,
+                                incremental_days=inc or None,
+                            )
+                    all_counts[s["name"]] = counts
+                    _record_cycle(s["name"], counts.get("sync_mode", ""))
+                except Exception as e:  # noqa: BLE001 — soft-fail per source
+                    errors[s["name"]] = f"{type(e).__name__}: {e}"
+            ok = not errors
+            with _lock:
+                _state.update(
+                    runs=_state["runs"] + 1,
+                    last_run_at=datetime.now(timezone.utc).isoformat(),
+                    last_status="ok" if ok else ("error" if not all_counts else "partial"),
+                    last_counts=all_counts or None,
+                    last_error="; ".join(f"{k}: {v}" for k, v in errors.items()) or None,
+                )
+            if all_counts:
+                return {"ran": True, "counts": all_counts, **({"errors": errors} if errors else {})}
+            return {"ran": False, "errors": errors}
     finally:
         for s in sources:
             if s["own"]:
@@ -181,8 +284,22 @@ def run_once(source_engine=None) -> dict:
 
 def _loop() -> None:
     # First sync immediately, then every interval until stopped.
+    #
+    # run_once() soft-fails PER SOURCE, but anything raised OUTSIDE that inner
+    # try (settings lookup, create_engine, a MemoryError) used to escape here and
+    # kill this thread outright -- while _state["running"] stayed True for ever.
+    # The mirror then silently stopped with status "ok" and no error, which is
+    # exactly how a 3h40m outage went unnoticed on 2026-08-29. Never let the loop
+    # die: record the failure, keep the cadence.
     while not _stop.is_set():
-        run_once()
+        try:
+            run_once()
+        except BaseException as e:  # noqa: BLE001 — a dead sync thread is worse
+            with _lock:
+                _state.update(
+                    last_status="error",
+                    last_error=f"sync loop: {type(e).__name__}: {e}",
+                )
         _stop.wait(interval_seconds())
 
 
@@ -212,11 +329,35 @@ def stop() -> None:
 
 
 def status() -> dict:
-    """Current sync status (safe to serialise; no secrets)."""
+    """Current sync status (safe to serialise; no secrets).
+
+    ``running`` used to be a flag set once at start() and never revisited, so a
+    thread that had died or been blocked in SQL Server for hours still reported
+    ``running: true, last_status: "ok"``. It now reflects the actual thread, and
+    ``stalled`` / ``seconds_since_last_run`` make a wedged cycle visible without
+    anyone having to compare timestamps by hand.
+    """
     with _lock:
         s = dict(_state)
+    alive = _thread is not None and _thread.is_alive()
+    s["thread_alive"] = alive
+    s["running"] = bool(s.get("running")) and alive
     s["configured"] = is_configured()
     s["interval_seconds"] = interval_seconds()
     s["incremental_days"] = incremental_days()
     s["mode"] = "live read-only eStock mirror" if is_configured() else "offline (own seeded data)"
+
+    age = None
+    last = s.get("last_run_at")
+    if last:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+        except (TypeError, ValueError):
+            age = None
+    s["seconds_since_last_run"] = None if age is None else round(age)
+    # A cycle legitimately takes a while; three missed intervals is not a slow
+    # cycle, it is a wedged one.
+    s["stalled"] = bool(s["enabled"] and age is not None and age > max(600, 3 * interval_seconds()))
+    if s["stalled"] and s.get("last_status") == "ok":
+        s["last_status"] = "stalled"
     return s

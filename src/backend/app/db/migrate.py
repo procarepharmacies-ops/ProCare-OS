@@ -575,7 +575,15 @@ def ensure_commission_tables(engine) -> None:
 
         tables = [CommissionRun.__table__, CommissionRunLine.__table__]
         Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
+def ensure_estock_raw_mirror_tables(engine) -> None:
+    """Ensure estock_raw_mirror + estock_raw_watermark exist (100% eStock
+    coverage: every source table not read by a dedicated loader is mirrored
+    verbatim). Creates them via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    missing = [t for t in ("estock_raw_mirror", "estock_raw_watermark") if t not in table_names]
+    if missing:
+        from app.db.models import Base, EstockRawMirror, EstockRawWatermark
 
-
-
-
+        tables = [EstockRawMirror.__table__, EstockRawWatermark.__table__]
+        Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])

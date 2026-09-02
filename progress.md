@@ -1,5 +1,81 @@
 # Progress Log (B.L.A.S.T.)
 
+## 2026-08-26 · 100% eStock coverage — the raw mirror, fixed and proven on live data
+
+- GOAL: ProCare holds EVERY eStock table, not the 28 with dedicated loaders.
+  The live Elsanta database has **114 tables**; 28 are read into real ProCare
+  models, the other **86 were unheld**. Owner's ask: 100% mirror.
+- STATE FOUND: a half-written `_load_uncovered_tables` was in the working tree
+  and it BROKE THE WHOLE MIRROR — the call site passes 6 arguments, the function
+  took 4, so `mirror()` raised `TypeError` on every run. All 10 mirror tests were
+  red; nothing had synced from that tree. Four more faults underneath:
+  - `default_branch_id` was referenced as a free variable (`NameError`);
+  - the key was the FIRST integer PK column only. eStock keys are composite —
+    `Branches_Product_amount_Change` is (branch_id, id), so 1.05M rows would have
+    collapsed onto the 2 distinct branch_ids. Same for `Branches_shortcoming`
+    (branch_id, product_id, store_id) and `Product_Vendor` (PV_id, …);
+  - keyless tables used the whole row JSON as `source_id`, a String(60) column —
+    `Product_amount_Change` (533K rows, no declared key) could not have inserted;
+  - the keyless and fallback paths never consulted what was already mirrored, so
+    every 5-minute cycle would re-insert the table.
+- BUILT: `_load_uncovered_tables` rewritten around the shapes the source really
+  has. Per-table strategy is chosen from the row count, because eStock's two
+  kinds of table behave differently:
+  - **small (≤ RAW_MIRROR_REFRESH_MAX_ROWS, default 50,000)** — config, lookup,
+    roster, sub-ledger. eStock EDITS these in place, so they are refreshed
+    wholesale each cycle and are always verbatim.
+  - **large** — the append-only change logs. Pulled forward from a stored
+    watermark (`estock_raw_watermark`) so a 5-minute cadence never re-reads
+    history.
+  Idempotency does NOT rest on the watermark: every insert is anti-joined, in
+  chunks of 900, against the keys already held for that table. A re-run, or a
+  watermark column that turned out not to be unique, can only cost time.
+- KEY: whole composite PK joined; hashed to sha1 when it would overflow the
+  60-char column or when the table declares no key. Decimal ids are normalised
+  (`Decimal('123')` → `123`) — eStock ids are DECIMAL(18,0) and a repr that
+  drifted to `1.23E+2` between cycles would make every row look new forever.
+- CHUNK WIDTH IS DENSITY-ADAPTIVE: `Branches_Product_amount_Change` spreads 1.05M
+  rows over ch_id 1..119,368,724. A fixed 20,000-wide window needs ~6,000
+  round-trips to walk it once; sizing the window by observed density makes it 53.
+- VERIFIED ON THE LIVE ELSANTA SERVER (read-only, SQL Server 2008 RTM):
+  - 76 of the 86 uncovered tables mirrored in one pass, **0 failures**, 49,541
+    rows in 8.8s; second pass added **+0 rows** (idempotent against the real
+    schema, Arabic collation and MONEY/DATETIME columns included).
+  - the 10 tables held back by the staging cap were probed separately: 5,000
+    sampled rows each, **every row got a distinct key** — the composite-PK
+    collapse is really gone.
+  - the three tables that will take the watermark path were checked for the one
+    assumption it makes: `ch_id`, `gc_id` and `id` are each 100% distinct AND
+    insertion-ordered (row at MAX(watermark) is also MAX(insert_date)).
+- STAGING: `RAW_MIRROR_SKIP_ABOVE_ROWS` skips tables over N rows for a cycle and
+  names them in `counts['raw_skipped']`, which are NOT counted as covered. The
+  first fill is ~2.01M rows / ~1 GB into ProCare's own database on a SQL Server
+  that also serves the POS, so it can be taken in slices off-peak instead of
+  all-or-nothing. `RAW_MIRROR=0` switches the pass off entirely, the way
+  `SYNC_ENABLED=false` already defers the sync itself.
+- SCHEMA: `estock_raw_mirror` (source_table, source_id, raw JSON, branch_id) and
+  `estock_raw_watermark`, both created by `ensure_estock_raw_mirror_tables()` at
+  startup so databases that predate them migrate silently. Neither is in
+  `_WIPE_ORDER` — a full mirror refresh does not throw the raw rows away.
+- BRANCH TAGGING: rows of a table carrying `store_id` are tagged with the mapped
+  ProCare branch; source-wide tables (Gedo ledgers, EMP_CONTROL, config) keep
+  `branch_id = NULL`.
+- TESTS: `test_estock_raw_mirror.py` (13) — composite-key distinctness, keyless
+  digest dedup, no-duplicate re-sync, in-place edit refreshed not appended, empty
+  table still covered, watermark pulls only new rows, `RAW_MIRROR=0`, Decimal key
+  stability, overlong key hashing, and a guard-rail test asserting the source row
+  counts are unchanged (ProCare never writes eStock).
+- TOOLING: `tools/estock_schema_dump.py` now records each table's primary key and
+  reports coverage in two tiers — *dedicated* (a ProCare model) vs *raw*
+  (verbatim in `estock_raw_mirror`) — instead of "covered / not covered".
+  Re-run against live Elsanta: **114 tables, 28 dedicated + 86 raw, 0 unmirrored,
+  100.0% coverage**. `docs/estock-schema-dump.md` refreshed from the live server,
+  which also closes the schema-dump gate that PRs #47/#49/#50/#51 were waiting on.
+- STILL OPEN: the first fill of the 10 large tables has NOT been run into the
+  production ProCare database — it is a ~2M-row read against the live POS server
+  and belongs off-peak. Command and sizing are in
+  `docs/RAW-MIRROR-FIRST-FILL.md`.
+
 ## 2026-07-25 · Mobile الجرد بالباركود (barcode-scan stocktaking)
 - Owner priority: use the app for الجرد on the phone — biggest productivity win.
   Problem: current count sheet is a long scrollable table; on mobile finding each

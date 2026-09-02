@@ -82,3 +82,6 @@ dsetup*.dll
 # Local (no-Docker) launcher runtime state
 .local-run/
 *.pid
+
+# timestamped editor/agent backups (*.bak already covered above)
+*.bak-*

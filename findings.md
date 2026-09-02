@@ -1,5 +1,47 @@
 # Findings (B.L.A.S.T. research memory)
 
+## reset_and_seed() is not repeatable — the demo data is re-rolled every call
+
+`app/db/seed.py` holds ONE module-level `RNG = random.Random(20260626)`. It is
+seeded at import, not per call, so `reset_and_seed()` is deterministic only the
+first time; every later call continues the same stream and produces a DIFFERENT
+catalogue (prices, min-stock, batch sizes). The whole test suite shares one
+SQLite file, so the number of resets that ran before a test decides what that
+test sees.
+
+That is how `test_pos.py::test_cash_sale_deducts_fefo_and_is_atomic` broke on
+2026-08-26 when `test_estock_raw_mirror.py` was added: nine more resets, a
+different product ended up topping the stock ranking, and its `sell_price` was 0
+— so a 2-unit sale rang up `total_net = 0`. Nothing in the POS path was wrong.
+
+**Applying this:**
+- A test that picks a row "with the most X" must also state the properties it
+  depends on. `_product_with_live_stock` now requires `sell_price > 0`.
+- A test failing only inside the full suite, and passing alone, is this class of
+  problem first — look for shared-DB drift before suspecting the code.
+- Never run two pytest processes at once against this repo: they share
+  `src/backend/data/procare_test.db` and produce `OperationalError: database is
+  locked` plus phantom failures in BOTH runs.
+
+## Raw-mirror watermarks assume insertion-ordered ids — verified, not assumed
+
+`_load_uncovered_tables` reads the big eStock change logs forward from a stored
+watermark. That is only safe if the watermark column rises with insertion time.
+Checked against live Elsanta on 2026-08-26:
+
+| table | watermark | distinct | insertion-ordered |
+|---|---|---|---|
+| `Branches_Product_amount_Change` | `ch_id` | 1,052,238 / 1,052,238 | yes (row at MAX(ch_id) is also MAX(insert_date)) |
+| `Product_amount_Change` | `id` | 533,130 / 533,130 | yes |
+| `Gedo_customers` | `gc_id` | 118,460 / 118,460 | yes |
+
+`Branches_convert_details` has no such column and is read in full each cycle —
+correct by construction, just slower.
+
+Note `ch_id` is SPARSE: 1.05M rows spread over 1..119,368,724. Any range-scan
+window over it must be sized by density, not by a constant, or one pass costs
+~6,000 round-trips instead of ~50.
+
 ## Environment & delivery
 - Owner runs ProCare on a Windows pharmacy PC at `C:\Users\ahmed\ProCare-OS`;
   develops via this cloud session + local Claude Code CLI. PowerShell is the
