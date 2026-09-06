@@ -43,21 +43,21 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 |-----|------|------|---------|---------|
 | السبت Sat | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
 | الأحد Sun | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
-| الاثنين Mon | 8-4 صباحي | 11-7 وسط | **OFF** | 4م-12 يغطي + ليلي |
-| الثلاثاء Tue | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
+| الاثنين Mon | **OFF** | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
+| الثلاثاء Tue | 8-4 صباحي | مسهلة ر2 (تغطية ريم) | 11-7 يغطي ندى | 8م-4ص ليلي |
 | الأربعاء Wed | 8-4 صباحي | **OFF** | 11-7 يغطي ندى | 8م-4ص ليلي |
-| الخميس Thu | 8-4 صباحي | مسهلة ر2 (تغطية ريم) | 4-12 مسائي | **OFF** |
-| الجمعة Fri | **OFF** | 8-4 تغطي الصباح | 4-12 مسائي | 8م-4ص ليلي |
+| الخميس Thu | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | **OFF** |
+| الجمعة Fri | 8-4 صباحي | 11-7 وسط | **OFF** | 8م-4ص ليلي |
 
-**Reem's day off (Branch 2):** Nada goes to Branch 2 for coverage — Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
+**Reem's day off (Branch 2):** Tuesday (الثلاثاء) — Nada goes to Branch 2 for coverage as مسهلة ر2, and Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
 
 ### Weekly Hours
 
 | Employee | Weekly Hours | Days Off | Notes |
 |----------|-------------|----------|-------|
-| Nour | 48h | Friday | Intern — max 3h solo in morning |
-| Nada | 48h | Wednesday | Covers Branch 2 morning on Reem's day off |
-| Abdalla | 48h | Monday | Bridges day/night teams |
+| Nour | 48h | Monday | Intern — max 3h solo in morning |
+| Nada | 48h | Wednesday | Covers Branch 2 morning (مسهلة) on Reem's Tuesday day off |
+| Abdalla | 48h | Friday | Bridges day/night teams |
 | Youssef | 48h | Thursday | Night shift — responsible for closing at 4 AM |
 
 ---
@@ -78,18 +78,18 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 | السبت Sat | 8-4 صباحي | 4-12 مسائي |
 | الأحد Sun | 8-4 صباحي | 4-12 مسائي |
 | الاثنين Mon | 8-4 صباحي | 4-12 مسائي |
-| الثلاثاء Tue | 8-4 صباحي | 4-12 مسائي |
+| الثلاثاء Tue | **OFF** | 4-12 مسائي |
 | الأربعاء Wed | 8-4 صباحي | 4-12 مسائي |
-| الخميس Thu | **OFF** | 4-12 مسائي |
+| الخميس Thu | 8-4 صباحي | 4-12 مسائي |
 | الجمعة Fri | 8-4 صباحي | 4-12 مسائي |
 
-**On Reem's day off (Thursday):** Nada comes from Branch 1 to cover the morning.
+**On Reem's day off (Tuesday):** Nada comes from Branch 1 as مسهلة ر2 to cover the morning shift.
 
 ### Weekly Hours
 
 | Employee | Weekly Hours | Days Off | Notes |
 |----------|-------------|----------|-------|
-| Reem | 48h | Thursday | Morning shift |
+| Reem | 48h | Tuesday | Morning shift (covered by Nada) |
 | Afaf | 56h | None | Manager — no days off |
 
 ---
@@ -130,6 +130,12 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 - **Shift**: Evening 4 PM - 12 AM (7 days/week)
 - **Tasks**: Branch management, evening operations, closing Branch 2
 - **No days off**
+
+### أحمد طارق — الديليفري الطيار (Delivery/Pilot)
+- **Shift**: On-Call 9 AM onwards
+- **Tasks**: Deliveries, supply runs, inter-branch transfers, external orders
+- **Status**: On-Call (flexible hours, available as needed)
+- **Day off**: Friday
 
 ---
 
