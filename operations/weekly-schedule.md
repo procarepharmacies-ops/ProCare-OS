@@ -44,19 +44,19 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 | السبت Sat | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
 | الأحد Sun | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
 | الاثنين Mon | 8-4 صباحي | 11-7 وسط | **OFF** | 4م-12 يغطي + ليلي |
-| الثلاثاء Tue | 10-2 مسهّلة | 8-4 تغطي الصباح | 4-12 مسائي | 8م-4ص ليلي |
+| الثلاثاء Tue | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
 | الأربعاء Wed | 8-4 صباحي | **OFF** | 11-7 يغطي ندى | 8م-4ص ليلي |
 | الخميس Thu | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | **OFF** |
 | الجمعة Fri | **OFF** | 8-4 تغطي الصباح | 4-12 مسائي | 8م-4ص ليلي |
 
-**Reem's day off (Branch 2):** Nada goes to Branch 2 as مسهلة (short coverage shift) — Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
+**Reem's day off (Branch 2):** Nada goes to Branch 2 for coverage — Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
 
 ### Weekly Hours
 
 | Employee | Weekly Hours | Days Off | Notes |
 |----------|-------------|----------|-------|
-| Nour | 44h | Fri + Tue (مسهّلة 4h) | Intern — max 3h solo in morning |
-| Nada | 48h | Wednesday | Covers morning when Nour off; مسهلة at Branch 2 on Reem's day off |
+| Nour | 48h | Friday | Intern — max 3h solo in morning |
+| Nada | 48h | Wednesday | Covers Branch 2 morning on Reem's day off |
 | Abdalla | 48h | Monday | Bridges day/night teams |
 | Youssef | 48h | Thursday | Night shift — responsible for closing at 4 AM |
 
@@ -83,7 +83,7 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 | الخميس Thu | **OFF** | 4-12 مسائي |
 | الجمعة Fri | 8-4 صباحي | 4-12 مسائي |
 
-**On Reem's day off (Thursday):** Nada comes from Branch 1 as مسهلة to cover the morning.
+**On Reem's day off (Thursday):** Nada comes from Branch 1 to cover the morning.
 
 ### Weekly Hours
 
@@ -107,7 +107,7 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 - **Overlap with Nour**: 11 AM - 4 PM (supervision)
 - **Tasks**: Prescription dispensing, controlled substances, supervising Nour, clinical consultations
 - **Key role**: Bridge between morning quiet and afternoon peak
-- **Cross-branch**: Covers Branch 2 morning on Reem's day off (مسهلة)
+- **Cross-branch**: Covers Branch 2 morning on Reem's day off
 
 ### Abdalla
 - **Shift**: Evening 4 PM - 12 AM
@@ -124,7 +124,7 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 ### Reem (Branch 2)
 - **Shift**: Morning 8 AM - 4 PM
 - **Tasks**: Morning operations, customer service, prescription dispensing
-- **Day off**: Thursday (covered by Nada مسهلة from Branch 1)
+- **Day off**: Thursday (covered by Nada from Branch 1)
 
 ### Afaf — المديرة (Manager, Branch 2)
 - **Shift**: Evening 4 PM - 12 AM (7 days/week)
@@ -147,4 +147,4 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 ### Branch 2
 1. Branch open **8 AM - 12 AM** every day (16h/day)
 2. Afaf (manager) always present for evening shift
-3. Reem's day off covered by Nada مسهلة from Branch 1
+3. Reem's day off covered by Nada from Branch 1
