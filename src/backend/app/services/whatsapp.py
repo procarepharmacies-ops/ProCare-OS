@@ -129,6 +129,45 @@ def invoice_whatsapp(session: Session, sale: m.Sale) -> dict:
     }
 
 
+# --- Staff broadcast (individual messages to each staff member) ---------------
+def notify_all_staff(text: str) -> dict:
+    """Send a message to every active employee who has a phone number.
+
+    The WhatsApp Cloud API does not support group messaging — this sends
+    individual messages to each staff member, achieving the same outcome.
+    Fail-soft: skips employees without phone numbers, never raises."""
+    from app.db.base import SessionLocal
+
+    if not is_configured():
+        return {"sent": 0, "total": 0, "api_configured": False}
+
+    with SessionLocal() as db:
+        employees = db.scalars(
+            select(m.Employee).where(
+                m.Employee.is_active == True,  # noqa: E712
+                m.Employee.phone != None,  # noqa: E711
+                m.Employee.phone != "",
+            )
+        ).all()
+
+    sent = 0
+    for emp in employees:
+        if send_text(emp.phone, text):
+            sent += 1
+    return {"sent": sent, "total": len(employees), "api_configured": True}
+
+
+def notify_staff_group(text: str) -> bool:
+    """Send a message to all pharmacy staff via individual WhatsApp messages.
+
+    Self-gating: does nothing unless the Cloud API is set up. Returns True
+    if at least one message was delivered."""
+    if not is_configured():
+        return False
+    result = notify_all_staff(text)
+    return result["sent"] > 0
+
+
 # --- Operational alerts to the manager --------------------------------------
 def notify_manager(text: str) -> bool:
     """Send an operational alert to the pharmacy manager's WhatsApp.
@@ -237,6 +276,96 @@ def transfer_request_message(transfer_id: int, from_branch: str, to_branch: str,
         "🔄 طلب تحويل مخزون بروكير\n"
         f"طلب #{transfer_id}: {item_count} صنف من فرع {from_branch} إلى فرع {to_branch}.\n"
         "برجاء المراجعة والاعتماد من قائمة المهام."
+    )
+
+
+# --- Staff group messages (Hermes bot) ----------------------------------------
+
+WEEKDAY_AR = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
+
+_B1_SCHEDULE = {
+    "السبت":   {"نور": "8-4 صباحي", "ندى": "11-7 وسط", "عبدالله": "4-12 مسائي", "يوسف": "8م-4ص ليلي"},
+    "الأحد":   {"نور": "8-4 صباحي", "ندى": "11-7 وسط", "عبدالله": "4-12 مسائي", "يوسف": "8م-4ص ليلي"},
+    "الاثنين": {"نور": "OFF إجازة", "ندى": "11-7 وسط", "عبدالله": "4-12 مسائي", "يوسف": "8م-4ص ليلي"},
+    "الثلاثاء": {"نور": "8-4 صباحي", "ندى": "مسهلة ر2 (تغطية ريم)", "عبدالله": "11-7 تغطية", "يوسف": "8م-4ص ليلي"},
+    "الأربعاء": {"نور": "8-4 صباحي", "ندى": "OFF إجازة", "عبدالله": "11-7 تغطية", "يوسف": "8م-4ص ليلي"},
+    "الخميس":  {"نور": "8-4 صباحي", "ندى": "11-7 وسط", "عبدالله": "4-12 مسائي", "يوسف": "OFF إجازة"},
+    "الجمعة":  {"نور": "8-4 صباحي", "ندى": "11-7 وسط", "عبدالله": "OFF إجازة", "يوسف": "8م-4ص ليلي"},
+}
+_B2_SCHEDULE = {
+    "السبت":   {"ريم": "8-4 صباحي", "عفاف": "4-12 مسائي"},
+    "الأحد":   {"ريم": "8-4 صباحي", "عفاف": "4-12 مسائي"},
+    "الاثنين": {"ريم": "8-4 صباحي", "عفاف": "4-12 مسائي"},
+    "الثلاثاء": {"ريم": "OFF إجازة (ندى تغطي)", "عفاف": "4-12 مسائي"},
+    "الأربعاء": {"ريم": "8-4 صباحي", "عفاف": "4-12 مسائي"},
+    "الخميس":  {"ريم": "8-4 صباحي", "عفاف": "4-12 مسائي"},
+    "الجمعة":  {"ريم": "8-4 صباحي", "عفاف": "4-12 مسائي"},
+}
+
+# Delivery/Pilot staff (الديليفري الطيار)
+_DELIVERY_STAFF = {
+    "أحمد طارق": {"start": "9 AM", "status": "On-Call", "day_off": "الجمعة"},
+}
+
+
+def weekly_schedule_message() -> str:
+    """Full weekly schedule for the staff group."""
+    lines = [
+        "📅 الجدول الأسبوعي — صيدليات بروكير",
+        "",
+        "🏥 *الفرع الأول*",
+    ]
+    for day, shifts in _B1_SCHEDULE.items():
+        parts = [f"{name}: {shift}" for name, shift in shifts.items()]
+        lines.append(f"*{day}* — {' | '.join(parts)}")
+
+    lines += ["", "🏥 *الفرع الثاني*"]
+    for day, shifts in _B2_SCHEDULE.items():
+        parts = [f"{name}: {shift}" for name, shift in shifts.items()]
+        lines.append(f"*{day}* — {' | '.join(parts)}")
+
+    lines.append("\nبروكير 💚 مش مجرد صيدلية")
+    return "\n".join(lines)
+
+
+def tomorrow_schedule_message() -> str:
+    """Tomorrow's shifts reminder for the staff group — sent evening before."""
+    tomorrow = datetime.now() + timedelta(days=1)
+    day_idx = tomorrow.weekday()
+    day_ar = WEEKDAY_AR[day_idx]
+    day_map = {0: "الاثنين", 1: "الثلاثاء", 2: "الأربعاء",
+               3: "الخميس", 4: "الجمعة", 5: "السبت", 6: "الأحد"}
+    day_key = day_map[day_idx]
+
+    b1 = _B1_SCHEDULE.get(day_key, {})
+    b2 = _B2_SCHEDULE.get(day_key, {})
+
+    lines = [
+        f"⏰ تذكير ورديات بكرة — {day_ar} {tomorrow.strftime('%d/%m')}",
+        "",
+        "🏥 الفرع الأول:",
+    ]
+    for name, shift in b1.items():
+        icon = "🔴" if shift == "OFF" else "✅"
+        lines.append(f"  {icon} {name}: {shift}")
+
+    lines.append("\n🏥 الفرع الثاني:")
+    for name, shift in b2.items():
+        icon = "🔴" if shift == "OFF" else "✅"
+        lines.append(f"  {icon} {name}: {shift}")
+
+    lines.append("\nبروكير 💚 يوم سعيد")
+    return "\n".join(lines)
+
+
+def sop_announcement_message(sop_code: str, title_ar: str, summary_ar: str) -> str:
+    """Announce a new/updated SOP to the staff group."""
+    return (
+        f"📋 تعميم جديد — {sop_code}\n"
+        f"*{title_ar}*\n\n"
+        f"{summary_ar}\n\n"
+        "برجاء الاطلاع والتوقيع. نسخة متاحة لدى الإدارة.\n"
+        "بروكير 💚"
     )
 
 
