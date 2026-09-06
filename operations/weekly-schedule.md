@@ -46,7 +46,7 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 | الاثنين Mon | 8-4 صباحي | 11-7 وسط | **OFF** | 4م-12 يغطي + ليلي |
 | الثلاثاء Tue | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
 | الأربعاء Wed | 8-4 صباحي | **OFF** | 11-7 يغطي ندى | 8م-4ص ليلي |
-| الخميس Thu | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | **OFF** |
+| الخميس Thu | 8-4 صباحي | مسهلة ر2 (تغطية ريم) | 4-12 مسائي | **OFF** |
 | الجمعة Fri | **OFF** | 8-4 تغطي الصباح | 4-12 مسائي | 8م-4ص ليلي |
 
 **Reem's day off (Branch 2):** Nada goes to Branch 2 for coverage — Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
