@@ -170,31 +170,38 @@ def update_customer_tier(customer_id: int, payload: CustomerTierUpdate, session:
     }
 
 
-# --- Staff group (Hermes bot) ------------------------------------------------
-@router.get("/staff-group/status", dependencies=[Depends(auth_guard(("ceo", "manager")))])
-def staff_group_status():
-    """Check if the staff WhatsApp group integration is configured."""
+# --- Staff broadcast (WhatsApp Cloud API) ------------------------------------
+@router.get("/staff-broadcast/status", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def staff_broadcast_status(session: Session = Depends(get_session)):
+    """Check staff broadcast readiness: Cloud API configured + staff with phones."""
+    staff_with_phone = session.execute(
+        select(m.Employee.employee_id, m.Employee.name_ar, m.Employee.phone).where(
+            m.Employee.is_active == True,  # noqa: E712
+            m.Employee.phone != None,  # noqa: E711
+            m.Employee.phone != "",
+        )
+    ).all()
     return {
-        "configured": bool(settings.staff_group_id) and wa.is_configured(),
-        "group_id_set": bool(settings.staff_group_id),
         "api_configured": wa.is_configured(),
+        "staff_count": len(staff_with_phone),
+        "staff": [{"id": r[0], "name": r[1], "phone": r[2]} for r in staff_with_phone],
     }
 
 
-@router.post("/staff-group/send-schedule", dependencies=[Depends(auth_guard(("ceo", "manager")))])
-def send_schedule_to_group():
-    """Send the weekly schedule to the staff WhatsApp group (manual trigger)."""
+@router.post("/staff-broadcast/send-schedule", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def send_schedule_to_staff():
+    """Send the weekly schedule to all staff via WhatsApp (manual trigger)."""
     msg = wa.weekly_schedule_message()
-    sent = wa.notify_staff_group(msg)
-    return {"sent": sent, "message": msg, "api_configured": wa.is_configured()}
+    result = wa.notify_all_staff(msg)
+    return {**result, "message": msg}
 
 
-@router.post("/staff-group/send-tomorrow", dependencies=[Depends(auth_guard(("ceo", "manager")))])
-def send_tomorrow_to_group():
-    """Send tomorrow's shift reminder to the staff group (manual trigger)."""
+@router.post("/staff-broadcast/send-tomorrow", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def send_tomorrow_to_staff():
+    """Send tomorrow's shift reminder to all staff via WhatsApp (manual trigger)."""
     msg = wa.tomorrow_schedule_message()
-    sent = wa.notify_staff_group(msg)
-    return {"sent": sent, "message": msg, "api_configured": wa.is_configured()}
+    result = wa.notify_all_staff(msg)
+    return {**result, "message": msg}
 
 
 class SOPAnnouncementIn(BaseModel):
@@ -203,12 +210,12 @@ class SOPAnnouncementIn(BaseModel):
     summary_ar: str = Field(max_length=500)
 
 
-@router.post("/staff-group/announce-sop", dependencies=[Depends(auth_guard(("ceo", "manager")))])
-def announce_sop_to_group(payload: SOPAnnouncementIn):
-    """Announce a new SOP to the staff WhatsApp group."""
+@router.post("/staff-broadcast/announce-sop", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def announce_sop_to_staff(payload: SOPAnnouncementIn):
+    """Announce a new SOP to all staff via WhatsApp."""
     msg = wa.sop_announcement_message(payload.sop_code, payload.title_ar, payload.summary_ar)
-    sent = wa.notify_staff_group(msg)
-    return {"sent": sent, "message": msg, "api_configured": wa.is_configured()}
+    result = wa.notify_all_staff(msg)
+    return {**result, "message": msg}
 
 
 @router.patch("/customers/{customer_id}/wa-opt-out")

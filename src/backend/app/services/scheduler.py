@@ -197,7 +197,7 @@ def _run_decision_card_generation():
         _alert_job_failure("decision_cards", result["message"])
 
 
-# --- Staff group automation (Hermes bot) ------------------------------------
+# --- Staff broadcast (WhatsApp Cloud API) -----------------------------------
 def _run_shift_reminder():
     """Daily 9 PM: send tomorrow's shift schedule to the staff WhatsApp group."""
     msg = whatsapp.tomorrow_schedule_message()
@@ -272,7 +272,7 @@ def build_scheduler():
                   id="loyalty_tiers_nightly", replace_existing=True)
     sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0, timezone=tz),
                   id="rfm_segmentation_daily", replace_existing=True)
-    # Staff group: tomorrow's shift reminder at 9 PM + weekly schedule on Saturday 8 AM
+    # Staff broadcast: tomorrow's shift reminder at 9 PM + weekly schedule on Saturday 8 AM
     sched.add_job(_run_shift_reminder, CronTrigger(hour=21, minute=0, timezone=tz),
                   id="shift_reminder_daily", replace_existing=True)
     sched.add_job(_run_weekly_schedule_share, CronTrigger(day_of_week="sat", hour=8, minute=0, timezone=tz),

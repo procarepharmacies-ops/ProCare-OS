@@ -129,41 +129,43 @@ def invoice_whatsapp(session: Session, sale: m.Sale) -> dict:
     }
 
 
-# --- Group messaging ----------------------------------------------------------
-def send_group_text(group_id: str | None, text: str) -> bool:
-    """Send a message to a WhatsApp group via the Cloud API.
+# --- Staff broadcast (individual messages to each staff member) ---------------
+def notify_all_staff(text: str) -> dict:
+    """Send a message to every active employee who has a phone number.
 
-    Fail-soft: returns False when group_id is empty, the API is not
-    configured, or the send fails. Never raises into the caller."""
-    if not group_id or not is_configured():
-        return False
-    try:
-        resp = httpx.post(
-            f"{GRAPH_URL}/{_phone_id()}/messages",
-            headers={"Authorization": f"Bearer {_token()}"},
-            json={
-                "messaging_product": "whatsapp",
-                "to": group_id,
-                "type": "text",
-                "text": {"body": text},
-            },
-            timeout=15,
-        )
-        return resp.status_code < 300
-    except Exception:  # noqa: BLE001
-        return False
+    The WhatsApp Cloud API does not support group messaging — this sends
+    individual messages to each staff member, achieving the same outcome.
+    Fail-soft: skips employees without phone numbers, never raises."""
+    from app.db.base import SessionLocal
+
+    if not is_configured():
+        return {"sent": 0, "total": 0, "api_configured": False}
+
+    with SessionLocal() as db:
+        employees = db.scalars(
+            select(m.Employee).where(
+                m.Employee.is_active == True,  # noqa: E712
+                m.Employee.phone != None,  # noqa: E711
+                m.Employee.phone != "",
+            )
+        ).all()
+
+    sent = 0
+    for emp in employees:
+        if send_text(emp.phone, text):
+            sent += 1
+    return {"sent": sent, "total": len(employees), "api_configured": True}
 
 
 def notify_staff_group(text: str) -> bool:
-    """Send a message to the pharmacy staff WhatsApp group.
+    """Send a message to all pharmacy staff via individual WhatsApp messages.
 
-    Self-gating: does nothing unless STAFF_GROUP_ID is configured AND the
-    Cloud API is set up."""
-    from app.config import settings
-
-    if not settings.staff_group_id or not is_configured():
+    Self-gating: does nothing unless the Cloud API is set up. Returns True
+    if at least one message was delivered."""
+    if not is_configured():
         return False
-    return send_group_text(settings.staff_group_id, text)
+    result = notify_all_staff(text)
+    return result["sent"] > 0
 
 
 # --- Operational alerts to the manager --------------------------------------
