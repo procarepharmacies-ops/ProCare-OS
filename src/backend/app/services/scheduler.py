@@ -197,6 +197,23 @@ def _run_decision_card_generation():
         _alert_job_failure("decision_cards", result["message"])
 
 
+# --- Staff group automation (Hermes bot) ------------------------------------
+def _run_shift_reminder():
+    """Daily 9 PM: send tomorrow's shift schedule to the staff WhatsApp group."""
+    msg = whatsapp.tomorrow_schedule_message()
+    sent = whatsapp.notify_staff_group(msg)
+    _last_results["shift_reminder"] = {"sent": sent}
+    log.info("shift_reminder: sent=%s", sent)
+
+
+def _run_weekly_schedule_share():
+    """Saturday 8 AM: share the full weekly schedule to the staff group."""
+    msg = whatsapp.weekly_schedule_message()
+    sent = whatsapp.notify_staff_group(msg)
+    _last_results["weekly_schedule_share"] = {"sent": sent}
+    log.info("weekly_schedule_share: sent=%s", sent)
+
+
 # --- lifecycle --------------------------------------------------------------
 def _branch_tz():
     """Resolve ``BRANCH_TIMEZONE`` to a tzinfo for time-of-day cron jobs, or
@@ -255,6 +272,11 @@ def build_scheduler():
                   id="loyalty_tiers_nightly", replace_existing=True)
     sched.add_job(_run_rfm_segmentation, CronTrigger(hour=6, minute=0, timezone=tz),
                   id="rfm_segmentation_daily", replace_existing=True)
+    # Staff group: tomorrow's shift reminder at 9 PM + weekly schedule on Saturday 8 AM
+    sched.add_job(_run_shift_reminder, CronTrigger(hour=21, minute=0, timezone=tz),
+                  id="shift_reminder_daily", replace_existing=True)
+    sched.add_job(_run_weekly_schedule_share, CronTrigger(day_of_week="sat", hour=8, minute=0, timezone=tz),
+                  id="weekly_schedule_share", replace_existing=True)
     # Phase 5: Demand forecasting + decision card generation
     sched.add_job(_run_forecast_computation, CronTrigger(hour=1, minute=0, timezone=tz),
                   id="forecast_computation_nightly", replace_existing=True)

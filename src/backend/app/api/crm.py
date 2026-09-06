@@ -170,6 +170,47 @@ def update_customer_tier(customer_id: int, payload: CustomerTierUpdate, session:
     }
 
 
+# --- Staff group (Hermes bot) ------------------------------------------------
+@router.get("/staff-group/status", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def staff_group_status():
+    """Check if the staff WhatsApp group integration is configured."""
+    return {
+        "configured": bool(settings.staff_group_id) and wa.is_configured(),
+        "group_id_set": bool(settings.staff_group_id),
+        "api_configured": wa.is_configured(),
+    }
+
+
+@router.post("/staff-group/send-schedule", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def send_schedule_to_group():
+    """Send the weekly schedule to the staff WhatsApp group (manual trigger)."""
+    msg = wa.weekly_schedule_message()
+    sent = wa.notify_staff_group(msg)
+    return {"sent": sent, "message": msg, "api_configured": wa.is_configured()}
+
+
+@router.post("/staff-group/send-tomorrow", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def send_tomorrow_to_group():
+    """Send tomorrow's shift reminder to the staff group (manual trigger)."""
+    msg = wa.tomorrow_schedule_message()
+    sent = wa.notify_staff_group(msg)
+    return {"sent": sent, "message": msg, "api_configured": wa.is_configured()}
+
+
+class SOPAnnouncementIn(BaseModel):
+    sop_code: str = Field(max_length=20)
+    title_ar: str = Field(max_length=200)
+    summary_ar: str = Field(max_length=500)
+
+
+@router.post("/staff-group/announce-sop", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def announce_sop_to_group(payload: SOPAnnouncementIn):
+    """Announce a new SOP to the staff WhatsApp group."""
+    msg = wa.sop_announcement_message(payload.sop_code, payload.title_ar, payload.summary_ar)
+    sent = wa.notify_staff_group(msg)
+    return {"sent": sent, "message": msg, "api_configured": wa.is_configured()}
+
+
 @router.patch("/customers/{customer_id}/wa-opt-out")
 def update_customer_wa_opt_out(customer_id: int, opt_out: bool, session: Session = Depends(get_session)):
     """Update WhatsApp opt-out flag."""

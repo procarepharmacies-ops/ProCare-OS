@@ -297,6 +297,15 @@ class Settings:
         else ""
     )
 
+    # Staff WhatsApp group ID for automated group messages (schedule sharing,
+    # SOP distribution, shift reminders). The Cloud API sends to groups via
+    # their group JID (e.g. "120363XXXXX@g.us"). Empty = group features skipped.
+    staff_group_id: str = (
+        (os.environ.get("STAFF_GROUP_ID") or _notify.get("staff_group_id") or "").strip()
+        if _is_real(os.environ.get("STAFF_GROUP_ID") or _notify.get("staff_group_id") or "")
+        else ""
+    )
+
     # Branch-local timezone (IANA name, e.g. "Africa/Cairo") for time-of-day
     # scheduled jobs — most importantly the 08:00 CEO digest, which must land
     # before the pharmacy opens regardless of the server's clock. Empty = use
