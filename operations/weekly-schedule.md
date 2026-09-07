@@ -27,8 +27,8 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 |-------|-------|----------|-------|
 | Morning (صباحي) | 8:00 AM - 4:00 PM | 8h | Nour |
 | Midday (وسط) | 11:00 AM - 7:00 PM | 8h | Nada |
-| Evening (مسائي) | 4:00 PM - 12:00 AM | 8h | Abdalla |
-| Night (ليلي) | 8:00 PM - 4:00 AM | 8h | Youssef |
+| Evening (مسائي) | 4:00 PM - 12:00 AM | 8h | Abdalla / Youssef (flex) |
+| Night (ليلي) | 8:00 PM - 2:00 AM | 6h | Youssef (Sat/Sun only) |
 
 ### Overlap Windows (peak coverage)
 
@@ -41,13 +41,13 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 
 | Day | Nour | Nada | Abdalla | Youssef |
 |-----|------|------|---------|---------|
-| السبت Sat | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
-| الأحد Sun | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
-| الاثنين Mon | **OFF** | 11-7 وسط | 4-12 مسائي | 8م-4ص ليلي |
-| الثلاثاء Tue | 8-4 صباحي | مسهلة ر2 (تغطية ريم) | 11-7 يغطي ندى | 8م-4ص ليلي |
-| الأربعاء Wed | 8-4 صباحي | **OFF** | 11-7 يغطي ندى | 8م-4ص ليلي |
-| الخميس Thu | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | **OFF** |
-| الجمعة Fri | 8-4 صباحي | 11-7 وسط | **OFF** | 8م-4ص ليلي |
+| السبت Sat | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-2ص ليلي (مختصر) |
+| الأحد Sun | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-2ص ليلي (مختصر) |
+| الاثنين Mon | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | **OFF** |
+| الثلاثاء Tue | 8-4 صباحي | مسهلة ر2 (تغطية ريم) | 11-7 يغطي ندى | 4-12 مسائي |
+| الأربعاء Wed | 8-4 صباحي | **OFF** | 11-7 يغطي ندى | 4-12 مسائي |
+| الخميس Thu | **OFF** | 11-7 وسط | 4-12 مسائي | 4-12 مسائي |
+| الجمعة Fri | 8-4 صباحي | 11-7 وسط | **OFF** | 4-12 مسائي |
 
 **Reem's day off (Branch 2):** Tuesday (الثلاثاء) — Nada goes to Branch 2 for coverage as مسهلة ر2, and Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
 
@@ -55,10 +55,10 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 
 | Employee | Weekly Hours | Days Off | Notes |
 |----------|-------------|----------|-------|
-| Nour | 48h | Monday | Intern — max 3h solo in morning |
-| Nada | 48h | Wednesday | Covers Branch 2 morning (مسهلة) on Reem's Tuesday day off |
+| Nour | 48h | Thursday | Intern — max 3h solo in morning |
+| Nada | 48h | Wednesday | Covers Branch 2 morning (مسهلة) on Reem's Tuesday day off; always 11-7 |
 | Abdalla | 48h | Friday | Bridges day/night teams |
-| Youssef | 48h | Thursday | Night shift — responsible for closing at 4 AM |
+| Youssef | 48h | Monday | 2 nights (Sat/Sun 8-2) + 5 evenings (Tue-Fri 4-12); government work accommodation |
 
 ---
 
@@ -116,10 +116,13 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 - **Key role**: Links day team to night team
 
 ### Dr. Youssef
-- **Shift**: Night 8 PM - 4 AM
-- **Overlap with Abdalla**: 8 PM-12 AM, then solo 12 AM - 4 AM
-- **Tasks**: Narcotics/controlled dispensing, pharmacy closing, night sales, end-of-day reports
-- **Key role**: Responsible for closing and cash reconciliation at 4 AM
+- **Shifts**: 
+  - Nights (Sat/Sun): 8 PM - 2 AM (shortened for government work)
+  - Evenings (Tue-Fri): 4 PM - 12 AM
+  - Day off: Monday
+- **Overlap with Abdalla**: 8 PM-12 AM (Sat/Sun), 4-12 PM (Tue-Fri)
+- **Tasks**: Narcotics/controlled dispensing, evening sales, government work accommodation
+- **Key role**: Flexible split-shift schedule to balance pharmacy needs with external commitments
 
 ### Reem (Branch 2)
 - **Shift**: Morning 8 AM - 4 PM
