@@ -1,0 +1,441 @@
+<title>سياسة الحضور والانصراف</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap">
+<style>
+:root {
+  --teal: #0D7377;
+  --navy: #143B5A;
+  --cream: #F7F5F0;
+  --surface: #FFFFFF;
+  --text: #1C2D2E;
+  --border: #D8E2DA;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: 'Cairo', system-ui, sans-serif;
+  direction: rtl;
+  background: var(--cream);
+  color: var(--text);
+  line-height: 1.7;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+.header {
+  text-align: center;
+  margin-bottom: 32px;
+  border-bottom: 3px solid var(--teal);
+  padding-bottom: 20px;
+}
+.header h1 {
+  font-size: 2.2rem;
+  font-weight: 800;
+  margin: 0 0 8px;
+  color: var(--navy);
+}
+.header .subtitle {
+  font-size: 1rem;
+  color: var(--teal);
+  font-weight: 600;
+}
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.section h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--teal);
+}
+.section h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--teal);
+  margin: 16px 0 8px;
+}
+p { margin: 0 0 12px; font-size: 0.95rem; }
+ul, ol { margin: 8px 0; padding-right: 24px; }
+li { margin: 6px 0; }
+.time-block {
+  background: #F0F7FA;
+  border-right: 4px solid var(--teal);
+  padding: 12px;
+  margin: 12px 0;
+  border-radius: 4px;
+}
+.time-block .label {
+  font-weight: 700;
+  color: var(--navy);
+}
+.table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+th {
+  background: var(--teal);
+  color: #fff;
+  padding: 10px;
+  text-align: center;
+  font-weight: 700;
+}
+td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
+  text-align: center;
+}
+tr:nth-child(even) { background: #F9FBFA; }
+.badge {
+  display: inline-block;
+  background: #E8F5E9;
+  color: #1B6E2E;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.badge.warning {
+  background: #FFF8E1;
+  color: #C77F00;
+}
+.badge.alert {
+  background: #FDE8E4;
+  color: #C0392B;
+}
+.signature-section {
+  margin-top: 40px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+.sig-block {
+  text-align: center;
+}
+.sig-line {
+  border-top: 2px solid var(--text);
+  margin-top: 32px;
+  padding-top: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.footer {
+  text-align: center;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+@media print {
+  body { padding: 20px; }
+}
+</style>
+
+<div class="header">
+  <h1>سياسة الحضور والانصراف</h1>
+  <div class="subtitle">صيدليات بروكير — SOP-002</div>
+</div>
+
+<!-- Section 1: General Rules -->
+<div class="section">
+  <h2>1. القواعد العامة للحضور والانصراف</h2>
+
+  <h3>أوقات الحضور والانصراف المسموحة:</h3>
+  <div class="time-block">
+    <div class="label">✅ حضور في الوقت المحدد:</div>
+    قبل بدء الوردية بـ 5 دقائق على الأقل. تسجيل الحضور في نظام eStock.
+  </div>
+
+  <div class="time-block">
+    <div class="label">⚠️ حضور متأخر (≤ 15 دقيقة):</div>
+    مسموح 2 مرة / شهر. بعد ذلك يتم خصم 30 دقيقة من الرصيد.
+  </div>
+
+  <div class="time-block">
+    <div class="label">🔴 حضور متأخر (> 15 دقيقة):</div>
+    خصم ساعة واحدة من الراتب الأول، ثم إنذار مكتوب.
+  </div>
+
+  <h3>الانصراف:</h3>
+  <ul>
+    <li>الانصراف في الوقت المحدد أو بموافقة المدير</li>
+    <li>الانصراف المبكر بدون إذن = خصم ساعة واحدة</li>
+    <li>تسليم الكاش والمخزن قبل الانصراف مباشرة</li>
+  </ul>
+</div>
+
+<!-- Section 2: Shift Times -->
+<div class="section">
+  <h2>2. أوقات الورديات</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>الوردية</th>
+          <th>وقت البدء</th>
+          <th>وقت الانتهاء</th>
+          <th>المدة</th>
+          <th>ملاحظات</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge">صباحي</span></td>
+          <td>8:00 AM</td>
+          <td>4:00 PM</td>
+          <td>8 ساعات</td>
+          <td>استراحة 30 د</td>
+        </tr>
+        <tr>
+          <td><span class="badge">وسط</span></td>
+          <td>11:00 AM</td>
+          <td>7:00 PM</td>
+          <td>8 ساعات</td>
+          <td>استراحة 30 د</td>
+        </tr>
+        <tr>
+          <td><span class="badge warning">مسائي</span></td>
+          <td>4:00 PM</td>
+          <td>12:00 AM</td>
+          <td>8 ساعات</td>
+          <td>استراحة 30 د</td>
+        </tr>
+        <tr>
+          <td><span class="badge warning">ليلي</span></td>
+          <td>8:00 PM</td>
+          <td>4:00 AM</td>
+          <td>8 ساعات</td>
+          <td>استراحة 30 د</td>
+        </tr>
+        <tr>
+          <td><span class="badge alert">ديليفري</span></td>
+          <td>9:00 AM</td>
+          <td>الطلب</td>
+          <td>حسب الطلب</td>
+          <td>On-Call</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Section 3: Overtime -->
+<div class="section">
+  <h2>3. الإضافي (الأوفرتايم)</h2>
+
+  <h3>حالات الإضافي المسموحة:</h3>
+  <ul>
+    <li><strong>طلب من المدير:</strong> توافر موظف إضافي أو ضغط عمل</li>
+    <li><strong>تغطية إجازة:</strong> عند تغطية موظف لإجازة زميل</li>
+    <li><strong>جرد المخزن:</strong> أثناء عمليات الجرد الشهري/السنوي</li>
+    <li><strong>حالات طوارئ:</strong> بموافقة المدير/المالك</li>
+  </ul>
+
+  <h3>حساب الإضافي:</h3>
+  <div class="time-block">
+    <div class="label">1.5x (ساعة ونصف) للساعة الواحدة:</div>
+    الإضافي من الاثنين إلى الخميس
+  </div>
+
+  <div class="time-block">
+    <div class="label">2x (ساعتين) للساعة الواحدة:</div>
+    الإضافي يوم الجمعة أو الإجازات الرسمية
+  </div>
+
+  <h3>طلب الإضافي:</h3>
+  <ol>
+    <li>طلب كتابي من المدير قبل البدء</li>
+    <li>تسجيل ساعات الإضافي في دفتر الورديات</li>
+    <li>توقيع المدير على ساعات الإضافي</li>
+    <li>إضافة الإضافي إلى الراتب الشهري</li>
+  </ol>
+</div>
+
+<!-- Section 4: Days Off -->
+<div class="section">
+  <h2>4. جدول الإجازات الأسبوعية</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>الموظف</th>
+          <th>الفرع</th>
+          <th>يوم الإجازة</th>
+          <th>الوردية</th>
+          <th>ملاحظات</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>د. نور</td>
+          <td>الأول</td>
+          <td>الاثنين 🔴</td>
+          <td>صباحي 8-4</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>ندى</td>
+          <td>الأول</td>
+          <td>الأربعاء 🔴</td>
+          <td>وسط 11-7</td>
+          <td>تغطي إجازة ريم الثلاثاء</td>
+        </tr>
+        <tr>
+          <td>عبدالله</td>
+          <td>الأول</td>
+          <td>الجمعة 🔴</td>
+          <td>مسائي 4-12</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>د. يوسف</td>
+          <td>الأول</td>
+          <td>الخميس 🔴</td>
+          <td>ليلي 8م-4ص</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>ريم</td>
+          <td>الثاني</td>
+          <td>الثلاثاء 🔴</td>
+          <td>صباحي 8-4</td>
+          <td>تغطيها ندى (مسهله)</td>
+        </tr>
+        <tr>
+          <td>عفاف (مديرة)</td>
+          <td>الثاني</td>
+          <td>—</td>
+          <td>مسائي 4-12</td>
+          <td>بدون إجازة أسبوعية</td>
+        </tr>
+        <tr>
+          <td>أحمد طارق</td>
+          <td>الديليفري</td>
+          <td>الجمعة 🔴</td>
+          <td>On-Call 9 AM</td>
+          <td>الطيار/التوصيل</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Section 5: Violations -->
+<div class="section">
+  <h2>5. جدول العقوبات (Violations Matrix)</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>المخالفة</th>
+          <th>المرة الأولى</th>
+          <th>المرة الثانية</th>
+          <th>المرة الثالثة</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>تأخير 5-15 دقيقة</td>
+          <td>تنبيه لفظي</td>
+          <td>خصم 30 د</td>
+          <td>إنذار مكتوب</td>
+        </tr>
+        <tr>
+          <td>تأخير > 15 دقيقة</td>
+          <td>خصم ساعة</td>
+          <td>إنذار مكتوب</td>
+          <td>تعليق 1 يوم</td>
+        </tr>
+        <tr>
+          <td>عدم الحضور بدون إنذار</td>
+          <td>إنذار مكتوب</td>
+          <td>تعليق 3 أيام</td>
+          <td>إنهاء العقد</td>
+        </tr>
+        <tr>
+          <td>انصراف مبكر بدون إذن</td>
+          <td>خصم ساعة</td>
+          <td>إنذار مكتوب</td>
+          <td>تعليق 1 يوم</td>
+        </tr>
+        <tr>
+          <td>عدم التوقيع على الحضور</td>
+          <td>تنبيه لفظي</td>
+          <td>خصم 30 د</td>
+          <td>إنذار مكتوب</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Section 6: Registration -->
+<div class="section">
+  <h2>6. تسجيل الحضور والانصراف</h2>
+
+  <h3>الطريقة الأولى (eStock):</h3>
+  <ul>
+    <li>دخول نظام eStock قبل بدء العمل</li>
+    <li>نقر على "Start Shift" أو ما يعادله</li>
+    <li>نقر على "End Shift" عند الانصراف</li>
+  </ul>
+
+  <h3>الطريقة الثانية (Manual Register):</h3>
+  <ul>
+    <li>التوقيع على دفتر الحضور اليومي</li>
+    <li>كتابة وقت الحضور والانصراف</li>
+    <li>توقيع المدير على الدفتر</li>
+  </ul>
+
+  <h3>مسؤوليات الموظف:</h3>
+  <ol>
+    <li>التسجيل الفوري عند الحضور</li>
+    <li>عدم تسجيل حضور لموظف آخر</li>
+    <li>الإبلاغ عن أي خطأ فوراً</li>
+    <li>الاحتفاظ بسجل شخصي للساعات</li>
+  </ol>
+</div>
+
+<!-- Section 7: Final -->
+<div class="section">
+  <h2>7. ملاحظات مهمة</h2>
+  <ul>
+    <li>جميع الموظفين ملزمين بالالتزام بأوقات الورديات</li>
+    <li>أي تأخير منتظم قد يؤدي إلى إنهاء العقد</li>
+    <li>الإضافي يتم فقط بموافقة خطية من المدير</li>
+    <li>الإجازات الطارئة تحتاج إلى إنذار 24 ساعة على الأقل</li>
+    <li>هذه السياسة تُراجع كل 6 أشهر</li>
+  </ul>
+</div>
+
+<!-- Signature Section -->
+<div class="signature-section">
+  <div class="sig-block">
+    <div>توقيع الموظف</div>
+    <div class="sig-line">________________________</div>
+    <div style="margin-top: 8px; font-size: 0.85rem;">الاسم: ____________ التاريخ: ____________</div>
+  </div>
+  <div class="sig-block">
+    <div>توقيع المدير</div>
+    <div class="sig-line">________________________</div>
+    <div style="margin-top: 8px; font-size: 0.85rem;">الاسم: ____________ التاريخ: ____________</div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>صيدليات بروكير — سياسة الحضور والانصراف (SOP-002)</p>
+  <p>آخر تحديث: سبتمبر ٢٠٢٦</p>
+</div>
+
