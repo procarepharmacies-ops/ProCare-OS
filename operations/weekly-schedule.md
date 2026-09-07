@@ -25,40 +25,43 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 
 | Shift | Hours | Duration | Staff |
 |-------|-------|----------|-------|
-| Morning (صباحي) | 8:00 AM - 4:00 PM | 8h | Nour |
-| Midday (وسط) | 11:00 AM - 7:00 PM | 8h | Nada |
-| Evening (مسائي) | 4:00 PM - 12:00 AM | 8h | Abdalla / Youssef (flex) |
-| Night (ليلي) | 8:00 PM - 2:00 AM | 6h | Youssef (Sat/Sun only) |
+| Morning (صباحي) | 8:00 AM - 4:00 PM | 8h | Nada |
+| Midday (وسط) | 12:00 PM - 8:00 PM | 8h | Nour |
+| Evening (مسائي) | 4:00 PM - 12:00 AM | 8h | Youssef (5 days) |
+| Extended Evening (مسائي ليلي) | 6:00 PM - 2:00 AM | 8h | Youssef (Tue/Wed) |
+| Night (ليلي) | 8:00 PM - 4:00 AM | 8h | Abdalla (varies with Youssef) |
 
 ### Overlap Windows (peak coverage)
 
-- **Nour + Nada**: 11:00 AM - 4:00 PM (5h) — supervision + prescription peak
-- **Nada + Abdalla**: 4:00 PM - 7:00 PM (3h) — afternoon rush handover
-- **Abdalla + Youssef**: 8:00 PM - 12:00 AM (4h) — evening peak coverage
-- **Triple coverage**: 4-7 PM (Nada+Abdalla overlap during peak)
+- **Nada + Nour**: 12:00 PM - 4:00 PM (4h) — morning-midday supervision + peak start
+- **Nour + Youssef**: 4:00 PM - 8:00 PM (4h) — **peak hours 71.1% of daily sales** (Mon, Thu, Fri, Sat, Sun)
+- **Nada + Abdalla**: Tuesday coverage when Nada at Branch 2 (Abdalla 8 AM-4 PM)
+- **Pharmacy closes at 2:00 AM** on Tuesday & Wednesday (Youssef 6 PM - 2 AM extended)
 
 ### Weekly Schedule
 
-| Day | Nour | Nada | Abdalla | Youssef |
+| Day | Nada | Nour | Youssef | Abdalla |
 |-----|------|------|---------|---------|
-| السبت Sat | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-2ص ليلي (مختصر) |
-| الأحد Sun | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | 8م-2ص ليلي (مختصر) |
-| الاثنين Mon | 8-4 صباحي | 11-7 وسط | 4-12 مسائي | **OFF** |
-| الثلاثاء Tue | 8-4 صباحي | مسهلة ر2 (تغطية ريم) | 11-7 يغطي ندى | 4-12 مسائي |
-| الأربعاء Wed | 8-4 صباحي | **OFF** | 11-7 يغطي ندى | 4-12 مسائي |
-| الخميس Thu | **OFF** | 11-7 وسط | 4-12 مسائي | 4-12 مسائي |
-| الجمعة Fri | 8-4 صباحي | 11-7 وسط | **OFF** | 4-12 مسائي |
+| السبت Sat | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | 8م-4ص ليلي |
+| الأحد Sun | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | 8م-4ص ليلي |
+| الاثنين Mon | 8-4 صباحي | 12-8 وسط | **OFF إجازة** | 8م-4ص ليلي |
+| الثلاثاء Tue | مسهلة ر2 (الفرع الثاني) | 12-8 وسط | 6م-2ص مسائي ليلي | 8-4 صباحي (تغطية) |
+| الأربعاء Wed | **OFF إجازة** | 12-8 وسط | 6م-2ص مسائي ليلي | يتحدد حسب الوردية |
+| الخميس Thu | 8-4 صباحي | **OFF إجازة** | 4-12 مسائي | 8م-4ص ليلي |
+| الجمعة Fri | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | **OFF إجازة** |
 
-**Reem's day off (Branch 2):** Tuesday (الثلاثاء) — Nada goes to Branch 2 for coverage as مسهلة ر2, and Abdalla shifts to 11-7 to cover Nada's midday slot at Branch 1.
+**Tuesday Coverage (Nada's Mashala at Branch 2):** Nada goes to Branch 2 for morning coverage as مسهلة ر2. Abdalla covers Branch 1 morning (8 AM - 4 PM) to ensure continuity.
+
+**Extended Shifts (Tue & Wed):** Youssef works 6 PM - 2 AM. Pharmacy closes at 2:00 AM on these days.
 
 ### Weekly Hours
 
 | Employee | Weekly Hours | Days Off | Notes |
 |----------|-------------|----------|-------|
-| Nour | 48h | Thursday | Intern — max 3h solo in morning |
-| Nada | 48h | Wednesday | Covers Branch 2 morning (مسهلة) on Reem's Tuesday day off; always 11-7 |
-| Abdalla | 48h | Friday | Bridges day/night teams |
-| Youssef | 48h | Monday | 2 nights (Sat/Sun 8-2) + 5 evenings (Tue-Fri 4-12); government work accommodation |
+| Nada | 48h | Wednesday | Morning shift 8-4 all days; Tuesday at Branch 2 as مسهلة ر2 |
+| Nour | 48h | Thursday | Midday shift 12-8 (covers peak hours 12 PM - 8 PM daily) |
+| Youssef | 48h | Monday | 5 days 4-12 PM (Mon, Thu, Fri, Sat, Sun) + 2 days 6 PM-2 AM (Tue, Wed); government work accommodation |
+| Abdalla | 48h | Friday | Varies: 8 PM-4 AM (nights), 8 AM-4 PM (Tuesday at Branch 1 when Nada at Branch 2) |
 
 ---
 
@@ -96,38 +99,43 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 
 ## Staff Profiles & Task Assignment
 
-### Dr. Nour — صيدلانية امتياز (Pharmacy Intern)
-- **Shift**: Morning 8 AM - 4 PM
-- **Solo window**: 8-11 AM only (3 hours max, quiet period)
-- **Tasks**: Receiving orders, shelf organization, customer service, daily count
-- **Restrictions**: Cannot dispense controlled substances alone
+### Nada — صيدلانية
+- **Shift**: Morning 8 AM - 4 PM (all days)
+- **Overlap with Nour**: 12 PM - 4 PM (peak start, supervision available)
+- **Tasks**: Prescription dispensing, controlled substances, morning operations, customer service
+- **Key role**: Morning anchor, ensures peak hours (12 PM - 8 PM) full coverage
+- **Cross-branch**: Tuesday مسهلة ر2 at Branch 2 (Abdalla covers Branch 1 morning)
 
-### Nada
-- **Shift**: Midday 11 AM - 7 PM
-- **Overlap with Nour**: 11 AM - 4 PM (supervision)
-- **Tasks**: Prescription dispensing, controlled substances, supervising Nour, clinical consultations
-- **Key role**: Bridge between morning quiet and afternoon peak
-- **Cross-branch**: Covers Branch 2 morning on Reem's day off
+### Dr. Nour — صيدلانية امتياز (Pharmacy Intern)
+- **Shift**: Midday 12 PM - 8 PM (all days except Thursday)
+- **Overlap with Nada**: 12 PM - 4 PM (supervised)
+- **Overlap with Youssef**: 4 PM - 8 PM (peak hours)
+- **Tasks**: **Peak hours coverage (71.1% of daily sales)**, prescription support, customer service
+- **Restrictions**: Cannot dispense controlled substances alone
+- **Day off**: Thursday
 
 ### Abdalla
-- **Shift**: Evening 4 PM - 12 AM
-- **Overlap with Nada**: 4-7 PM / **Overlap with Youssef**: 8 PM-12 AM
-- **Tasks**: Shift handover, shortage orders, branch transfers, evening sales
-- **Key role**: Links day team to night team
+- **Primary Shift**: Night 8 PM - 4 AM (Sat, Sun, Mon, Wed, Thu, Fri)
+- **Tuesday Shift**: Morning 8 AM - 4 PM (covers Branch 1 when Nada at Branch 2 مسهلة)
+- **Overlap with Youssef**: 8 PM - 12 AM (regular) / 8 PM - 2 AM (Tue, Wed when Youssef extended)
+- **Tasks**: Night operations, shortage orders, branch transfers, morning coverage (Tuesday only)
+- **Key role**: Night bridge, ensures 24h continuity; Tuesday morning backup when Nada at Branch 2
+- **Day off**: Friday
 
 ### Dr. Youssef
 - **Shifts**: 
-  - Nights (Sat/Sun): 8 PM - 2 AM (shortened for government work)
-  - Evenings (Tue-Fri): 4 PM - 12 AM
-  - Day off: Monday
-- **Overlap with Abdalla**: 8 PM-12 AM (Sat/Sun), 4-12 PM (Tue-Fri)
-- **Tasks**: Narcotics/controlled dispensing, evening sales, government work accommodation
-- **Key role**: Flexible split-shift schedule to balance pharmacy needs with external commitments
+  - Regular days (Mon, Thu, Fri, Sat, Sun): 4 PM - 12 AM (مسائي)
+  - Extended days (Tue, Wed): 6 PM - 2 AM (مسائي ليلي)
+  - **Day off: Monday**
+- **Overlap with Nour**: 4 PM - 8 PM (peak hours)
+- **Overlap with Abdalla**: 8 PM - 12 AM (regular) / 8 PM - 2 AM (Tue, Wed)
+- **Tasks**: Evening peak coverage, evening sales, narcotics/controlled dispensing
+- **Key role**: Flexible split-shift (5 evenings + 2 extended nights) accommodates government work + peak coverage
 
 ### Reem (Branch 2)
 - **Shift**: Morning 8 AM - 4 PM
 - **Tasks**: Morning operations, customer service, prescription dispensing
-- **Day off**: Thursday (covered by Nada from Branch 1)
+- **Day off**: Tuesday (covered by Nada from Branch 1 مسهلة ر2)
 
 ### Afaf — المديرة (Manager, Branch 2)
 - **Shift**: Evening 4 PM - 12 AM (7 days/week)
@@ -145,15 +153,24 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 ## Coverage Guarantees
 
 ### Branch 1
-1. Pharmacy open **8 AM - 4 AM** every day including Friday (20h/day)
-2. Minimum 2 staff during peak hours (12 PM - 8 PM) every day
-3. Nour never alone more than 3 hours
-4. Licensed pharmacist always on duty (Nada/Abdalla/Youssef)
-5. Abdalla-Youssef overlap covers the evening window (8 PM-12 AM)
-6. Friday (slowest day) covered with adjusted schedules
-7. Days off staggered — never two from same team off together
+1. **Pharmacy operating hours:**
+   - Monday, Thursday, Friday, Saturday, Sunday: **8 AM - 4 AM** (20h/day)
+   - Tuesday, Wednesday: **8 AM - 2 AM** (18h/day, Youssef extended shift)
+2. **Peak hours (12 PM - 8 PM) — 71.1% of daily sales:**
+   - Always 2 staff minimum (Nada 8-4 + Nour 12-8 + Youssef 4-12 overlap)
+3. **Night coverage (8 PM - 4 AM):**
+   - Abdalla 8 PM - 4 AM every night except Friday
+   - Youssef extends to 2 AM on Tue/Wed (6 PM - 2 AM)
+4. **Tuesday special (Nada at Branch 2):**
+   - Abdalla 8 AM - 4 PM (morning coverage at Branch 1)
+   - Nour 12 PM - 8 PM (midday/peak)
+   - Youssef 6 PM - 2 AM (evening/night)
+5. **Days off staggered:**
+   - Mon: Youssef | Wed: Nada | Thu: Nour | Fri: Abdalla
+   - Never two pharmacists off same day
+6. Licensed pharmacist always on duty (Nada/Nour/Youssef)
 
 ### Branch 2
 1. Branch open **8 AM - 12 AM** every day (16h/day)
-2. Afaf (manager) always present for evening shift
-3. Reem's day off covered by Nada from Branch 1
+2. Afaf (manager) always present for evening shift (7 days, no days off)
+3. Reem's day off **Tuesday** — covered by Nada from Branch 1 (مسهلة ر2)
