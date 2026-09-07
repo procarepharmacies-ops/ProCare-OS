@@ -455,11 +455,12 @@ def purchasing_summary(session: Session, branch_id: int | None = None) -> dict:
 
     def _purchases(start, end) -> float:
         stmt = (
-            select(func.coalesce(func.sum(m.Purchase.total_net), 0))
+            select(func.coalesce(func.sum(m.Purchase.total_gross - m.Purchase.total_discount), 0))
             .where(
+                m.Purchase.is_return == False,  # noqa: E712
                 branch_filter(m.Purchase, branch_id),
-                sql_day(m.Purchase.purchase_date) >= start,
-                sql_day(m.Purchase.purchase_date) <= end,
+                m.Purchase.bill_date >= start,
+                m.Purchase.bill_date <= end,
             )
         )
         return money(float(session.execute(stmt).scalar_one() or 0))
@@ -593,20 +594,20 @@ def staff_on_shift(session: Session, branch_id: int | None = None) -> dict:
     """Who is currently on shift (open cashier shift) and who is next up."""
     open_shifts = session.execute(
         select(
-            m.CashierShift.shift_id,
-            m.CashierShift.branch_id,
-            m.CashierShift.cashier_id,
-            m.CashierShift.open_time,
+            m.CashShift.shift_id,
+            m.CashShift.branch_id,
+            m.CashShift.cashier_id,
+            m.CashShift.opened_at,
             m.Employee.name_ar,
             m.Employee.name_en,
             m.Employee.role,
         )
-        .join(m.Employee, m.Employee.employee_id == m.CashierShift.cashier_id)
+        .join(m.Employee, m.Employee.employee_id == m.CashShift.cashier_id)
         .where(
-            m.CashierShift.close_time == None,  # noqa: E711
-            branch_filter(m.CashierShift, branch_id),
+            m.CashShift.closed_at == None,  # noqa: E711
+            branch_filter(m.CashShift, branch_id),
         )
-        .order_by(m.CashierShift.open_time)
+        .order_by(m.CashShift.opened_at)
     ).all()
 
     on_shift = [
@@ -617,31 +618,31 @@ def staff_on_shift(session: Session, branch_id: int | None = None) -> dict:
             "name_ar": r.name_ar,
             "name_en": r.name_en,
             "role": r.role,
-            "on_since": r.open_time.isoformat() if r.open_time else None,
+            "on_since": r.opened_at.isoformat() if r.opened_at else None,
         }
         for r in open_shifts
     ]
 
     next_tasks = session.execute(
         select(
-            m.EmployeeTask.assigned_to,
+            m.EmployeeTask.assignee_id,
             m.Employee.name_ar,
             m.Employee.name_en,
             m.EmployeeTask.title,
         )
-        .join(m.Employee, m.Employee.employee_id == m.EmployeeTask.assigned_to)
+        .join(m.Employee, m.Employee.employee_id == m.EmployeeTask.assignee_id)
         .where(
             m.EmployeeTask.status == "pending",
             m.EmployeeTask.due_date == today(),
             branch_filter(m.EmployeeTask, branch_id),
-            m.EmployeeTask.assigned_to != None,  # noqa: E711
+            m.EmployeeTask.assignee_id != None,  # noqa: E711
         )
         .order_by(m.EmployeeTask.priority.desc())
         .limit(3)
     ).all()
 
     next_up = [
-        {"employee_id": r.assigned_to, "name_ar": r.name_ar, "name_en": r.name_en, "task": r.title}
+        {"employee_id": r.assignee_id, "name_ar": r.name_ar, "name_en": r.name_en, "task": r.title}
         for r in next_tasks
     ]
     return {"on_shift": on_shift, "next_up": next_up, "as_of": today().isoformat()}

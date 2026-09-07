@@ -12,6 +12,7 @@ whole stack is runnable offline.
 """
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -32,8 +33,10 @@ from app.db.migrate import (
     ensure_forecast_tables,
     ensure_ledger_reason_column,
     ensure_notification_table,
+    ensure_product_barcode_table,
     ensure_payroll_table,
     ensure_product_change_table,
+    ensure_estock_raw_mirror_tables,
     ensure_purchase_line_discount_column,
     ensure_purchase_header_extra_columns,
     ensure_job_source_columns,
@@ -48,6 +51,7 @@ from app.db.migrate import (
     ensure_prescription_status_columns,
     ensure_product_classification_columns,
     ensure_product_unit_columns,
+    ensure_sync_cycle_columns,
     ensure_role_column,
     ensure_roster,
     ensure_shelf_location_column,
@@ -57,6 +61,8 @@ from app.db.migrate import (
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
+
+log = logging.getLogger("procare.startup")
 
 
 @asynccontextmanager
@@ -74,6 +80,7 @@ async def lifespan(_app: FastAPI):
     ensure_titan_match_columns(engine)
     ensure_titan_drug_columns(engine)
     ensure_product_unit_columns(engine)
+    ensure_sync_cycle_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
     ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix
@@ -93,6 +100,7 @@ async def lifespan(_app: FastAPI):
     ensure_ledger_reason_column(engine)
     # Phase 6: notification center dismissals (News_bar parity)
     ensure_notification_table(engine)
+    ensure_product_barcode_table(engine)
     # Phase 6: product price/min-stock change log (Product_Changes parity)
     ensure_product_change_table(engine)
     # Phase 6: shareholders + dividends mirror (company_Owner parity)
@@ -107,14 +115,33 @@ async def lifespan(_app: FastAPI):
     ensure_held_invoice_table(engine)
     # Phase 7: per-line purchase discount
     ensure_purchase_line_discount_column(engine)
+    # 100% eStock coverage: the generic raw mirror + its read watermarks.
+    ensure_estock_raw_mirror_tables(engine)
     # Phase 7: purchase header discount rate + other expenses (تسوية/خصم نقدي)
     ensure_purchase_header_extra_columns(engine)
     # Phase 6: eStock Jobs master mirror (job titles / المسمى الوظيفي)
     ensure_job_source_columns(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
+    #
+    # Opt out with STARTUP_BACKUP=0 where a scheduled job already owns backups.
+    # This runs SYNCHRONOUSLY, so on SQL Server it blocks the whole app from
+    # serving until the backup finishes -- minutes on a real pharmacy database.
+    # Worse, once the newest backup is older than the 24h threshold, EVERY
+    # restart retries it: during trading hours the attempt loses a buffer latch
+    # to live POS traffic, dies with error 845 after a few minutes, and the next
+    # restart does it again. On the Elsanta box the SQL Agent job
+    # ProCare_AppDB_FullBackup owns this instead (nightly 23:00, off-peak,
+    # verified, 14-day retention), so STARTUP_BACKUP=0 is set there.
+    # Background: C:\ProCareFix\PROJECT_ProCare_AppDB_Backup_2026-08-24.md
     from app.services import backup
 
-    backup.backup_if_stale(24, "startup-daily")
+    if str(os.environ.get("STARTUP_BACKUP", "1")).strip().lower() in ("1", "true", "yes", "on"):
+        backup.backup_if_stale(24, "startup-daily")
+    else:
+        log.info(
+            "startup backup skipped (STARTUP_BACKUP=0) -- a scheduled job is "
+            "expected to own backups for this database"
+        )
     # Create the schema and seed demo data on first run (idempotent). In
     # production with a live eStock login this is replaced by the read-only ETL.
     ensure_seeded()

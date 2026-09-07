@@ -109,8 +109,12 @@ python run.py
 
 ## Testing Live Features (Once Running)
 
+> URLs below assume the Docker deployment (UI on **3000**). With Option 3
+> (`npm run dev`, local dev) the UI is on **3100** instead — substitute the
+> port in every URL in this section.
+
 ### 1. Test Real Data
-- Navigate to: http://localhost:3000/login
+- Navigate to: http://localhost:3000/login (Docker) or http://localhost:3100/login (local dev)
 - Login as CEO (default creds from seed)
 - Go to Dashboard → should show real Elsanta/Mas-hala data
 

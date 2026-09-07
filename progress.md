@@ -1,5 +1,195 @@
 # Progress Log (B.L.A.S.T.)
 
+## 2026-08-26 · 100% eStock coverage — the raw mirror, fixed and proven on live data
+
+- GOAL: ProCare holds EVERY eStock table, not the 28 with dedicated loaders.
+  The live Elsanta database has **114 tables**; 28 are read into real ProCare
+  models, the other **86 were unheld**. Owner's ask: 100% mirror.
+- STATE FOUND: a half-written `_load_uncovered_tables` was in the working tree
+  and it BROKE THE WHOLE MIRROR — the call site passes 6 arguments, the function
+  took 4, so `mirror()` raised `TypeError` on every run. All 10 mirror tests were
+  red; nothing had synced from that tree. Four more faults underneath:
+  - `default_branch_id` was referenced as a free variable (`NameError`);
+  - the key was the FIRST integer PK column only. eStock keys are composite —
+    `Branches_Product_amount_Change` is (branch_id, id), so 1.05M rows would have
+    collapsed onto the 2 distinct branch_ids. Same for `Branches_shortcoming`
+    (branch_id, product_id, store_id) and `Product_Vendor` (PV_id, …);
+  - keyless tables used the whole row JSON as `source_id`, a String(60) column —
+    `Product_amount_Change` (533K rows, no declared key) could not have inserted;
+  - the keyless and fallback paths never consulted what was already mirrored, so
+    every 5-minute cycle would re-insert the table.
+- BUILT: `_load_uncovered_tables` rewritten around the shapes the source really
+  has. Per-table strategy is chosen from the row count, because eStock's two
+  kinds of table behave differently:
+  - **small (≤ RAW_MIRROR_REFRESH_MAX_ROWS, default 50,000)** — config, lookup,
+    roster, sub-ledger. eStock EDITS these in place, so they are refreshed
+    wholesale each cycle and are always verbatim.
+  - **large** — the append-only change logs. Pulled forward from a stored
+    watermark (`estock_raw_watermark`) so a 5-minute cadence never re-reads
+    history.
+  Idempotency does NOT rest on the watermark: every insert is anti-joined, in
+  chunks of 900, against the keys already held for that table. A re-run, or a
+  watermark column that turned out not to be unique, can only cost time.
+- KEY: whole composite PK joined; hashed to sha1 when it would overflow the
+  60-char column or when the table declares no key. Decimal ids are normalised
+  (`Decimal('123')` → `123`) — eStock ids are DECIMAL(18,0) and a repr that
+  drifted to `1.23E+2` between cycles would make every row look new forever.
+- CHUNK WIDTH IS DENSITY-ADAPTIVE: `Branches_Product_amount_Change` spreads 1.05M
+  rows over ch_id 1..119,368,724. A fixed 20,000-wide window needs ~6,000
+  round-trips to walk it once; sizing the window by observed density makes it 53.
+- VERIFIED ON THE LIVE ELSANTA SERVER (read-only, SQL Server 2008 RTM):
+  - 76 of the 86 uncovered tables mirrored in one pass, **0 failures**, 49,541
+    rows in 8.8s; second pass added **+0 rows** (idempotent against the real
+    schema, Arabic collation and MONEY/DATETIME columns included).
+  - the 10 tables held back by the staging cap were probed separately: 5,000
+    sampled rows each, **every row got a distinct key** — the composite-PK
+    collapse is really gone.
+  - the three tables that will take the watermark path were checked for the one
+    assumption it makes: `ch_id`, `gc_id` and `id` are each 100% distinct AND
+    insertion-ordered (row at MAX(watermark) is also MAX(insert_date)).
+- STAGING: `RAW_MIRROR_SKIP_ABOVE_ROWS` skips tables over N rows for a cycle and
+  names them in `counts['raw_skipped']`, which are NOT counted as covered. The
+  first fill is ~2.01M rows / ~1 GB into ProCare's own database on a SQL Server
+  that also serves the POS, so it can be taken in slices off-peak instead of
+  all-or-nothing. `RAW_MIRROR=0` switches the pass off entirely, the way
+  `SYNC_ENABLED=false` already defers the sync itself.
+- SCHEMA: `estock_raw_mirror` (source_table, source_id, raw JSON, branch_id) and
+  `estock_raw_watermark`, both created by `ensure_estock_raw_mirror_tables()` at
+  startup so databases that predate them migrate silently. Neither is in
+  `_WIPE_ORDER` — a full mirror refresh does not throw the raw rows away.
+- BRANCH TAGGING: rows of a table carrying `store_id` are tagged with the mapped
+  ProCare branch; source-wide tables (Gedo ledgers, EMP_CONTROL, config) keep
+  `branch_id = NULL`.
+- TESTS: `test_estock_raw_mirror.py` (13) — composite-key distinctness, keyless
+  digest dedup, no-duplicate re-sync, in-place edit refreshed not appended, empty
+  table still covered, watermark pulls only new rows, `RAW_MIRROR=0`, Decimal key
+  stability, overlong key hashing, and a guard-rail test asserting the source row
+  counts are unchanged (ProCare never writes eStock).
+- TOOLING: `tools/estock_schema_dump.py` now records each table's primary key and
+  reports coverage in two tiers — *dedicated* (a ProCare model) vs *raw*
+  (verbatim in `estock_raw_mirror`) — instead of "covered / not covered".
+  Re-run against live Elsanta: **114 tables, 28 dedicated + 86 raw, 0 unmirrored,
+  100.0% coverage**. `docs/estock-schema-dump.md` refreshed from the live server,
+  which also closes the schema-dump gate that PRs #47/#49/#50/#51 were waiting on.
+- STILL OPEN: the first fill of the 10 large tables has NOT been run into the
+  production ProCare database — it is a ~2M-row read against the live POS server
+  and belongs off-peak. Command and sizing are in
+  `docs/RAW-MIRROR-FIRST-FILL.md`.
+
+## 2026-07-25 · Mobile الجرد بالباركود (barcode-scan stocktaking)
+- Owner priority: use the app for الجرد on the phone — biggest productivity win.
+  Problem: current count sheet is a long scrollable table; on mobile finding each
+  held item is slow.
+- BUILT: scan-to-count flow.
+  - Backend: `stocktaking.scan_lookup(session, count_id, code)` (read-only) —
+    matches a scanned barcode / typed code against Product.code|fast_code
+    (is_deleted=False), returns the count line(s) for that product FEFO-ordered
+    (one line per batch). Outcomes: found / not_in_count / unknown (all HTTP 200).
+    Endpoint `GET /api/stocktaking/{count_id}/scan?code=` (2-segment path — no
+    collision with /{count_id} or /recent-alerts).
+  - Frontend: `components/StockScanMode.js` — native `BarcodeDetector` camera
+    (NO CDN/library dep, works in the Android PWA), environment-facing stream,
+    350ms detect loop, haptic on hit; big centered numeric qty field, save +
+    scan-next; running counted tally; manual code entry as fallback when camera/
+    BarcodeDetector unavailable. Toggled from the open count sheet (📷/📋).
+  - api.js `scanStockCount`; 18 i18n keys ×2 (AR/EN).
+- TESTS: test_stocktaking_scan.py (6) — found by code, found by fast_code,
+  unknown code, not_in_count (partial-count scope exclusion), API path,
+  recent-alerts not shadowed. `next build` clean.
+
+## 2026-07-25 (cont.) · Offline الجرد (branch feat/rx-offline-outbox, merged)
+- Counting now works with no signal: scans resolve from a cached index, counts
+  go into a durable device queue, the queue drains on reconnect.
+- WHY NO IDEMPOTENCY KEYS: every queued write is absolute state — `record_lines`
+  sets `counted_qty` (not a delta), task status is absolute, and a barcode link
+  is idempotent via the unique GTIN index. N replays land on the same number.
+  Count CREATION and POSTING stay online-only on purpose (the first needs a
+  server-assigned id + snapshot; the second applies deltas against LIVE stock
+  and is a manager's call against current data).
+- BACKEND: `record_lines` takes optional `base_counted_qty`; when stale the
+  write still APPLIES (last-write-wins, never block a count) and the line is
+  returned in `conflicts` — same advisory shape as `held.resume_held`. Absent
+  base ⇒ no conflict check (desktop sheet unaffected); `exclude_unset=True` in
+  the endpoint keeps ABSENT distinct from NULL. New `GET /{id}/scan-index`.
+- FRONTEND: `lib/gs1.js` mirrors `services/gs1.py` (needed so GS1 batch-pinning
+  works offline). Anti-drift = BOTH parsers test against the SAME golden vectors
+  (`npm test` reads the pytest fixture) — node:test, no new dependency.
+  `lib/rxdb.js` IndexedDB with a UNIQUE `dedupe_key`: re-entering a quantity
+  REPLACES the queued row, so the queue can't outgrow the lines touched.
+  `lib/outbox.js`: retry only the network class (etl.py discipline) but WITHOUT
+  its 3-attempt cap — this queue may hold the only copy of a physical count.
+  4xx terminal + surfaced; 401 PAUSES (12h token, no refresh); backoff persisted.
+- The queue lives in the PAGE, not the SW: scope matching is by request URL, so
+  `/api/*` from an RX page hits the ROOT worker and an RX fetch handler would
+  silently never fire. Also more honest — intercepting would return a synthetic
+  202 for a real question; "saved" vs "queued" is the distinction that matters
+  for الجرد. Hence the per-count badge + the «لم يُرفع» screen.
+- TESTS: 484 backend (+11 reconcile/scan-index), 11 JS parser tests, build clean.
+  Smoke: stale base → `overwritten` reported yet applied; same entry ×3 → 9.
+- STILL pre-existing (not ours): `test_insights_daily_and_productivity`.
+- NOT done (queued): prescription capture in RX, Bubblewrap APK,
+  `POST /api/sales` double-submit gap (real, separate ticket).
+
+## 2026-07-25 (cont.) · GS1 DataMatrix + ProCare RX (branch feat/rx-mobile-jard)
+- RESEARCH that changed the design: Egypt's EDA track-and-trace (ePTTS) mandates
+  a GS1 DataMatrix on every saleable pack — imported since 2026-02-01, local from
+  2026-08-01 — carrying GTIN (01), expiry (17), lot (10), serial (21). The native
+  `BarcodeDetector` supports `data_matrix` on Chrome/Android, so reading it costs
+  ZERO new dependencies. The encoded expiry pins the exact BATCH, and count lines
+  are per-batch → a scan lands on one row instead of a four-expiry guess.
+- BUILT (Phase 0 — pre-existing bugs found while verifying):
+  - PWA could not install AT ALL: `.gitignore` had a blanket `*.png` (for DirectX
+    artifacts) that silently excluded the app icons, so the manifest and the SW
+    precache both pointed at files never committed. `addAll` is atomic → install
+    promise rejected → the service worker never registered. Icons generated +
+    un-ignored; precache switched to `allSettled`.
+  - `sw.js` activate() deleted every cache but its own → a second worker would be
+    evicted on every activation. Now an allow-list.
+  - `GET /api/stocktaking/recent-alerts` was declared AFTER `/{count_id}`, so
+    FastAPI parsed "recent-alerts" as an int → 422. The dashboard alert banner had
+    never worked. Moved above, with a regression test.
+  - `POST /{count_id}/post` and `/cancel` adjust real stock but were open to any
+    logged-in role (the manager gate was UI-only) — now auth_guard(ceo,manager).
+- BUILT (Phase 1 — GS1):
+  - `services/gs1.py`: pure, total parser (never raises). Fixed vs variable AIs,
+    FNC1/GS, symbology prefixes, GS-stripped recovery heuristic, DD=00 → month
+    end, GTIN-14↔EAN-13 + mod-10 validation, and a structural guard so a bare
+    EAN-13 (which starts "40", a valid AI prefix) is NOT parsed as element strings.
+    Century uses the GS1 ±50 window anchored on `common.today` → deterministic
+    under the frozen DEMO_TODAY instead of silently changing in 2077.
+  - `ProductBarcode` + `services/gtin_map.py`: GTIN→product map as a SIDE TABLE,
+    not a `products.gtin` column — `etl._WIPE_ORDER` deletes every product row on
+    a full mirror and Product has no `source_id`, so a column would be wiped with
+    it. `product_code` is the durable key; `relink()` runs at the end of
+    `mirror()`. `learn()` is idempotent (unique gtin index + same-product no-op) —
+    that is what will make an offline queue replay-safe with NO idempotency-key
+    machinery. `resolve()` falls back to Product.code and auto-learns, so the
+    catalogue self-heals through normal use.
+  - Linking is open to assistants: the person holding the box is the one who can
+    link it; a manager gate would just stop staff scanning. Safety = reversibility
+    (a wrong link is instantly visible, created_by logged, manager unlink/repoint).
+  - OPEN QUESTION deliberately not assumed — whether eStock `product_code` holds
+    real barcodes. `tools/gtin_audit.py` + `/catalogue/gtin-backfill/preview`
+    answer it read-only; the dev seed's "P1000" codes give valid_gtin == 0, which
+    is asserted in test_gtin_map so the assumption can't be made silently.
+- BUILT (Phase 2 — ProCare RX at `/rx`): a SECOND installable PWA from the same
+  origin (installability is per id/start_url/scope, not per origin) — own icon,
+  name, window, and a Bubblewrap APK later, with no repo fork. Honours
+  docs/12-android-app-plan.md. Tabs: جرد · مهامي · بدائل · المزيد. Reuses the
+  auth gate, i18n, api.js; never imports the desktop Shell (132 kB vs 145 kB).
+  `lib/scanner.js` shares detector setup: formats intersected with
+  `getSupportedFormats()` (the constructor THROWS on an unknown format), a photo
+  tier via `<input capture>` that still works over plain-HTTP LAN where
+  getUserMedia is blocked, and manual entry as the floor.
+- TESTS: +36 (20 gs1 incl. shared golden vectors + 200 random payloads that must
+  never raise; 9 gtin_map; 7 GS1 scan). Full suite 473 passed. `next build` clean.
+  Runtime smoke: link unknown GS1 → rescan → batch pinned to the exact line.
+- PRE-EXISTING FAILURE (not ours): `test_insights_daily_and_productivity`
+  reproduces on main with this branch stashed. Left alone.
+- NOT done (queued): offline outbox (IndexedDB + replay; the idempotency
+  groundwork is deliberately already in place), prescription capture in RX,
+  Bubblewrap APK, `POST /api/sales` double-submit gap (real, separate ticket).
+
 ## 2026-07-10 → 07-11 · Phase 0 (merged)
 - 7 feature areas built, tested, merged to main (PRs #13–#15): Windows 500 fix,
   LLM registry, WhatsApp automation, substitutions+transfers, prescriptions

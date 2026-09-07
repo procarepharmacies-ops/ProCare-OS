@@ -12,17 +12,28 @@ from app.services.common import today
 
 
 def _product_with_live_stock(session, branch_id):
-    """Pick a product that has sellable stock at the branch."""
+    """Pick a product that has sellable stock at the branch.
+
+    Sellable means priced, too: a product left at sell_price 0 by another test
+    rings up a zero-total sale and makes the FEFO assertions below meaningless.
+    The suite shares one database and reset_and_seed() draws from a single
+    module-level RNG, so which product tops the stock list -- and what it costs
+    -- changes with the number of resets before this test. Requiring a price
+    makes the choice independent of that.
+    """
     row = session.execute(
         select(m.StockBatch.product_id, func.sum(m.StockBatch.amount))
+        .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .where(
             m.StockBatch.branch_id == branch_id,
             m.StockBatch.amount > 0,
+            m.Product.sell_price > 0,
             (m.StockBatch.exp_date == None) | (m.StockBatch.exp_date > today()),  # noqa: E711
         )
         .group_by(m.StockBatch.product_id)
         .order_by(func.sum(m.StockBatch.amount).desc())
     ).first()
+    assert row is not None, "no priced product with live stock at this branch"
     return row[0], float(row[1])
 
 

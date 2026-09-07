@@ -365,6 +365,58 @@ def test_load_branch_orders(estock_source):
         reset_and_seed()
 
 
+def test_load_branch_orders_live_column_names(estock_source):
+    """The REAL eStock schema: branch_order_id / details_id / amount.
+
+    The fixture above invents bo_id / bol_id / qty, which exist nowhere in
+    production. That mismatch hid a live fault for weeks: ``_pick`` returned
+    None for the header key, so source_order_id was NULL on all 21,453,855
+    mirrored rows, the dedup map never matched, and every 5-minute cycle
+    re-inserted the full header set (~2.4M rows/day) while branch_order_lines
+    stayed empty at 0. Pin the production names so it cannot come back.
+    """
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branch_order_header ("
+                "branch_order_id INT, from_store_id INT, to_store_id INT, "
+                "notes TEXT, insert_date TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_header VALUES "
+                "(7,1,2,'Transfer OK','2026-07-20 10:00:00')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branch_order_details ("
+                "details_id INT, branch_order_id INT, product_id INT, amount REAL)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_details VALUES (1,7,101,20),(2,7,102,5)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            orders = s.query(m.BranchOrderHeader).all()
+            assert len(orders) == 1
+            order = orders[0]
+            # The source id must survive -- it is the whole dedup key.
+            assert order.source_order_id == 7
+            lines = s.query(m.BranchOrderLine).filter(
+                m.BranchOrderLine.order_id == order.order_id
+            ).all()
+            assert len(lines) == 2
+            assert sorted(l.quantity for l in lines) == [5, 20]
+
+        # A second cycle must add nothing: no duplicate header, no duplicate lines.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.BranchOrderHeader).count() == 1
+            assert s.query(m.BranchOrderLine).count() == 2
+    finally:
+        reset_and_seed()
+
+
 def test_load_gl_accounts(estock_source):
     """Mirror Account_Tree (chart of accounts) verbatim, upserted by source id."""
     try:
@@ -466,6 +518,82 @@ def test_load_gl_adjustments(estock_source):
     finally:
         reset_and_seed()
 
+def test_branch_tables_do_not_duplicate_head_office_bills(estock_source):
+    """eStock ships every head-office bill twice, and both pharmacies number
+    their bills from 1, so a bill is identified by (branch, sales_id) and never
+    by sales_id alone.
+
+    Mirroring both tables blindly double-counted Elsanta and hid Mas-hala —
+    measured on live data 2026-08-31: 173 mirrored rows for a day that held 104
+    real bills, every one of them stamped branch 1.
+
+    Shape reproduced exactly as the live DB has it:
+      Sales_header            — head office only, store_id, no branch_id
+      Branches_sales_header   — repeats those same sales_ids under their branch,
+                                and reuses the ids again for the other branch
+      Sales_details           — no branch column (match on the id alone)
+      Branches_sales_details  — branch_id (match on branch + id)
+    """
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branches_sales_header (branch_id INT, sales_id INT, store_id INT, "
+                "customer_id INT, bill_date TEXT, insert_date TEXT, total_bill REAL, "
+                "total_bill_net REAL, total_disc_money REAL, bill_cash REAL, network_money REAL, "
+                "money_change REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_sales_header VALUES "
+                # The two bills already mirrored from Sales_header, repeated.
+                # store_id is 1 on every row here, exactly as on the live server —
+                # only branch_id says which pharmacy rang the sale.
+                "(1,1001,1,0,NULL,'2026-06-20 10:00:00',24,24,0,24,0,0,'N'),"
+                "(2,1002,1,5,'2026-06-21 12:00:00','2026-06-21 12:00:00',60,60,0,0,0,0,'N'),"
+                # Branch 2's OWN bill, reusing sales_id 1001.
+                "(2,1001,1,0,'2026-06-21 18:00:00','2026-06-21 18:00:00',35,35,0,35,0,0,'N')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branches_sales_details (branch_id INT, details_id INT, sales_id INT, "
+                "product_id INT, counter_id INT, amount REAL, sell_price REAL, buy_price REAL, "
+                "disc_money REAL, total_sell REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_sales_details VALUES "
+                "(1,1,1001,101,500,2,12,7,0,24,'N'),"
+                "(2,2,1002,102,501,1,60,40,0,60,'N'),"
+                "(2,3,1001,102,500,3,12,7,0,35,'N')"   # branch 2's own line
+            ))
+
+        with SessionLocal() as dst:
+            counts = etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+
+        # 2 head-office bills + 1 that only branch 2 has — NOT 5.
+        assert counts["sales"] == 3
+        assert counts["sales_duplicates_skipped"] == 2
+
+        with SessionLocal() as s:
+            live = s.query(m.Sale).filter(m.Sale.is_return == False).all()  # noqa: E712
+            assert len(live) == 3
+            per_branch: dict[int, int] = {}
+            for sale in live:
+                per_branch[sale.branch_id] = per_branch.get(sale.branch_id, 0) + 1
+            assert per_branch == {1: 1, 2: 2}, per_branch
+
+            # Branch 2's bill kept its own total instead of colliding with the
+            # branch-1 bill that shares its sales_id.
+            own = s.query(m.Sale).filter(
+                m.Sale.branch_id == 2, m.Sale.total_net == 35
+            ).one()
+
+            # ...and its line landed on ITS sale.
+            lines = s.query(m.SaleLine).filter(m.SaleLine.sale_id == own.sale_id).all()
+            assert len(lines) == 1 and float(lines[0].amount) == 3
+
+            # The repeats added no second copy of anyone's lines.
+            for sale in live:
+                assert len(sale.lines) == 1, (sale.sale_id, sale.branch_id, len(sale.lines))
+    finally:
+        reset_and_seed()
 
 def test_load_gl_subledgers(estock_source):
     """Mirror the five Gedo_* sub-ledger balance tables verbatim, using the
@@ -557,6 +685,91 @@ def test_load_gl_subledgers(estock_source):
         reset_and_seed()
 
 
+def test_branch_purchase_table_does_not_duplicate_head_office(estock_source):
+    """The purchase side overlaps identically — 12,822 head-office bills, the
+    same 12,822 again under branch 1, plus 12,510 that are branch 2's alone."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Purchase_header (purchase_id INT, store_id INT, vendor_id INT, "
+                "bill_date TEXT, bill_number TEXT, total_bill REAL, bill_disc_money REAL, "
+                "bill_tax REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Purchase_header VALUES (9001,1,301,'2026-06-19','INV-1',500,0,0,'N')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branches_purchase_header (branch_id INT, purchase_id INT, "
+                "store_id INT, vendor_id INT, bill_date TEXT, bill_number TEXT, total_bill REAL, "
+                "bill_disc_money REAL, bill_tax REAL, back TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_purchase_header VALUES "
+                "(1,9001,1,301,'2026-06-19','INV-1',500,0,0,'N'),"   # repeat of the head-office row
+                "(2,9001,1,301,'2026-06-19','INV-2',700,0,0,'N')"    # branch 2, same purchase_id
+            ))
+
+        with SessionLocal() as dst:
+            counts = etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+
+        assert counts["purchases"] == 2                      # one per branch
+        assert counts["purchases_duplicates_skipped"] == 1
+
+        with SessionLocal() as s:
+            per_branch: dict[int, int] = {}
+            for p in s.query(m.Purchase).all():
+                per_branch[p.branch_id] = per_branch.get(p.branch_id, 0) + 1
+            assert per_branch == {1: 1, 2: 1}, per_branch
+    finally:
+        reset_and_seed()
+
+
+def test_branch_product_amount_does_not_duplicate_head_office_stock(estock_source):
+    """Branches_Product_Amount repeats every Product_Amount batch under its own
+    branch — measured live 2026-08-31: 67,447 head-office batches, 67,434 of the
+    same again under branch 1, and 55,957 that are branch 2's alone, which is
+    exactly the 190,838 stock rows ProCare held with every one on branch 1."""
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branches_Product_Amount ("
+                "branch_id INT, pa_id INT, counter_id INT, product_id INT, amount REAL, "
+                "buy_price REAL, sell_price REAL, tax_price REAL, exp_date TEXT, store_id INT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branches_Product_Amount VALUES "
+                # The two Product_Amount batches repeated under their branches
+                # (pa_id 1 is branch 1's, pa_id 2 branch 2's); store_id is 1 on
+                # every row here, exactly as on the live server.
+                "(1,1,500,101,5,7,12,0,'2027-01-01',1),"
+                "(2,2,501,102,3,40,60,0,'2027-01-01',1),"
+                # Branch 2's OWN batch, reusing pa_id 1 AND counter_id 500 —
+                # counter_id has only 77 distinct values over 67k live batches,
+                # so it must never be treated as an identity.
+                "(2,1,500,101,9,7,12,0,'2027-05-05',1)"
+            ))
+        with SessionLocal() as dst:
+            counts = etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+
+        # 2 head-office batches + 1 that only branch 2 has — not 5.
+        assert counts["stock_batches"] == 3
+        assert counts["stock_batches_duplicates_skipped"] == 2
+
+        with SessionLocal() as s:
+            per_branch: dict[int, int] = {}
+            for b in s.query(m.StockBatch).all():
+                per_branch[b.branch_id] = per_branch.get(b.branch_id, 0) + 1
+            assert per_branch == {1: 1, 2: 2}, per_branch
+            # Branch 2's own batch survived under ITS branch, with its own
+            # amount, rather than being folded into branch 1's counter 500.
+            own = s.query(m.StockBatch).filter(
+                m.StockBatch.branch_id == 2, m.StockBatch.source_counter == 500
+            ).one()
+            assert float(own.amount) == 9
+    finally:
+        reset_and_seed()
+
+
 def test_pick_returns_real_casing_not_candidate():
     """Regression guard for the _pick casing bug: a candidate matched
     case-insensitively must resolve to the column's ACTUAL casing, since
@@ -565,3 +778,53 @@ def test_pick_returns_real_casing_not_candidate():
     assert etl._pick({"Flag"}, "flag") == "Flag"
     assert etl._pick({"product_id"}, "PRODUCT_ID", "other") == "product_id"
     assert etl._pick({"x"}, "nope") is None
+
+
+def test_resilient_source_stream_does_not_materialise_the_table():
+    """`stream()` must hand rows over in bounded batches.
+
+    `execute()` deliberately calls Result.freeze() so a WAN drop mid-fetch stays
+    inside its retry — but that holds the whole table in memory, which drove the
+    backend to 2.9 GB on a 5.9 GB box and got it OOM-killed mid-sync. This pins
+    the streaming counterpart: every row still arrives, exactly once, in order,
+    and never as one giant list.
+    """
+    from sqlalchemy import create_engine, text as _text
+    from app.services.etl import _ResilientSource
+
+    eng = create_engine("sqlite://")
+    with eng.begin() as c:
+        c.execute(_text("CREATE TABLE big (id INTEGER PRIMARY KEY, v TEXT)"))
+        c.execute(_text("INSERT INTO big (id, v) VALUES (:i, :v)"),
+                  [{"i": i, "v": f"row-{i}"} for i in range(1, 2501)])
+    src = _ResilientSource(eng)
+    try:
+        seen = [r["id"] for r in src.stream(_text("SELECT id, v FROM big ORDER BY id"), batch=100)]
+        assert seen == list(range(1, 2501)), "every row exactly once, in order"
+
+        # It is a generator: nothing is read until iteration starts, so the
+        # caller never holds the full table.
+        gen = src.stream(_text("SELECT id FROM big ORDER BY id"), batch=100)
+        assert not isinstance(gen, list)
+        first = next(gen)
+        assert first["id"] == 1
+        gen.close()
+    finally:
+        src.close()
+        eng.dispose()
+
+
+def test_raw_mirror_streams_source_rows(monkeypatch):
+    """The raw-mirror wholesale refresh must go through stream(), not execute().
+
+    Guards the actual regression: a future edit that reverts to
+    `.mappings().all()` reintroduces the whole-table materialisation that
+    exhausted the box.
+    """
+    import inspect as _inspect
+    from app.services import etl as _etl
+
+    body = _inspect.getsource(_etl._mirror_one_raw_table)
+    assert "src.stream(" in body, "wholesale refresh must stream its source rows"
+    assert 'src.execute(text("SELECT * FROM " + tbl)).mappings().all()' not in body, \
+        "whole-table materialisation is back"

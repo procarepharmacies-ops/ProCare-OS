@@ -7,16 +7,27 @@
  */
 const CACHE = "procare-v1";
 const SHELL = ["/", "/icon-192.png", "/icon-512.png"];
+// Caches owned by this origin that activate() must NOT evict. The RX mobile app
+// (/rx) registers its own worker with its own cache; a bare `k !== CACHE` sweep
+// would delete it on every activation and the two would fight forever.
+const KEEP = [CACHE, "procare-rx-v1"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      // allSettled, NOT addAll: addAll is atomic, so a single missing asset
+      // rejects the whole install and the worker never registers at all.
+      .then((c) => Promise.allSettled(SHELL.map((u) => c.add(u))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => !KEEP.includes(k)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

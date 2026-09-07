@@ -1,107 +1,111 @@
 # eStock schema dump + ProCare coverage
 
-Captured from the live Elsanta SQL Server via `deploy/ProCare-Schema-Dump.bat`
-(`python -m tools.estock_schema_dump --counts`), 2026-08-17. This is the
-snapshot PR 2e (`Gedo_customers`/`Gedo_Vendors`/`Gedo_branches`/
-`Gedo_employee`/`Gedo_installment`) was built against — coverage counts below
-reflect the ETL as of that PR, not later changes; re-run the tool for a
-current picture.
+- **Total tables:** 114
+- **Mirrored into ProCare models (dedicated loaders):** 28
+- **Mirrored verbatim into `estock_raw_mirror`:** 86
+- **Not mirrored:** 0
+- **Coverage:** 100.0%
 
-- **Total tables:** 113
-- **Mirrored by ProCare's ETL:** 28
-- **Not yet mirrored:** 85
+Legend: ✅ dedicated ProCare model · 📦 verbatim row in `estock_raw_mirror`.
 
-## Coverage gap (tables ProCare does NOT read)
+## Verbatim-only tables (held in full, not yet modelled)
 
-- `Back_purchase_details` (11 cols) — 807 rows
-- `Back_purchase_header` (11 cols) — 169 rows
-- `Branch_money_convert` (11 cols) — 1,124 rows
-- `Branch_money_order` (12 cols) — 1,124 rows
-- `Branches` (52 cols) — 2 rows
-- `Branches_Product_amount_Change` (18 cols) — 1,050,600 rows
-- `Branches_Vendor` (18 cols) — 0 rows
-- `Branches_back_purchase_details` (14 cols) — 819 rows
-- `Branches_back_purchase_header` (12 cols) — 336 rows
-- `Branches_cash_depots` (13 cols) — 15 rows
-- `Branches_company_edit` (13 cols) — 16 rows
-- `Branches_convert_details` (16 cols) — 62,121 rows
-- `Branches_convert_header` (12 cols) — 8,288 rows
-- `Branches_customer` (29 cols) — 0 rows
-- `Branches_description_edit` (9 cols) — 0 rows
-- `Branches_employee_edit` (56 cols) — 78 rows
-- `Branches_group_edit` (9 cols) — 10 rows
-- `Branches_mail` (10 cols) — 241 rows
-- `Branches_products_edit` (53 cols) — 31,440 rows
-- `Branches_shortcoming` (13 cols) — 20,991 rows
-- `Branches_stores` (10 cols) — 3 rows
-- `Branches_unit_edit` (9 cols) — 1 rows
-- `Checks` (17 cols) — 0 rows
-- `Co_bank` (10 cols) — 2 rows
-- `Companys` (11 cols) — 1,210 rows
-- `Customer_Area` (9 cols) — 9 rows
-- `Customer_Class` (5 cols) — 2 rows
-- `DB_online_update_Error` (7 cols) — 8 rows
-- `EMP_CONTROL` (198 cols) — 46 rows
-- `Employee_absence_money` (6 cols) — 2 rows
-- `Employee_commission` (6 cols) — 0 rows
-- `Employee_daily_time` (13 cols) — 92 rows
-- `Employee_deduction` (6 cols) — 19 rows
-- `Employee_over_commission` (6 cols) — 33 rows
-- `Employee_work_time` (11 cols) — 2,138 rows
-- `Flag` (3 cols) — 55 rows
-- `Gedo_Vendors` (11 cols) — 20,729 rows
-- `Gedo_branches` (10 cols) — 8,834 rows
-- `Gedo_customers` (11 cols) — 118,137 rows
-- `Gedo_employee` (10 cols) — 626 rows
-- `Gedo_installment` (10 cols) — 0 rows
-- `Jobs` (8 cols) — 8 rows
-- `News_bar` (9 cols) — 0 rows
-- `Order_details` (11 cols) — 590 rows
-- `Order_header` (8 cols) — 7 rows
-- `Product_Changes` (15 cols) — 36,099 rows
-- `Product_Dose` (7 cols) — 69 rows
-- `Product_Vendor` (12 cols) — 42,481 rows
-- `Product_amount_Change` (16 cols) — 531,492 rows
-- `Product_amount_reg_update` (18 cols) — 46,966 rows
-- `Product_amount_update` (17 cols) — 4,150 rows
-- `Product_description` (7 cols) — 250 rows
-- `Product_groups` (7 cols) — 437 rows
-- `Product_online_Changes` (15 cols) — 0 rows
-- `Product_price_change` (12 cols) — 90 rows
-- `Product_units` (7 cols) — 26 rows
-- `Products_online` (47 cols) — 0 rows
-- `Run_Backup` (7 cols) — 4 rows
-- `Sale_classes` (5 cols) — 2 rows
-- `Sales_delivery_del_details` (16 cols) — 49 rows
-- `Sales_delivery_del_header` (31 cols) — 15 rows
-- `Sales_delivery_details` (20 cols) — 0 rows
-- `Sales_delivery_header` (31 cols) — 0 rows
-- `Sales_details_Temp` (23 cols) — 0 rows
-- `Sales_header_Temp` (33 cols) — 0 rows
-- `Shortcoming` (12 cols) — 9,386 rows
-- `Sites` (8 cols) — 221 rows
-- `Start_stock_details` (16 cols) — 4 rows
-- `Start_stock_header` (10 cols) — 3 rows
-- `Store_convert_details` (11 cols) — 0 rows
-- `Store_convert_header` (9 cols) — 0 rows
-- `Stores` (8 cols) — 2 rows
-- `Temp_Purchase_details` (12 cols) — 39 rows
-- `Temp_Purchase_header` (15 cols) — 2 rows
-- `Tuning_accounts_reason` (8 cols) — 6 rows
-- `barcode_temp` (42 cols) — 2 rows
-- `co_inf` (42 cols) — 1 rows
-- `customer_contracts` (18 cols) — 0 rows
-- `dtproperties` (7 cols) — 0 rows
-- `installment` (20 cols) — 0 rows
-- `installment_state` (10 cols) — 0 rows
-- `sysdiagrams` (5 cols) — 0 rows
-- `user_login` (5 cols) — 7,376 rows
-- `versions` (4 cols) — 18 rows
-- `zz_fix_backup_20260730` (5 cols) — 4 rows
+Mirrored row-for-row, queried as JSON. Promote one to a dedicated loader
+when the domain needs it — the rows are already local, so that no longer
+costs another trip to the pharmacy server.
+
+- `Back_purchase_details` (11 cols, PK: details_id, back_purchase_id) — 807 rows
+- `Back_purchase_header` (11 cols, PK: back_purchase_id) — 169 rows
+- `Branch_money_convert` (11 cols, PK: branch_money_id, from_branch_id) — 1,128 rows
+- `Branch_money_order` (12 cols, PK: bill_id, from_branch_id) — 1,128 rows
+- `Branches` (52 cols, PK: branch_id) — 2 rows
+- `Branches_Product_amount_Change` (18 cols, PK: branch_id, id) — 1,052,383 rows
+- `Branches_Vendor` (18 cols, PK: branch_id, vendor_id) — 0 rows
+- `Branches_back_purchase_details` (14 cols, PK: branch_id, details_id, back_purchase_id) — 819 rows
+- `Branches_back_purchase_header` (12 cols, PK: branch_id, back_purchase_id) — 336 rows
+- `Branches_cash_depots` (13 cols, PK: branch_id, cash_depot_id) — 15 rows
+- `Branches_company_edit` (13 cols, PK: company_edit_id) — 16 rows
+- `Branches_convert_details` (16 cols, PK: details_id, from_branch_id, branch_convert_id) — 62,181 rows
+- `Branches_convert_header` (12 cols, PK: branch_convert_id, from_branch_id) — 8,306 rows
+- `Branches_customer` (29 cols, PK: branch_id, customer_id) — 0 rows
+- `Branches_description_edit` (9 cols, PK: pd_edit_id) — 0 rows
+- `Branches_employee_edit` (56 cols, PK: emp_edit_id) — 79 rows
+- `Branches_group_edit` (9 cols, PK: group_edit_id) — 10 rows
+- `Branches_mail` (10 cols, PK: mail_id) — 241 rows
+- `Branches_products_edit` (53 cols, PK: product_edit_id) — 31,570 rows
+- `Branches_shortcoming` (13 cols, PK: branch_id, product_id, store_id) — 21,005 rows
+- `Branches_stores` (10 cols, PK: branch_id, store_id) — 3 rows
+- `Branches_unit_edit` (9 cols, PK: unit_edit_id) — 1 rows
+- `Checks` (17 cols, PK: ch_id) — 0 rows
+- `Co_bank` (10 cols, PK: bank_id) — 2 rows
+- `Companys` (11 cols, PK: company_id) — 1,210 rows
+- `Customer_Area` (9 cols, PK: no declared key) — 9 rows
+- `Customer_Class` (5 cols, PK: customer_class_id) — 2 rows
+- `DB_online_update_Error` (7 cols, PK: error_id) — 8 rows
+- `EMP_CONTROL` (198 cols, PK: emp_id) — 46 rows
+- `Employee_absence_money` (6 cols, PK: no declared key) — 2 rows
+- `Employee_commission` (6 cols, PK: no declared key) — 0 rows
+- `Employee_daily_time` (13 cols, PK: no declared key) — 92 rows
+- `Employee_deduction` (6 cols, PK: no declared key) — 19 rows
+- `Employee_over_commission` (6 cols, PK: no declared key) — 33 rows
+- `Employee_work_time` (11 cols, PK: id) — 2,138 rows
+- `Flag` (3 cols, PK: no declared key) — 55 rows
+- `Gedo_Vendors` (11 cols, PK: gv_id) — 20,784 rows
+- `Gedo_branches` (10 cols, PK: gb_id) — 8,855 rows
+- `Gedo_customers` (11 cols, PK: gc_id) — 118,493 rows
+- `Gedo_employee` (10 cols, PK: no declared key) — 635 rows
+- `Gedo_installment` (10 cols, PK: no declared key) — 0 rows
+- `Jobs` (8 cols, PK: job_id) — 8 rows
+- `News_bar` (9 cols, PK: no declared key) — 0 rows
+- `Order_details` (11 cols, PK: details_id, order_id) — 590 rows
+- `Order_header` (8 cols, PK: order_id) — 7 rows
+- `Product_Changes` (15 cols, PK: product_change_id) — 36,190 rows
+- `Product_Dose` (7 cols, PK: dose_id) — 69 rows
+- `Product_Vendor` (12 cols, PK: PV_id, product_id, vendor_id) — 42,563 rows
+- `Product_amount_Change` (16 cols, PK: no declared key) — 533,275 rows
+- `Product_amount_reg_update` (18 cols, PK: id) — 46,982 rows
+- `Product_amount_update` (17 cols, PK: id) — 4,154 rows
+- `Product_description` (7 cols, PK: pd_id) — 250 rows
+- `Product_groups` (7 cols, PK: group_id) — 437 rows
+- `Product_online_Changes` (15 cols, PK: no declared key) — 0 rows
+- `Product_price_change` (12 cols, PK: price_change_id) — 90 rows
+- `Product_units` (7 cols, PK: unit_id) — 26 rows
+- `Products_online` (47 cols, PK: no declared key) — 0 rows
+- `Run_Backup` (7 cols, PK: job_id) — 5 rows
+- `Sale_classes` (5 cols, PK: no declared key) — 2 rows
+- `Sales_delivery_del_details` (16 cols, PK: details_id, sales_delivery_id) — 49 rows
+- `Sales_delivery_del_header` (31 cols, PK: sales_delivery_id) — 15 rows
+- `Sales_delivery_details` (20 cols, PK: details_id, sales_delivery_id) — 0 rows
+- `Sales_delivery_header` (31 cols, PK: sales_delivery_id) — 0 rows
+- `Sales_details_Temp` (23 cols, PK: no declared key) — 0 rows
+- `Sales_header_Temp` (33 cols, PK: no declared key) — 0 rows
+- `Shortcoming` (12 cols, PK: id) — 9,403 rows
+- `Sites` (8 cols, PK: site_id) — 221 rows
+- `Start_stock_details` (16 cols, PK: details_id, sstock_id) — 4 rows
+- `Start_stock_header` (10 cols, PK: sstock_id) — 3 rows
+- `Store_convert_details` (11 cols, PK: details_id, store_convert_id) — 0 rows
+- `Store_convert_header` (9 cols, PK: store_convert_id) — 0 rows
+- `Stores` (8 cols, PK: store_id) — 2 rows
+- `Temp_Purchase_details` (12 cols, PK: details_id, temp_purchase_id) — 39 rows
+- `Temp_Purchase_header` (15 cols, PK: temp_purchase_id) — 2 rows
+- `Tuning_accounts_reason` (8 cols, PK: Tuning_accounts_reason_id) — 6 rows
+- `barcode_temp` (42 cols, PK: no declared key) — 2 rows
+- `co_inf` (42 cols, PK: no declared key) — 1 rows
+- `customer_contracts` (18 cols, PK: contract_id) — 0 rows
+- `dtproperties` (7 cols, PK: id, property) — 0 rows
+- `installment` (20 cols, PK: no declared key) — 0 rows
+- `installment_state` (10 cols, PK: no declared key) — 0 rows
+- `sysdiagrams` (5 cols, PK: diagram_id) — 0 rows
+- `user_login` (5 cols, PK: lu_id) — 7,434 rows
+- `versions` (4 cols, PK: no declared key) — 18 rows
+- `zz_fix_backup_20260730` (5 cols, PK: no declared key) — 4 rows
+- `zz_quarantine_purchase_details` (25 cols, PK: no declared key) — 553 rows
 
 ## All tables
 
 ### ✅ `Account_Tree` · 119 rows
+
+_PK: account_id_
 
 - `account_id` DECIMAL(18, 0) NOT NULL
 - `account_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -114,7 +118,9 @@ current picture.
 - `update_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### ✅ `Back_Sales_details` · 8,855 rows
+### ✅ `Back_Sales_details` · 8,877 rows
+
+_PK: no declared key_
 
 - `back_sales_id` DECIMAL(18, 0) NOT NULL
 - `sales_id` DECIMAL(18, 0) NOT NULL
@@ -136,7 +142,9 @@ current picture.
 - `details_id` DECIMAL(18, 0) NULL
 - `back_sales_details_id` DECIMAL(18, 0) NOT NULL
 
-### 🔲 `Back_purchase_details` · 807 rows
+### 📦 `Back_purchase_details` · 807 rows
+
+_PK: details_id, back_purchase_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `back_purchase_id` DECIMAL(18, 0) NOT NULL
@@ -150,7 +158,9 @@ current picture.
 - `insert_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Back_purchase_header` · 169 rows
+### 📦 `Back_purchase_header` · 169 rows
+
+_PK: back_purchase_id_
 
 - `back_purchase_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -164,7 +174,9 @@ current picture.
 - `insert_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Back_sales_header` · 6,971 rows
+### ✅ `Back_sales_header` · 6,989 rows
+
+_PK: no declared key_
 
 - `back_sales_id` DECIMAL(18, 0) NOT NULL
 - `sales_id` DECIMAL(18, 0) NOT NULL
@@ -195,7 +207,9 @@ current picture.
 - `delivery_man_id` DECIMAL(18, 0) NULL
 - `cashier_money` MONEY NULL
 
-### 🔲 `Branch_money_convert` · 1,124 rows
+### 📦 `Branch_money_convert` · 1,128 rows
+
+_PK: branch_money_id, from_branch_id_
 
 - `branch_money_id` DECIMAL(18, 0) NOT NULL
 - `from_branch_id` DECIMAL(18, 0) NOT NULL
@@ -209,7 +223,9 @@ current picture.
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Branch_money_order` · 1,124 rows
+### 📦 `Branch_money_order` · 1,128 rows
+
+_PK: bill_id, from_branch_id_
 
 - `branch_money_id` DECIMAL(18, 0) NOT NULL
 - `bill_id` DECIMAL(18, 0) NOT NULL
@@ -224,7 +240,9 @@ current picture.
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Branch_order_details` · 62,121 rows
+### ✅ `Branch_order_details` · 62,181 rows
+
+_PK: details_id, from_branch_id, branch_order_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `from_branch_id` DECIMAL(18, 0) NOT NULL
@@ -243,7 +261,9 @@ current picture.
 - `is_open` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `unit_change` FLOAT NULL
 
-### ✅ `Branch_order_header` · 8,288 rows
+### ✅ `Branch_order_header` · 8,306 rows
+
+_PK: bill_id, from_branch_id_
 
 - `branch_order_id` DECIMAL(18, 0) NOT NULL
 - `bill_id` DECIMAL(18, 0) NOT NULL
@@ -260,7 +280,9 @@ current picture.
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Branches` · 2 rows
+### 📦 `Branches` · 2 rows
+
+_PK: branch_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `branch_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -315,7 +337,9 @@ current picture.
 - `rep_last_sales_details_id` DECIMAL(18, 0) NULL
 - `rep_last_emp_date` DATETIME NULL
 
-### ✅ `Branches_Cash_disk_close` · 7,120 rows
+### ✅ `Branches_Cash_disk_close` · 7,145 rows
+
+_PK: branch_id, cdc_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `cdc_id` DECIMAL(18, 0) NOT NULL
@@ -332,7 +356,9 @@ current picture.
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Branches_Product_Amount` · 123,029 rows
+### ✅ `Branches_Product_Amount` · 123,310 rows
+
+_PK: branch_id, counter_id, product_id, store_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `counter_id` DECIMAL(18, 0) NOT NULL
@@ -351,7 +377,9 @@ current picture.
 - `pa_id` DECIMAL(18, 0) NOT NULL
 - `branch_pa_id` DECIMAL(18, 0) NOT NULL
 
-### 🔲 `Branches_Product_amount_Change` · 1,050,600 rows
+### 📦 `Branches_Product_amount_Change` · 1,052,383 rows
+
+_PK: branch_id, id_
 
 - `ch_id` DECIMAL(18, 0) NOT NULL
 - `branch_id` DECIMAL(18, 0) NOT NULL
@@ -372,7 +400,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `stock` FLOAT NULL
 
-### 🔲 `Branches_Vendor` · 0 rows
+### 📦 `Branches_Vendor` · 0 rows
+
+_PK: branch_id, vendor_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `vendor_id` DECIMAL(18, 0) NOT NULL
@@ -393,7 +423,9 @@ current picture.
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Branches_back_purchase_details` · 819 rows
+### 📦 `Branches_back_purchase_details` · 819 rows
+
+_PK: branch_id, details_id, back_purchase_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `details_id` DECIMAL(18, 0) NOT NULL
@@ -410,7 +442,9 @@ current picture.
 - `unit_id` DECIMAL(18, 0) NULL
 - `unit_ch` DECIMAL(18, 0) NULL
 
-### 🔲 `Branches_back_purchase_header` · 336 rows
+### 📦 `Branches_back_purchase_header` · 336 rows
+
+_PK: branch_id, back_purchase_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `back_purchase_id` DECIMAL(18, 0) NOT NULL
@@ -425,7 +459,9 @@ current picture.
 - `insert_uid` DECIMAL(18, 0) NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Branches_cash_depots` · 15 rows
+### 📦 `Branches_cash_depots` · 15 rows
+
+_PK: branch_id, cash_depot_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `cash_depot_id` DECIMAL(18, 0) NOT NULL
@@ -441,7 +477,9 @@ current picture.
 - `update_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Branches_company_edit` · 16 rows
+### 📦 `Branches_company_edit` · 16 rows
+
+_PK: company_edit_id_
 
 - `company_edit_id` DECIMAL(18, 0) NOT NULL
 - `insert_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -457,7 +495,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Branches_convert_details` · 62,121 rows
+### 📦 `Branches_convert_details` · 62,181 rows
+
+_PK: details_id, from_branch_id, branch_convert_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `from_branch_id` DECIMAL(18, 0) NOT NULL
@@ -476,7 +516,9 @@ current picture.
 - `is_open` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `unit_change` FLOAT NULL
 
-### 🔲 `Branches_convert_header` · 8,288 rows
+### 📦 `Branches_convert_header` · 8,306 rows
+
+_PK: branch_convert_id, from_branch_id_
 
 - `branch_convert_id` DECIMAL(18, 0) NOT NULL
 - `from_branch_id` DECIMAL(18, 0) NOT NULL
@@ -491,7 +533,9 @@ current picture.
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Branches_customer` · 0 rows
+### 📦 `Branches_customer` · 0 rows
+
+_PK: branch_id, customer_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `customer_id` DECIMAL(18, 0) NOT NULL
@@ -523,7 +567,9 @@ current picture.
 - `sale_class_id` DECIMAL(18, 0) NULL
 - `sell_price_buy` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Branches_description_edit` · 0 rows
+### 📦 `Branches_description_edit` · 0 rows
+
+_PK: pd_edit_id_
 
 - `pd_edit_id` DECIMAL(18, 0) NOT NULL
 - `insert_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -535,7 +581,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Branches_employee_edit` · 78 rows
+### 📦 `Branches_employee_edit` · 79 rows
+
+_PK: emp_edit_id_
 
 - `emp_edit_id` DECIMAL(18, 0) NOT NULL
 - `insert_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -594,7 +642,9 @@ current picture.
 - `emp_del_vendor` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `emp_del_product` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Branches_group_edit` · 10 rows
+### 📦 `Branches_group_edit` · 10 rows
+
+_PK: group_edit_id_
 
 - `group_edit_id` DECIMAL(18, 0) NOT NULL
 - `insert_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -606,7 +656,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Branches_mail` · 241 rows
+### 📦 `Branches_mail` · 241 rows
+
+_PK: mail_id_
 
 - `mail_id` DECIMAL(18, 0) NOT NULL
 - `mail_address` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
@@ -619,7 +671,9 @@ current picture.
 - `from_branch` DECIMAL(18, 0) NULL
 - `to_branch` DECIMAL(18, 0) NOT NULL
 
-### 🔲 `Branches_products_edit` · 31,440 rows
+### 📦 `Branches_products_edit` · 31,570 rows
+
+_PK: product_edit_id_
 
 - `product_edit_id` DECIMAL(18, 0) NOT NULL
 - `product_id` DECIMAL(18, 0) NOT NULL
@@ -675,7 +729,9 @@ current picture.
 - `amount_zero` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `no_print_name` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Branches_purchase_details` · 267,384 rows
+### ✅ `Branches_purchase_details` · 267,852 rows
+
+_PK: branch_id, details_id, purchase_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `details_id` DECIMAL(18, 0) NOT NULL
@@ -700,7 +756,9 @@ current picture.
 - `update_date` DATETIME NULL
 - `co_tax_price` MONEY NULL
 
-### ✅ `Branches_purchase_header` · 25,270 rows
+### ✅ `Branches_purchase_header` · 25,315 rows
+
+_PK: branch_id, purchase_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `purchase_id` DECIMAL(18, 0) NOT NULL
@@ -731,7 +789,9 @@ current picture.
 - `customer_id` DECIMAL(18, 0) NULL
 - `bill_tax` MONEY NULL
 
-### ✅ `Branches_sales_details` · 503,418 rows
+### ✅ `Branches_sales_details` · 505,189 rows
+
+_PK: branch_id, details_id, sales_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `details_id` DECIMAL(18, 0) NOT NULL
@@ -759,7 +819,9 @@ current picture.
 - `update_date` DATETIME NULL
 - `sales_details_id` DECIMAL(18, 0) NULL
 
-### ✅ `Branches_sales_header` · 256,577 rows
+### ✅ `Branches_sales_header` · 257,542 rows
+
+_PK: branch_id, sales_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `sales_id` DECIMAL(18, 0) NOT NULL
@@ -797,7 +859,9 @@ current picture.
 - `network_money` MONEY NULL
 - `network_id` DECIMAL(18, 0) NULL
 
-### 🔲 `Branches_shortcoming` · 20,991 rows
+### 📦 `Branches_shortcoming` · 21,005 rows
+
+_PK: branch_id, product_id, store_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `product_id` DECIMAL(18, 0) NOT NULL
@@ -813,7 +877,9 @@ current picture.
 - `vendor_id` DECIMAL(18, 0) NULL
 - `amount` FLOAT NULL
 
-### 🔲 `Branches_stores` · 3 rows
+### 📦 `Branches_stores` · 3 rows
+
+_PK: branch_id, store_id_
 
 - `branch_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NOT NULL
@@ -826,7 +892,9 @@ current picture.
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Branches_unit_edit` · 1 rows
+### 📦 `Branches_unit_edit` · 1 rows
+
+_PK: unit_edit_id_
 
 - `unit_edit_id` DECIMAL(18, 0) NOT NULL
 - `insert_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -839,6 +907,8 @@ current picture.
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
 ### ✅ `Cash_depots` · 5 rows
+
+_PK: cash_depot_id_
 
 - `cash_depot_id` DECIMAL(18, 0) NOT NULL
 - `cash_depot_code` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
@@ -853,7 +923,9 @@ current picture.
 - `update_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### ✅ `Cash_disk_close` · 3,591 rows
+### ✅ `Cash_disk_close` · 3,608 rows
+
+_PK: cdc_id_
 
 - `cdc_id` DECIMAL(18, 0) NOT NULL
 - `cdc_cash_id` DECIMAL(18, 0) NULL
@@ -870,7 +942,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `last_gf_id` DECIMAL(18, 0) NULL
 
-### 🔲 `Checks` · 0 rows
+### 📦 `Checks` · 0 rows
+
+_PK: ch_id_
 
 - `ch_id` DECIMAL(18, 0) NOT NULL
 - `gf_id` DECIMAL(18, 0) NULL
@@ -890,7 +964,9 @@ current picture.
 - `update_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Co_bank` · 2 rows
+### 📦 `Co_bank` · 2 rows
+
+_PK: bank_id_
 
 - `bank_id` DECIMAL(18, 0) NOT NULL
 - `bank_code` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
@@ -903,7 +979,9 @@ current picture.
 - `update_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Companys` · 1,210 rows
+### 📦 `Companys` · 1,210 rows
+
+_PK: company_id_
 
 - `company_id` DECIMAL(18, 0) NOT NULL
 - `company_code` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
@@ -917,7 +995,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Customer` · 4,566 rows
+### ✅ `Customer` · 4,597 rows
+
+_PK: customer_id_
 
 - `customer_id` DECIMAL(18, 0) NOT NULL
 - `customer_code` VARCHAR(25) COLLATE "Arabic_CI_AS" NULL
@@ -951,7 +1031,9 @@ current picture.
 - `customer_disc_import` FLOAT NULL
 - `customer_insurance_code` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Customer_Area` · 9 rows
+### 📦 `Customer_Area` · 9 rows
+
+_PK: no declared key_
 
 - `area_id` DECIMAL(18, 0) NOT NULL
 - `area_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -963,7 +1045,9 @@ current picture.
 - `update_uid` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Customer_Class` · 2 rows
+### 📦 `Customer_Class` · 2 rows
+
+_PK: customer_class_id_
 
 - `customer_class_id` DECIMAL(18, 0) NOT NULL
 - `class_name_ar` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -971,7 +1055,9 @@ current picture.
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `DB_online_update_Error` · 8 rows
+### 📦 `DB_online_update_Error` · 8 rows
+
+_PK: error_id_
 
 - `error_id` DECIMAL(18, 0) NOT NULL
 - `trans_id` DECIMAL(18, 0) NOT NULL
@@ -981,15 +1067,212 @@ current picture.
 - `ex` TEXT(16) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `EMP_CONTROL` · 46 rows
+### 📦 `EMP_CONTROL` · 46 rows
 
-Permission-matrix table: 198 single-char flag columns (A, A1-A10, B, B0-B35,
-C, C1-C7, D, D1-D11, E, E1-E8, F, F1-F28, G, G1-G31, GA-GA6, H-H2, I-I21, J-J25,
-`25`, keyed by `emp_id`). Column names are opaque letter/number codes with no
-documented meaning — not enumerated here individually; see the raw
-`docs/estock-schema-dump.json` if the full list is ever needed.
+_PK: emp_id_
+
+- `emp_id` DECIMAL(18, 0) NOT NULL
+- `A` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B11` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B12` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B13` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B14` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B15` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B16` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B17` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B18` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B19` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B20` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B21` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B22` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B23` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B24` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B25` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B26` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B27` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B28` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `C7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F11` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F12` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F13` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F14` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F15` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F16` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F17` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `GA6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G11` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G12` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G13` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G14` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G15` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G16` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G17` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G18` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G19` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G20` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `H` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `H1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `H2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G21` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G22` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F18` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F19` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F20` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F21` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I11` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I12` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I13` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I14` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I15` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I16` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I17` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I18` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B29` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G23` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G24` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `A10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B0` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F22` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F23` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `E8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B30` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B31` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J1` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J2` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J3` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J4` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J5` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J6` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J7` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J8` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J9` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J10` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J11` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J12` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J13` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J14` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J15` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J16` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J17` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J18` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F24` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J19` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J20` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J21` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J22` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J23` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J24` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B32` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `J25` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `25` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B33` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G26` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G27` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G28` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G29` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G30` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F25` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G25` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F26` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `D11` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I19` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I20` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `I21` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B34` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F28` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `B35` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `F27` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `G31` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
 ### ✅ `Employee` · 46 rows
+
+_PK: emp_id_
 
 - `emp_id` DECIMAL(18, 0) NOT NULL
 - `emp_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1047,7 +1330,9 @@ documented meaning — not enumerated here individually; see the raw
 - `emp_del_vendor` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `emp_del_product` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Employee_absence_money` · 2 rows
+### 📦 `Employee_absence_money` · 2 rows
+
+_PK: no declared key_
 
 - `emp_id` DECIMAL(18, 0) NOT NULL
 - `emp_absence_money` MONEY NULL
@@ -1056,7 +1341,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Employee_cash_advance` · 131 rows
+### ✅ `Employee_cash_advance` · 139 rows
+
+_PK: cash_advance_id_
 
 - `cash_advance_id` DECIMAL(18, 0) NOT NULL
 - `emp_id` DECIMAL(18, 0) NOT NULL
@@ -1066,7 +1353,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Employee_commission` · 0 rows
+### 📦 `Employee_commission` · 0 rows
+
+_PK: no declared key_
 
 - `emp_id` DECIMAL(18, 0) NOT NULL
 - `emp_commission` MONEY NULL
@@ -1075,7 +1364,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Employee_daily_time` · 92 rows
+### 📦 `Employee_daily_time` · 92 rows
+
+_PK: no declared key_
 
 - `emp_code` DECIMAL(18, 0) NOT NULL
 - `start_end` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -1091,7 +1382,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_date` DATETIME NULL
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Employee_deduction` · 19 rows
+### 📦 `Employee_deduction` · 19 rows
+
+_PK: no declared key_
 
 - `emp_id` DECIMAL(18, 0) NOT NULL
 - `emp_deduction` MONEY NULL
@@ -1100,7 +1393,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Employee_over_commission` · 33 rows
+### 📦 `Employee_over_commission` · 33 rows
+
+_PK: no declared key_
 
 - `emp_id` DECIMAL(18, 0) NOT NULL
 - `emp_over_commission` MONEY NULL
@@ -1109,7 +1404,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Employee_salary` · 378 rows
+### ✅ `Employee_salary` · 379 rows
+
+_PK: no declared key_
 
 - `salary_id` DECIMAL(18, 0) NOT NULL
 - `emp_id` DECIMAL(18, 0) NOT NULL
@@ -1125,7 +1422,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `cash_advance` MONEY NULL
 
-### 🔲 `Employee_work_time` · 2,138 rows
+### 📦 `Employee_work_time` · 2,138 rows
+
+_PK: id_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `employee_id` DECIMAL(18, 0) NULL
@@ -1139,13 +1438,17 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `day_class` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Flag` · 55 rows
+### 📦 `Flag` · 55 rows
+
+_PK: no declared key_
 
 - `f_id` DECIMAL(18, 0) NOT NULL
 - `f_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `f_name` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 
 ### ✅ `Gedo_Dividends_paied` · 32 rows
+
+_PK: dividends_id_
 
 - `dividends_id` DECIMAL(18, 0) NOT NULL
 - `coow_id` DECIMAL(18, 0) NULL
@@ -1155,7 +1458,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Gedo_Financial` · 175,523 rows
+### ✅ `Gedo_Financial` · 176,310 rows
+
+_PK: gf_id_
 
 - `gf_id` DECIMAL(18, 0) NOT NULL
 - `gf_code` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1174,7 +1479,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### ✅ `Gedo_Vendors` · 20,729 rows
+### 📦 `Gedo_Vendors` · 20,784 rows
+
+_PK: gv_id_
 
 - `gv_id` DECIMAL(18, 0) NOT NULL
 - `gf_id` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1188,7 +1495,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `notes` VARCHAR(150) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Gedo_branches` · 8,834 rows
+### 📦 `Gedo_branches` · 8,855 rows
+
+_PK: gb_id_
 
 - `gb_id` DECIMAL(18, 0) NOT NULL
 - `gf_id` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1201,7 +1510,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Gedo_customers` · 118,137 rows
+### 📦 `Gedo_customers` · 118,493 rows
+
+_PK: gc_id_
 
 - `gc_id` DECIMAL(18, 0) NOT NULL
 - `gf_id` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1215,7 +1526,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `notes` VARCHAR(150) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Gedo_employee` · 626 rows
+### 📦 `Gedo_employee` · 635 rows
+
+_PK: no declared key_
 
 - `ge_id` DECIMAL(18, 0) NOT NULL
 - `gf_id` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1228,7 +1541,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### ✅ `Gedo_installment` · 0 rows
+### 📦 `Gedo_installment` · 0 rows
+
+_PK: no declared key_
 
 - `gi_id` DECIMAL(18, 0) NOT NULL
 - `f_id` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1241,7 +1556,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Jobs` · 8 rows
+### 📦 `Jobs` · 8 rows
+
+_PK: job_id_
 
 - `job_id` DECIMAL(18, 0) NOT NULL
 - `job_code` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1252,7 +1569,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_date` DATETIME NULL
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `News_bar` · 0 rows
+### 📦 `News_bar` · 0 rows
+
+_PK: no declared key_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `news_id` DECIMAL(18, 0) NULL
@@ -1264,7 +1583,9 @@ documented meaning — not enumerated here individually; see the raw
 - `deleted` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `deleted_date` DATETIME NULL
 
-### 🔲 `Order_details` · 590 rows
+### 📦 `Order_details` · 590 rows
+
+_PK: details_id, order_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `order_id` DECIMAL(18, 0) NOT NULL
@@ -1278,7 +1599,9 @@ documented meaning — not enumerated here individually; see the raw
 - `tax_price` MONEY NULL
 - `buy_amount` DECIMAL(18, 2) NULL
 
-### 🔲 `Order_header` · 7 rows
+### 📦 `Order_header` · 7 rows
+
+_PK: order_id_
 
 - `order_id` DECIMAL(18, 0) NOT NULL
 - `order_class` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -1289,7 +1612,9 @@ documented meaning — not enumerated here individually; see the raw
 - `buy_money` MONEY NULL
 - `product_money` MONEY NULL
 
-### ✅ `Product_Amount` · 67,129 rows
+### ✅ `Product_Amount` · 67,376 rows
+
+_PK: counter_id, product_id, store_id_
 
 - `counter_id` DECIMAL(18, 0) NOT NULL
 - `product_id` DECIMAL(18, 0) NOT NULL
@@ -1308,7 +1633,9 @@ documented meaning — not enumerated here individually; see the raw
 - `Product_update_date` DATETIME NULL
 - `pa_id` DECIMAL(18, 0) NOT NULL
 
-### 🔲 `Product_Changes` · 36,099 rows
+### 📦 `Product_Changes` · 36,190 rows
+
+_PK: product_change_id_
 
 - `product_change_id` DECIMAL(18, 0) NOT NULL
 - `product_id` DECIMAL(18, 0) NULL
@@ -1326,7 +1653,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Product_Dose` · 69 rows
+### 📦 `Product_Dose` · 69 rows
+
+_PK: dose_id_
 
 - `dose_id` DECIMAL(18, 0) NOT NULL
 - `dose_code` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
@@ -1336,7 +1665,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` DECIMAL(18, 0) NULL
 
-### 🔲 `Product_Vendor` · 42,481 rows
+### 📦 `Product_Vendor` · 42,563 rows
+
+_PK: PV_id, product_id, vendor_id_
 
 - `PV_id` DECIMAL(18, 0) NOT NULL
 - `product_id` DECIMAL(18, 0) NOT NULL
@@ -1351,7 +1682,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Product_amount_Change` · 531,492 rows
+### 📦 `Product_amount_Change` · 533,275 rows
+
+_PK: no declared key_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `counter_id` DECIMAL(18, 0) NULL
@@ -1370,7 +1703,9 @@ documented meaning — not enumerated here individually; see the raw
 - `vendor_id` DECIMAL(18, 0) NULL
 - `in_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Product_amount_reg_update` · 46,966 rows
+### 📦 `Product_amount_reg_update` · 46,982 rows
+
+_PK: id_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `paru_id` DECIMAL(18, 0) NULL
@@ -1391,7 +1726,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` DECIMAL(18, 0) NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Product_amount_update` · 4,150 rows
+### 📦 `Product_amount_update` · 4,154 rows
+
+_PK: id_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `product_id` DECIMAL(18, 0) NULL
@@ -1411,7 +1748,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Product_description` · 250 rows
+### 📦 `Product_description` · 250 rows
+
+_PK: pd_id_
 
 - `pd_id` DECIMAL(18, 0) NOT NULL
 - `pd_code` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
@@ -1421,7 +1760,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Product_groups` · 437 rows
+### 📦 `Product_groups` · 437 rows
+
+_PK: group_id_
 
 - `group_id` DECIMAL(18, 0) NOT NULL
 - `group_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1431,7 +1772,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Product_online_Changes` · 0 rows
+### 📦 `Product_online_Changes` · 0 rows
+
+_PK: no declared key_
 
 - `product_change_id` DECIMAL(18, 0) NULL
 - `product_id` DECIMAL(18, 0) NULL
@@ -1449,7 +1792,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` DECIMAL(18, 0) NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Product_price_change` · 90 rows
+### 📦 `Product_price_change` · 90 rows
+
+_PK: price_change_id_
 
 - `price_change_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1464,7 +1809,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Product_units` · 26 rows
+### 📦 `Product_units` · 26 rows
+
+_PK: unit_id_
 
 - `unit_id` DECIMAL(18, 0) NOT NULL
 - `unit_code` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
@@ -1474,7 +1821,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Products` · 53,608 rows
+### ✅ `Products` · 53,639 rows
+
+_PK: product_id_
 
 - `product_id` DECIMAL(18, 0) NOT NULL
 - `product_code` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1538,7 +1887,9 @@ documented meaning — not enumerated here individually; see the raw
 - `product_int_code14` VARCHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `no_print_name` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Products_online` · 0 rows
+### 📦 `Products_online` · 0 rows
+
+_PK: no declared key_
 
 - `product_id` DECIMAL(18, 0) NOT NULL
 - `product_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1588,7 +1939,9 @@ documented meaning — not enumerated here individually; see the raw
 - `unit3_sell_price` MONEY NULL
 - `amount_zero` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Purchase_details` · 132,246 rows
+### ✅ `Purchase_details` · 132,664 rows
+
+_PK: details_id, purchase_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `purchase_id` DECIMAL(18, 0) NOT NULL
@@ -1614,7 +1967,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_date` DATETIME NULL
 - `co_tax_price` MONEY NULL
 
-### ✅ `Purchase_header` · 12,769 rows
+### ✅ `Purchase_header` · 12,807 rows
+
+_PK: purchase_id_
 
 - `purchase_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1644,7 +1999,9 @@ documented meaning — not enumerated here individually; see the raw
 - `customer_id` DECIMAL(18, 0) NULL
 - `bill_tax` MONEY NULL
 
-### 🔲 `Run_Backup` · 4 rows
+### 📦 `Run_Backup` · 5 rows
+
+_PK: job_id_
 
 - `job_id` DECIMAL(18, 0) NOT NULL
 - `job_name` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -1654,7 +2011,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Sale_classes` · 2 rows
+### 📦 `Sale_classes` · 2 rows
+
+_PK: no declared key_
 
 - `sale_class_id` DECIMAL(18, 0) NOT NULL
 - `sale_class_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1662,7 +2021,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Sales_delivery_del_details` · 49 rows
+### 📦 `Sales_delivery_del_details` · 49 rows
+
+_PK: details_id, sales_delivery_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `sales_delivery_id` DECIMAL(18, 0) NOT NULL
@@ -1681,7 +2042,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Sales_delivery_del_header` · 15 rows
+### 📦 `Sales_delivery_del_header` · 15 rows
+
+_PK: sales_delivery_id_
 
 - `sales_delivery_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1715,7 +2078,9 @@ documented meaning — not enumerated here individually; see the raw
 - `ticket_id` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `ticket_num` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Sales_delivery_details` · 0 rows
+### 📦 `Sales_delivery_details` · 0 rows
+
+_PK: details_id, sales_delivery_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `sales_delivery_id` DECIMAL(18, 0) NOT NULL
@@ -1738,7 +2103,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Sales_delivery_header` · 0 rows
+### 📦 `Sales_delivery_header` · 0 rows
+
+_PK: sales_delivery_id_
 
 - `sales_delivery_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1772,7 +2139,9 @@ documented meaning — not enumerated here individually; see the raw
 - `ticket_id` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `ticket_num` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 
-### ✅ `Sales_details` · 316,572 rows
+### ✅ `Sales_details` · 317,848 rows
+
+_PK: details_id, sales_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `sales_id` DECIMAL(18, 0) NOT NULL
@@ -1799,7 +2168,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_date` DATETIME NULL
 - `sales_details_id` DECIMAL(18, 0) NOT NULL
 
-### 🔲 `Sales_details_Temp` · 0 rows
+### 📦 `Sales_details_Temp` · 0 rows
+
+_PK: no declared key_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `sales_id` DECIMAL(18, 0) NOT NULL
@@ -1825,7 +2196,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### ✅ `Sales_header` · 159,939 rows
+### ✅ `Sales_header` · 160,640 rows
+
+_PK: sales_id_
 
 - `sales_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1866,7 +2239,9 @@ documented meaning — not enumerated here individually; see the raw
 - `ticket_id` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `ticket_num` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Sales_header_Temp` · 0 rows
+### 📦 `Sales_header_Temp` · 0 rows
+
+_PK: no declared key_
 
 - `sales_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1902,7 +2277,9 @@ documented meaning — not enumerated here individually; see the raw
 - `ticket_id` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `ticket_num` CHAR(50) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Shortcoming` · 9,386 rows
+### 📦 `Shortcoming` · 9,403 rows
+
+_PK: id_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `class` CHAR(1) COLLATE "Arabic_CI_AS" NULL
@@ -1917,7 +2294,9 @@ documented meaning — not enumerated here individually; see the raw
 - `vendor_id` DECIMAL(18, 0) NULL
 - `amount` FLOAT NULL
 
-### 🔲 `Sites` · 221 rows
+### 📦 `Sites` · 221 rows
+
+_PK: site_id_
 
 - `site_id` DECIMAL(18, 0) NOT NULL
 - `site_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1928,7 +2307,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `Start_stock_details` · 4 rows
+### 📦 `Start_stock_details` · 4 rows
+
+_PK: details_id, sstock_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `sstock_id` DECIMAL(18, 0) NOT NULL
@@ -1947,7 +2328,9 @@ documented meaning — not enumerated here individually; see the raw
 - `unit_id` DECIMAL(18, 0) NULL
 - `unit_change` DECIMAL(18, 0) NULL
 
-### 🔲 `Start_stock_header` · 3 rows
+### 📦 `Start_stock_header` · 3 rows
+
+_PK: sstock_id_
 
 - `sstock_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -1960,7 +2343,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` DECIMAL(18, 0) NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `Store_convert_details` · 0 rows
+### 📦 `Store_convert_details` · 0 rows
+
+_PK: details_id, store_convert_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `store_convert_id` DECIMAL(18, 0) NOT NULL
@@ -1974,7 +2359,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Store_convert_header` · 0 rows
+### 📦 `Store_convert_header` · 0 rows
+
+_PK: store_convert_id_
 
 - `store_convert_id` DECIMAL(18, 0) NOT NULL
 - `from_store_id` DECIMAL(18, 0) NULL
@@ -1986,7 +2373,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Stores` · 2 rows
+### 📦 `Stores` · 2 rows
+
+_PK: store_id_
 
 - `store_id` DECIMAL(18, 0) NOT NULL
 - `store_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -1997,7 +2386,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
 - `start_update_date` DATETIME NULL
 
-### 🔲 `Temp_Purchase_details` · 39 rows
+### 📦 `Temp_Purchase_details` · 39 rows
+
+_PK: details_id, temp_purchase_id_
 
 - `details_id` DECIMAL(18, 0) NOT NULL
 - `temp_purchase_id` DECIMAL(18, 0) NOT NULL
@@ -2012,7 +2403,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Temp_Purchase_header` · 2 rows
+### 📦 `Temp_Purchase_header` · 2 rows
+
+_PK: temp_purchase_id_
 
 - `temp_purchase_id` DECIMAL(18, 0) NOT NULL
 - `store_id` DECIMAL(18, 0) NULL
@@ -2032,6 +2425,8 @@ documented meaning — not enumerated here individually; see the raw
 
 ### ✅ `Tuning_accounts` · 872 rows
 
+_PK: Tuning_accounts_id_
+
 - `Tuning_accounts_id` DECIMAL(18, 0) NOT NULL
 - `class` CHAR(1) COLLATE "Arabic_CI_AS" NULL
 - `who_class` INTEGER NULL
@@ -2042,7 +2437,9 @@ documented meaning — not enumerated here individually; see the raw
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 
-### 🔲 `Tuning_accounts_reason` · 6 rows
+### 📦 `Tuning_accounts_reason` · 6 rows
+
+_PK: Tuning_accounts_reason_id_
 
 - `Tuning_accounts_reason_id` DECIMAL(18, 0) NOT NULL
 - `Tuning_accounts_reason_name_ar` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
@@ -2053,7 +2450,9 @@ documented meaning — not enumerated here individually; see the raw
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### ✅ `Vendor` · 91 rows
+### ✅ `Vendor` · 92 rows
+
+_PK: vendor_id_
 
 - `vendor_id` DECIMAL(18, 0) NOT NULL
 - `vendor_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -2083,24 +2482,103 @@ documented meaning — not enumerated here individually; see the raw
 - `ven_notes` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
 - `ven_return` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `barcode_temp` · 2 rows
+### 📦 `barcode_temp` · 2 rows
 
-Temp table for barcode-label printing runs: `co_tel1..6`, `co_name1..6`,
-`barcode1..6`, `name1..6`, `code1..6`, `exp1..6`, `sell1..6` (6 repeating
-groups of print-slot columns). Not enumerated field-by-field here — transient
-scratch data, not a mirror candidate.
+_PK: no declared key_
 
-### 🔲 `co_inf` · 1 rows
+- `co_tel1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_name1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `barcode1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `name1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `code1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `exp1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `sell1` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_tel2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_name2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `barcode2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `name2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `code2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `exp2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `sell2` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_tel3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_name3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `barcode3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `name3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `code3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `exp3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `sell3` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_tel4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_name4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `barcode4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `name4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `code4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `exp4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `sell4` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_tel5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_name5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `barcode5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `name5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `code5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `exp5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `sell5` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_tel6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `co_name6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `barcode6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `name6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `code6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `exp6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `sell6` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 
-Single-row pharmacy/company configuration record: name, ids, owner/manager,
-contact info, receipt print settings (`s_print_type`, `s_intro`, `s_finish`,
-`s_idl`, `s_ide`, `s_cust`, `s_emp`), `mini_money`, `num_of_copy`, barcode
-label settings, branch ids, embedded logo/signature images
-(`logo`, `main_eg1`, `main_eg2`), and a few `*_update_id` cursors used by
-eStock's own server-to-server sync. Not a mirror candidate (single
-configuration row, not transactional data).
+### 📦 `co_inf` · 1 rows
+
+_PK: no declared key_
+
+- `id` DECIMAL(10, 0) NOT NULL
+- `com_name_ar` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `com_name_en` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `idl` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `ide` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `owner` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `manegar` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `tel` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
+- `fax` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
+- `address` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
+- `up_date` DATETIME NULL
+- `uid` VARCHAR(9) COLLATE "Arabic_CI_AS" NULL
+- `s_print_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `s_intro` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
+- `s_co_name` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `s_co_tel` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `s_finish` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
+- `s_idl` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `s_ide` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `s_cust` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `s_emp` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `mini_money` MONEY NULL
+- `num_of_copy` INTEGER NULL
+- `bar_name` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `bar_tel` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
+- `p_bar_name` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `p_bar_tel` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `bar_type` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `bar_size` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `syndicate_id` DECIMAL(18, 0) NULL
+- `branch_id` INTEGER NULL
+- `master_branch_id` INTEGER NULL
+- `logo` IMAGE NULL
+- `main_eg1` IMAGE NULL
+- `main_eg2` IMAGE NULL
+- `online_product_id` DECIMAL(18, 0) NULL
+- `product_price_update_id` DECIMAL(18, 0) NULL
+- `product_update_id` DECIMAL(18, 0) NULL
+- `no_decimal` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `no_exp` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `auto_unsaved` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `trans_id` DECIMAL(18, 0) NULL
 
 ### ✅ `company_Owner` · 2 rows
+
+_PK: coow_id_
 
 - `coow_id` DECIMAL(18, 0) NOT NULL
 - `coow_code` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
@@ -2118,7 +2596,9 @@ configuration row, not transactional data).
 - `update_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `customer_contracts` · 0 rows
+### 📦 `customer_contracts` · 0 rows
+
+_PK: contract_id_
 
 - `contract_id` DECIMAL(18, 0) NOT NULL
 - `customer_id` DECIMAL(18, 0) NULL
@@ -2139,7 +2619,9 @@ configuration row, not transactional data).
 - `update_date` DATETIME NULL
 - `update_uid` DECIMAL(18, 0) NULL
 
-### 🔲 `dtproperties` · 0 rows
+### 📦 `dtproperties` · 0 rows
+
+_PK: id, property_
 
 - `id` INTEGER NOT NULL
 - `objectid` INTEGER NULL
@@ -2149,7 +2631,9 @@ configuration row, not transactional data).
 - `lvalue` IMAGE NULL
 - `version` INTEGER NOT NULL
 
-### 🔲 `installment` · 0 rows
+### 📦 `installment` · 0 rows
+
+_PK: no declared key_
 
 - `cu_id` DECIMAL(18, 0) NOT NULL
 - `cu_name` VARCHAR(100) COLLATE "Arabic_CI_AS" NULL
@@ -2172,7 +2656,9 @@ configuration row, not transactional data).
 - `insert_date` DATETIME NULL
 - `notes` VARCHAR(150) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `installment_state` · 0 rows
+### 📦 `installment_state` · 0 rows
+
+_PK: no declared key_
 
 - `id` DECIMAL(18, 0) NOT NULL
 - `details_id` DECIMAL(18, 0) NOT NULL
@@ -2185,7 +2671,9 @@ configuration row, not transactional data).
 - `update_uid` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `update_date` DATETIME NULL
 
-### 🔲 `sysdiagrams` · 0 rows
+### 📦 `sysdiagrams` · 0 rows
+
+_PK: diagram_id_
 
 - `name` NVARCHAR(128) COLLATE "Arabic_CI_AS" NOT NULL
 - `principal_id` INTEGER NOT NULL
@@ -2193,7 +2681,9 @@ configuration row, not transactional data).
 - `version` INTEGER NULL
 - `definition` VARBINARY NULL
 
-### 🔲 `user_login` · 7,376 rows
+### 📦 `user_login` · 7,434 rows
+
+_PK: lu_id_
 
 - `lu_id` DECIMAL(18, 0) NOT NULL
 - `u_id` DECIMAL(18, 0) NULL
@@ -2201,17 +2691,51 @@ configuration row, not transactional data).
 - `end_time` DATETIME NULL
 - `compu_name` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `versions` · 18 rows
+### 📦 `versions` · 18 rows
+
+_PK: no declared key_
 
 - `ver_id` DECIMAL(18, 0) NOT NULL
 - `ver_code` VARCHAR(50) COLLATE "Arabic_CI_AS" NULL
 - `insert_date` DATETIME NULL
 - `insert_uid` VARCHAR(20) COLLATE "Arabic_CI_AS" NULL
 
-### 🔲 `zz_fix_backup_20260730` · 4 rows
+### 📦 `zz_fix_backup_20260730` · 4 rows
+
+_PK: no declared key_
 
 - `tbl` VARCHAR(64) COLLATE "Arabic_CI_AS" NULL
 - `key_desc` VARCHAR(64) COLLATE "Arabic_CI_AS" NULL
 - `col` VARCHAR(64) COLLATE "Arabic_CI_AS" NULL
 - `old_value` NVARCHAR(400) COLLATE "Arabic_CI_AS" NULL
 - `backed_up` DATETIME NULL
+
+### 📦 `zz_quarantine_purchase_details` · 553 rows
+
+_PK: no declared key_
+
+- `branch_id` DECIMAL(18, 0) NOT NULL
+- `details_id` DECIMAL(18, 0) NOT NULL
+- `purchase_id` DECIMAL(18, 0) NOT NULL
+- `product_id` DECIMAL(18, 0) NOT NULL
+- `counter_id` DECIMAL(18, 0) NOT NULL
+- `exp_date` DATETIME NULL
+- `amount` FLOAT NULL
+- `bouns` FLOAT NULL
+- `sell_price` MONEY NULL
+- `buy_price` MONEY NULL
+- `gain_price` MONEY NULL
+- `tax_price` MONEY NULL
+- `back` CHAR(1) COLLATE "Arabic_CI_AS" NULL
+- `back_amount` FLOAT NULL
+- `back_price` MONEY NULL
+- `back_bouns` FLOAT NULL
+- `back_tax_price` MONEY NULL
+- `insert_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
+- `insert_date` DATETIME NULL
+- `update_uid` VARCHAR(10) COLLATE "Arabic_CI_AS" NULL
+- `update_date` DATETIME NULL
+- `co_tax_price` MONEY NULL
+- `host_header_bill_date` DATETIME NULL
+- `host_header_insert_date` DATETIME NULL
+- `quarantined_at` DATETIME NOT NULL

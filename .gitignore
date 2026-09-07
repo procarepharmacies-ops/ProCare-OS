@@ -1,5 +1,8 @@
 # Secrets / local config — NEVER commit
 config/connections.json
+# ...and any hand-made backup of it: those hold the same passwords and were
+# showing up as untracked, one `git add -A` away from being committed.
+config/connections.json.*
 *.env
 .env*
 !.env.example
@@ -50,6 +53,17 @@ Thumbs.db
 *.png
 !src/frontend/public/logo.png
 !src/frontend/app/icon.png
+# PWA install icons. The blanket *.png above is for build/DirectX artifacts,
+# but it also silently excluded these — so the manifest and the service-worker
+# precache both referenced files that were never committed, which meant the app
+# could not be installed to a phone at all. They must be tracked.
+!src/frontend/public/icon-192.png
+!src/frontend/public/icon-512.png
+!src/frontend/public/maskable-192.png
+!src/frontend/public/maskable-512.png
+!src/frontend/public/apple-touch-icon.png
+# ProCare RX (the staff الجرد app) installs as its own PWA with its own icons.
+!src/frontend/public/rx/*.png
 data/
 exports/
 logs/
@@ -68,3 +82,6 @@ dsetup*.dll
 # Local (no-Docker) launcher runtime state
 .local-run/
 *.pid
+
+# timestamped editor/agent backups (*.bak already covered above)
+*.bak-*

@@ -100,7 +100,7 @@ def _weak_accounts(session) -> list[str]:
     out: list[str] = []
     rows = session.execute(
         select(m.Employee.username, m.Employee.password_hash).where(
-            m.Employee.is_active.is_(True)
+            m.Employee.is_active == True  # noqa: E712
         )
     ).all()
     for username, pw_hash in rows:
@@ -177,6 +177,19 @@ def set_password(username: str, new_password: str) -> dict:
 
 if __name__ == "__main__":
     import json
+
+    # Invoked directly (e.g. deploy/ProCare-Cloudflare-Tunnel.bat), not through
+    # run.py, so .env is never loaded otherwise -- the check would then always
+    # see AUTH_SECRET's unset (default) value and permanently block the tunnel
+    # regardless of what .env actually holds.
+    try:
+        from dotenv import load_dotenv
+
+        _base = os.path.dirname(os.path.abspath(__file__))
+        load_dotenv(os.path.join(_base, "..", "..", ".env"))
+        load_dotenv(os.path.join(_base, "..", "..", "..", "..", ".env"))
+    except ImportError:
+        pass
 
     arg = sys.argv[1] if len(sys.argv) > 1 else "--check"
     if arg == "--check":

@@ -13,7 +13,7 @@ from sqlalchemy import and_, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.services.common import available_stock_filter, money
+from app.services.common import available_stock_filter, money, sql_day
 
 
 def _avg_daily_consumption(
@@ -43,17 +43,17 @@ def _daily_consumption_series(
     start = date.today() - timedelta(days=window_days)
     rows = session.execute(
         select(
-            func.date(m.Sale.sale_date).label("day"),
+            sql_day(m.Sale.sale_date).label("day"),
             func.sum(m.SaleLine.amount).label("qty"),
         )
         .join(m.Sale, m.Sale.sale_id == m.SaleLine.sale_id)
         .where(
             m.SaleLine.product_id == product_id,
             m.Sale.is_return == False,  # noqa: E712
-            func.date(m.Sale.sale_date) >= start,
+            sql_day(m.Sale.sale_date) >= start,
             *([] if branch_id is None else [m.Sale.branch_id == branch_id]),
         )
-        .group_by(func.date(m.Sale.sale_date))
+        .group_by(sql_day(m.Sale.sale_date))
     ).all()
     return {str(day): float(qty) for day, qty in rows}
 

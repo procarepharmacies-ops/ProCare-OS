@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.auth import auth_guard
 from app.db.base import get_session
-from app.services import stocktaking
+from app.services import gs1, gtin_map, stocktaking
 from app.services.pos import POSError
 
 router = APIRouter(prefix="/stocktaking", tags=["stocktaking"])
@@ -34,10 +35,6 @@ def _log_stocktake_alert(branch_id: int, message: str) -> None:
     })
     # Keep only the last 20 events to avoid unbounded growth
     _RECENT_EVENTS = _RECENT_EVENTS[-20:]
-
-
-def _raise(e: POSError):
-    raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message})
 
 
 @router.get("")
@@ -92,6 +89,22 @@ def create(payload: CreateIn, session: Session = Depends(get_session)):
         _raise(e)
 
 
+# NOTE: every literal single-segment path MUST be declared above the
+# ``/{count_id}`` catch-all below. FastAPI matches in registration order, so a
+# literal registered after it never runs — "recent-alerts" would fail the int
+# parse and return 422 instead. (That was a live bug: the dashboard alert
+# banner never worked.)
+@router.get("/recent-alerts")
+def recent_alerts(minutes: int = 5):
+    """Return stocktaking events from the last N minutes (default 5).
+
+    Used by the dashboard to show an instant red alert banner whenever
+    any جرد session is opened, posted, or cancelled.
+    """
+    cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+    return {"alerts": [e for e in _RECENT_EVENTS if e["ts"] >= cutoff]}
+
+
 @router.get("/{count_id}")
 def detail(count_id: int, session: Session = Depends(get_session)):
     try:
@@ -103,6 +116,11 @@ def detail(count_id: int, session: Session = Depends(get_session)):
 class LineIn(BaseModel):
     line_id: int
     counted_qty: float | None = Field(None, ge=0)
+    # What the sending device last saw on the server. Optional: when present and
+    # stale, the write still applies and the line is reported in `conflicts` so
+    # the phone can warn that a colleague counted the same shelf. Omitted by the
+    # desktop sheet, which has no offline queue.
+    base_counted_qty: float | None = Field(None, ge=0)
 
 
 class RecordIn(BaseModel):
@@ -113,8 +131,11 @@ class RecordIn(BaseModel):
 def record(count_id: int, payload: RecordIn, session: Session = Depends(get_session)):
     """Save physically-counted quantities (save-as-you-go while counting)."""
     try:
+        # exclude_unset so an omitted base_counted_qty stays ABSENT rather than
+        # arriving as None — the service distinguishes "no base sent, skip the
+        # conflict check" from "base was explicitly null (line was uncounted)".
         return stocktaking.record_lines(
-            session, count_id, [e.model_dump() for e in payload.entries]
+            session, count_id, [e.model_dump(exclude_unset=True) for e in payload.entries]
         )
     except POSError as e:
         _raise(e)
@@ -124,7 +145,10 @@ class PostIn(BaseModel):
     employee_id: int | None = None
 
 
-@router.post("/{count_id}/post")
+# Posting and cancelling adjust real stock, so they are manager/CEO only. The
+# UI already hid the buttons (page.js canPost) but the endpoints were open to
+# any logged-in role — reachable once الجرد runs on staff phones.
+@router.post("/{count_id}/post", dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def post(count_id: int, payload: PostIn, session: Session = Depends(get_session)):
     """Apply all counted differences as stock adjustments and close the session."""
     try:
@@ -137,7 +161,7 @@ def post(count_id: int, payload: PostIn, session: Session = Depends(get_session)
         _raise(e)
 
 
-@router.post("/{count_id}/cancel")
+@router.post("/{count_id}/cancel", dependencies=[Depends(auth_guard(("ceo", "manager")))])
 def cancel(count_id: int, session: Session = Depends(get_session)):
     try:
         count = stocktaking.get_count(session, count_id)
@@ -149,12 +173,59 @@ def cancel(count_id: int, session: Session = Depends(get_session)):
         _raise(e)
 
 
-@router.get("/recent-alerts")
-def recent_alerts(minutes: int = 5):
-    """Return stocktaking events from the last N minutes (default 5).
+@router.get("/{count_id}/scan")
+def scan(
+    count_id: int,
+    code: str = Query(..., min_length=1),
+    session: Session = Depends(get_session),
+):
+    """Resolve a scanned barcode (or typed code/fast_code) to the count line(s)
+    for the mobile جرد scanner. Returns ``found`` / ``not_in_count`` / ``unknown``
+    so the app can jump straight to the item instead of scrolling the sheet."""
+    try:
+        return stocktaking.scan_lookup(session, count_id, code)
+    except POSError as e:
+        _raise(e)
 
-    Used by the dashboard to show an instant red alert banner whenever
-    any جرد session is opened, posted, or cancelled.
+
+@router.get("/{count_id}/scan-index")
+def scan_index(count_id: int, session: Session = Depends(get_session)):
+    """Compact code -> line index the phone caches so scanning works offline.
+
+    One row per product with every code it can be scanned by (code, fast_code,
+    learned GTINs) and its per-batch lines.
     """
-    cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
-    return {"alerts": [e for e in _RECENT_EVENTS if e["ts"] >= cutoff]}
+    try:
+        return stocktaking.scan_index(session, count_id)
+    except POSError as e:
+        _raise(e)
+
+
+class ScanLinkIn(BaseModel):
+    code: str = Field(..., min_length=1)  # raw scan: GS1 payload or plain barcode
+    product_id: int
+    employee_id: int | None = None
+
+
+# Deliberately open to any logged-in role, assistants included: the person
+# holding the box in the stockroom is the one who can link it, and requiring a
+# manager would simply stop staff scanning. Safety comes from reversibility —
+# a wrong link is immediately visible (wrong drug name, box in hand),
+# created_by records who did it, and a manager can unlink in one tap.
+@router.post("/{count_id}/scan/link", dependencies=[Depends(auth_guard())])
+def scan_link(count_id: int, payload: ScanLinkIn, session: Session = Depends(get_session)):
+    """Teach the catalogue which product an unrecognised barcode belongs to.
+
+    Idempotent: re-linking the same barcode to the same product is a no-op, so
+    this is safe to replay from an offline queue.
+    """
+    parsed = gs1.parse_gs1(payload.code)
+    gtin = parsed["gtin"] or gs1.normalize_gtin(payload.code)
+    if not gtin:
+        _raise(POSError("bad_gtin", "الباركود غير صالح للربط / not a linkable barcode"))
+    try:
+        return gtin_map.learn(
+            session, gtin, payload.product_id, employee_id=payload.employee_id, source="scan"
+        )
+    except POSError as e:
+        _raise(e)

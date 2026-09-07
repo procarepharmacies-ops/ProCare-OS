@@ -81,3 +81,37 @@ def test_db_name_comes_from_config_not_the_engine_url(monkeypatch):
 
 def _boom(*_a, **_k):
     raise OSError("disk full")
+
+
+def _lifespan_backup_calls(monkeypatch) -> list:
+    """Boot the app through its real lifespan, recording startup backup calls."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    calls: list = []
+    monkeypatch.setattr(backup, "backup_if_stale", lambda *a, **k: calls.append(a))
+    with TestClient(app):
+        pass
+    return calls
+
+
+def test_startup_backup_runs_by_default(monkeypatch, seeded_db):
+    """The safety net stays on where nothing else owns backups."""
+    monkeypatch.delenv("STARTUP_BACKUP", raising=False)
+
+    assert _lifespan_backup_calls(monkeypatch) == [(24, "startup-daily")]
+
+
+def test_startup_backup_skipped_when_disabled(monkeypatch, seeded_db):
+    """STARTUP_BACKUP=0 hands backups to a scheduled job instead.
+
+    Without the opt-out, the synchronous startup backup retries on EVERY restart
+    once the newest backup ages past the 24h threshold. On SQL Server that
+    blocks the app from serving for minutes and, during trading hours, loses a
+    buffer latch to live POS traffic and dies with error 845 -- so each restart
+    costs an outage and still leaves the database unbacked (2026-08-24).
+    """
+    monkeypatch.setenv("STARTUP_BACKUP", "0")
+
+    assert _lifespan_backup_calls(monkeypatch) == []

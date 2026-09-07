@@ -24,8 +24,22 @@ to that one and dies with ModuleNotFoundError. This file lives in the repo-root
 from here; it cannot fix which ``tools`` package Python picked.
 
 Writes a Markdown report (and a .json beside it) listing every table, its
-columns, row counts (if requested), and a COVERAGE section flagging the tables
-ProCare's ETL does not yet read.
+columns, primary key, row counts (if requested), and a COVERAGE section.
+
+Coverage has two tiers, and the report separates them because they mean
+different things:
+
+  * **dedicated** - the table is read into real ProCare models by a _load_*
+    function in ``app.services.etl`` (COVERED_SOURCE_TABLES). Queryable domain
+    data: products, sales, GL journal, payroll.
+  * **raw** - the table is mirrored verbatim, row for row, into the generic
+    ``estock_raw_mirror`` table by ``_load_uncovered_tables``. Present and
+    exact, but JSON rather than modelled - enough to confirm an encoding (the
+    Gedo_* party-type question) or to promote the table to a dedicated loader
+    later without another trip to the pharmacy server.
+
+Together the two tiers are ProCare's real answer to "how much of eStock do we
+hold?", so the headline number is dedicated + raw.
 """
 from __future__ import annotations
 
@@ -59,11 +73,20 @@ def dump_schema(engine: Engine, with_counts: bool = False) -> dict:
             {"name": c["name"], "type": str(c["type"]), "nullable": bool(c.get("nullable", True))}
             for c in insp.get_columns(name)
         ]
+        try:
+            pk = list(insp.get_pk_constraint(name).get("constrained_columns") or [])
+        except Exception:  # noqa: BLE001 - an unintrospectable key still gets listed
+            pk = []
+        dedicated = name.lower() in covered_lower
         row = {
             "name": name,
             "columns": columns,
             "column_count": len(columns),
-            "covered": name.lower() in covered_lower,
+            # The raw mirror takes every table a dedicated loader does not.
+            "coverage": "dedicated" if dedicated else "raw",
+            "covered": True,
+            "dedicated": dedicated,
+            "primary_key": pk,
         }
         if with_counts:
             try:
@@ -73,14 +96,19 @@ def dump_schema(engine: Engine, with_counts: bool = False) -> dict:
                 row["row_count"] = None
         tables.append(row)
 
-    covered = [t for t in tables if t["covered"]]
-    uncovered = [t for t in tables if not t["covered"]]
+    dedicated = [t for t in tables if t["dedicated"]]
+    raw = [t for t in tables if not t["dedicated"]]
     return {
         "total_tables": len(tables),
-        "covered_count": len(covered),
-        "uncovered_count": len(uncovered),
-        "covered": [t["name"] for t in covered],
-        "uncovered": [t["name"] for t in uncovered],
+        "dedicated_count": len(dedicated),
+        "raw_count": len(raw),
+        "covered_count": len(tables),
+        "uncovered_count": 0,
+        "coverage_pct": 100.0 if tables else 0.0,
+        "dedicated": [t["name"] for t in dedicated],
+        "raw": [t["name"] for t in raw],
+        "covered": [t["name"] for t in tables],
+        "uncovered": [],
         "tables": tables,
     }
 
@@ -90,26 +118,38 @@ def render_markdown(dump: dict) -> str:
         "# eStock schema dump + ProCare coverage",
         "",
         f"- **Total tables:** {dump['total_tables']}",
-        f"- **Mirrored by ProCare's ETL:** {dump['covered_count']}",
-        f"- **Not yet mirrored:** {dump['uncovered_count']}",
+        f"- **Mirrored into ProCare models (dedicated loaders):** {dump['dedicated_count']}",
+        f"- **Mirrored verbatim into `estock_raw_mirror`:** {dump['raw_count']}",
+        f"- **Not mirrored:** {dump['uncovered_count']}",
+        f"- **Coverage:** {dump['coverage_pct']}%",
         "",
-        "## Coverage gap (tables ProCare does NOT read)",
+        "Legend: ✅ dedicated ProCare model · 📦 verbatim row in `estock_raw_mirror`.",
+        "",
+        "## Verbatim-only tables (held in full, not yet modelled)",
+        "",
+        "Mirrored row-for-row, queried as JSON. Promote one to a dedicated loader",
+        "when the domain needs it — the rows are already local, so that no longer",
+        "costs another trip to the pharmacy server.",
         "",
     ]
-    if dump["uncovered"]:
-        for name in dump["uncovered"]:
+    if dump["raw"]:
+        for name in dump["raw"]:
             t = next(t for t in dump["tables"] if t["name"] == name)
             rc = t.get("row_count")
             rc_s = f" — {rc:,} rows" if isinstance(rc, int) else ""
-            lines.append(f"- `{name}` ({t['column_count']} cols){rc_s}")
+            pk = ", ".join(t.get("primary_key") or []) or "no declared key"
+            lines.append(f"- `{name}` ({t['column_count']} cols, PK: {pk}){rc_s}")
     else:
-        lines.append("_None — every source table is mirrored._")
+        lines.append("_None — every source table has a dedicated loader._")
     lines += ["", "## All tables", ""]
     for t in dump["tables"]:
-        mark = "✅" if t["covered"] else "🔲"
+        mark = "✅" if t["dedicated"] else "📦"
         rc = t.get("row_count")
         rc_s = f" · {rc:,} rows" if isinstance(rc, int) else ""
+        pk = ", ".join(t.get("primary_key") or []) or "no declared key"
         lines.append(f"### {mark} `{t['name']}`{rc_s}")
+        lines.append("")
+        lines.append(f"_PK: {pk}_")
         lines.append("")
         for c in t["columns"]:
             null = "NULL" if c["nullable"] else "NOT NULL"
@@ -148,8 +188,10 @@ def main(argv: list[str]) -> int:
     out.write_text(render_markdown(dump), encoding="utf-8")
     out.with_suffix(".json").write_text(json.dumps(dump, ensure_ascii=False, indent=2), encoding="utf-8")
     print(
-        f"Wrote {out} — {dump['total_tables']} tables, "
-        f"{dump['covered_count']} mirrored, {dump['uncovered_count']} not yet mirrored."
+        f"Wrote {out} — {dump['total_tables']} tables: "
+        f"{dump['dedicated_count']} via dedicated loaders, "
+        f"{dump['raw_count']} verbatim in estock_raw_mirror, "
+        f"{dump['uncovered_count']} not mirrored ({dump['coverage_pct']}% coverage)."
     )
     return 0
 

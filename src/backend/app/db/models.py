@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -1007,6 +1008,13 @@ class SyncState(Base):
     full_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Set (and committed) just before a cycle touches the mirror, cleared once
+    # it commits. Finding it still set means that cycle died mid-flight — the
+    # wipe is durable but the reload is not, so the mirror is PARTIAL. Kept in
+    # the database precisely because the crash that leaves it set is the one
+    # that also loses process memory.
+    cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cycle_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
 class AuthEvent(Base):
@@ -1562,3 +1570,95 @@ class HeldInvoice(Base):
     __table_args__ = (
         Index("IX_held_branch_created", "branch_id", "created_at"),
     )
+
+
+class ProductBarcode(Base):
+    """Scanned barcode (GS1 GTIN or plain EAN/UPC) -> product mapping.
+
+    Deliberately **not** a ForeignKey to ``products``: a full eStock reload
+    deletes and recreates every product row (``etl._WIPE_ORDER`` ends with
+    ``StockBatch, Product, Customer, Vendor``) and ``Product`` carries no
+    ``source_id``, so ``product_id`` is not durable across a full sync. The
+    durable key is ``product_code`` — the eStock code the ETL itself dedupes on
+    — and ``gtin_map.relink()`` re-resolves ``product_id`` after a load. Same
+    reasoning as ``Product.titan_drug_id``, which also has no FK.
+
+    Kept OUT of ``_WIPE_ORDER`` so learned mappings survive a full mirror.
+
+    A side table rather than a ``products.gtin`` column because one drug
+    legitimately carries several GTINs (imported vs locally-packed, old vs new
+    artwork, repack sizes) — and because a column would be wiped with the row.
+    """
+
+    __tablename__ = "product_barcodes"
+
+    barcode_id: Mapped[int] = mapped_column(primary_key=True)
+    # String, not numeric: leading zeros are significant in a GTIN-14.
+    gtin: Mapped[str] = mapped_column(String(14))
+    product_id: Mapped[int | None] = mapped_column(nullable=True)  # no FK, on purpose
+    product_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="scan")  # scan|backfill|import
+    created_by: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    seen_count: Mapped[int] = mapped_column(default=0)
+
+    __table_args__ = (
+        # UNIQUE is what makes learn-on-scan idempotent, and therefore safe to
+        # replay from an offline queue.
+        Index("UX_product_barcodes_gtin", "gtin", unique=True),
+        Index("IX_product_barcodes_product", "product_id"),
+        Index("IX_product_barcodes_code", "product_code"),
+    )
+
+
+class EstockRawMirror(Base):
+    """Generic read-only mirror for every eStock source table not otherwise
+    modelled in ProCare.
+
+    One row per source-table row, keyed by (source_table, source_id).
+    The 'raw' column holds the verbatim row as a JSON string — all 114 eStock
+    tables, including the ~84 not otherwise mirrored (Gedo ledgers, EMP_CONTROL,
+    change-history, edit-logs, config tables, empty tables, …).  This is what
+    makes ProCare cover 100% of eStock without 84 individual models: a single
+    table, one _load_uncovered_tables() pass.
+
+    Read-only SELECT against eStock (never a write); dedup on
+    (source_table, source_id) so re-syncs are idempotent.  NOT in _WIPE_ORDER —
+    rows survive a full mirror refresh.
+    """
+
+    __tablename__ = "estock_raw_mirror"
+
+    row_id: Mapped[int] = mapped_column(primary_key=True)
+    source_table: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    raw: Mapped[str] = mapped_column(Text, nullable=False)
+    branch_id: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_estock_raw_table_id", "source_table", "source_id"),
+        Index("IX_estock_raw_table_branch", "source_table", "branch_id"),
+    )
+
+
+class EstockRawWatermark(Base):
+    """How far the raw mirror has read into each large append-only eStock table.
+
+    Only the change-log tables use this (Branches_Product_amount_Change ~1.05M
+    rows, Product_amount_Change ~533K): storing the highest source id already
+    mirrored is what lets a 5-minute sync cadence pull only what is new instead
+    of re-reading a million rows of history every cycle. Small tables are
+    refreshed wholesale each cycle and never appear here.
+
+    The watermark is an optimisation, never the correctness guarantee — inserts
+    are anti-joined against the keys already mirrored, so a stale, missing or
+    non-unique watermark can only cost time, never duplicate a row.
+    """
+
+    __tablename__ = "estock_raw_watermark"
+
+    source_table: Mapped[str] = mapped_column(String(100), primary_key=True)
+    last_value: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())

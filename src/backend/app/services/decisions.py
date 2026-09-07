@@ -126,15 +126,15 @@ def generate_below_min_cards(session: Session) -> int:
         select(
             m.StockBatch.branch_id,
             m.StockBatch.product_id,
-            func.sum(m.StockBatch.quantity).label("qty"),
+            func.sum(m.StockBatch.amount).label("qty"),
         )
         .join(m.Product, m.Product.product_id == m.StockBatch.product_id)
         .where(
             m.Product.is_active == True,  # noqa: E712
-            m.StockBatch.quantity > 0,
+            m.StockBatch.amount > 0,
         )
-        .group_by(m.StockBatch.branch_id, m.StockBatch.product_id)
-        .having(func.sum(m.StockBatch.quantity) < m.Product.min_stock)
+        .group_by(m.StockBatch.branch_id, m.StockBatch.product_id, m.Product.min_stock)
+        .having(func.sum(m.StockBatch.amount) < m.Product.min_stock)
     ).all()
 
     for branch_id, product_id, qty in rows:
@@ -185,7 +185,7 @@ def generate_expiry_warning_cards(session: Session, days_ahead: int = 30) -> int
             m.StockBatch.exp_date.isnot(None),
             m.StockBatch.exp_date <= date.today() + timedelta(days=days_ahead),
             m.StockBatch.exp_date > date.today(),
-            m.StockBatch.quantity > 0,
+            m.StockBatch.amount > 0,
             m.Product.is_active == True,  # noqa: E712
         )
         .distinct()
@@ -197,20 +197,20 @@ def generate_expiry_warning_cards(session: Session, days_ahead: int = 30) -> int
             continue
 
         days_until = (batch.exp_date - date.today()).days
-        value = batch.quantity * product.buy_price
+        value = batch.amount * product.buy_price
 
         title_ar = f"⏰ {product.name_ar} — ينتهي خلال {days_until} يوم"
         title_en = f"⏰ {product.name_en or product.name_ar} — Expires in {days_until} days"
         body_ar = (
             f"المنتج: {product.name_ar}\n"
-            f"الكمية: {batch.quantity:.1f}\n"
+            f"الكمية: {batch.amount:.1f}\n"
             f"تاريخ الانتهاء: {batch.exp_date}\n"
             f"القيمة: {value:.2f} جنيه\n"
             f"الإجراء: تقليل السعر أو الترويج"
         )
         body_en = (
             f"Product: {product.name_en or product.name_ar}\n"
-            f"Quantity: {batch.quantity:.1f}\n"
+            f"Quantity: {batch.amount:.1f}\n"
             f"Expiry date: {batch.exp_date}\n"
             f"Value: {value:.2f} EGP\n"
             f"Action: reduce price or promote"

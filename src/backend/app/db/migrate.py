@@ -195,6 +195,23 @@ def ensure_employee_reset_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE employees {add} reset_attempts INTEGER DEFAULT 0"))
 
 
+def ensure_sync_cycle_columns(engine) -> None:
+    """Add ``sync_state.cycle_started_at/cycle_mode`` if the table predates the
+    interrupted-cycle guard. Without them an aborted full load looks identical
+    to a finished one and the mirror stays silently partial.
+    """
+    inspector = inspect(engine)
+    if "sync_state" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("sync_state")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "cycle_started_at" not in columns:
+            conn.execute(text(f"ALTER TABLE sync_state {add} cycle_started_at DATETIME NULL"))
+        if "cycle_mode" not in columns:
+            conn.execute(text(f"ALTER TABLE sync_state {add} cycle_mode VARCHAR(30) NULL"))
+
+
 def ensure_product_unit_columns(engine) -> None:
     """Add ``products.unit_big/unit_small/unit_factor`` (وحدة كبرى/صغرى) if the
     table predates the units feature. Existing products default to factor 1
@@ -516,6 +533,16 @@ def ensure_held_invoice_table(engine) -> None:
         Base.metadata.create_all(engine, tables=[HeldInvoice.__table__])
 
 
+def ensure_product_barcode_table(engine) -> None:
+    """Ensure the product_barcodes table exists (scanned GTIN -> product map).
+    Creates it via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    if "product_barcodes" not in inspector.get_table_names():
+        from app.db.models import Base, ProductBarcode
+
+        Base.metadata.create_all(engine, tables=[ProductBarcode.__table__])
+
+
 def ensure_sale_note_column(engine) -> None:
     """Add ``sales.note`` (cashier's free-text invoice note) if the table
     predates it. Existing sales keep a NULL note."""
@@ -598,7 +625,15 @@ def ensure_commission_tables(engine) -> None:
 
         tables = [CommissionRun.__table__, CommissionRunLine.__table__]
         Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
+def ensure_estock_raw_mirror_tables(engine) -> None:
+    """Ensure estock_raw_mirror + estock_raw_watermark exist (100% eStock
+    coverage: every source table not read by a dedicated loader is mirrored
+    verbatim). Creates them via create_all if missing; idempotent."""
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    missing = [t for t in ("estock_raw_mirror", "estock_raw_watermark") if t not in table_names]
+    if missing:
+        from app.db.models import Base, EstockRawMirror, EstockRawWatermark
 
-
-
-
+        tables = [EstockRawMirror.__table__, EstockRawWatermark.__table__]
+        Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
