@@ -170,6 +170,54 @@ def update_customer_tier(customer_id: int, payload: CustomerTierUpdate, session:
     }
 
 
+# --- Staff broadcast (WhatsApp Cloud API) ------------------------------------
+@router.get("/staff-broadcast/status", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def staff_broadcast_status(session: Session = Depends(get_session)):
+    """Check staff broadcast readiness: Cloud API configured + staff with phones."""
+    staff_with_phone = session.execute(
+        select(m.Employee.employee_id, m.Employee.name_ar, m.Employee.phone).where(
+            m.Employee.is_active == True,  # noqa: E712
+            m.Employee.phone != None,  # noqa: E711
+            m.Employee.phone != "",
+        )
+    ).all()
+    return {
+        "api_configured": wa.is_configured(),
+        "staff_count": len(staff_with_phone),
+        "staff": [{"id": r[0], "name": r[1], "phone": r[2]} for r in staff_with_phone],
+    }
+
+
+@router.post("/staff-broadcast/send-schedule", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def send_schedule_to_staff():
+    """Send the weekly schedule to all staff via WhatsApp (manual trigger)."""
+    msg = wa.weekly_schedule_message()
+    result = wa.notify_all_staff(msg)
+    return {**result, "message": msg}
+
+
+@router.post("/staff-broadcast/send-tomorrow", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def send_tomorrow_to_staff():
+    """Send tomorrow's shift reminder to all staff via WhatsApp (manual trigger)."""
+    msg = wa.tomorrow_schedule_message()
+    result = wa.notify_all_staff(msg)
+    return {**result, "message": msg}
+
+
+class SOPAnnouncementIn(BaseModel):
+    sop_code: str = Field(max_length=20)
+    title_ar: str = Field(max_length=200)
+    summary_ar: str = Field(max_length=500)
+
+
+@router.post("/staff-broadcast/announce-sop", dependencies=[Depends(auth_guard(("ceo", "manager")))])
+def announce_sop_to_staff(payload: SOPAnnouncementIn):
+    """Announce a new SOP to all staff via WhatsApp."""
+    msg = wa.sop_announcement_message(payload.sop_code, payload.title_ar, payload.summary_ar)
+    result = wa.notify_all_staff(msg)
+    return {**result, "message": msg}
+
+
 @router.patch("/customers/{customer_id}/wa-opt-out")
 def update_customer_wa_opt_out(customer_id: int, opt_out: bool, session: Session = Depends(get_session)):
     """Update WhatsApp opt-out flag."""
