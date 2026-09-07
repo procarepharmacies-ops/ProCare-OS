@@ -195,6 +195,23 @@ def ensure_employee_reset_columns(engine) -> None:
             conn.execute(text(f"ALTER TABLE employees {add} reset_attempts INTEGER DEFAULT 0"))
 
 
+def ensure_sync_cycle_columns(engine) -> None:
+    """Add ``sync_state.cycle_started_at/cycle_mode`` if the table predates the
+    interrupted-cycle guard. Without them an aborted full load looks identical
+    to a finished one and the mirror stays silently partial.
+    """
+    inspector = inspect(engine)
+    if "sync_state" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("sync_state")}
+    add = "ADD" if engine.dialect.name == "mssql" else "ADD COLUMN"
+    with engine.begin() as conn:
+        if "cycle_started_at" not in columns:
+            conn.execute(text(f"ALTER TABLE sync_state {add} cycle_started_at DATETIME NULL"))
+        if "cycle_mode" not in columns:
+            conn.execute(text(f"ALTER TABLE sync_state {add} cycle_mode VARCHAR(30) NULL"))
+
+
 def ensure_product_unit_columns(engine) -> None:
     """Add ``products.unit_big/unit_small/unit_factor`` (وحدة كبرى/صغرى) if the
     table predates the units feature. Existing products default to factor 1

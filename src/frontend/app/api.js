@@ -24,6 +24,39 @@ export const session = {
   clear: () => localStorage.removeItem(SESSION_KEY),
 };
 
+// The backend token carries its own `exp` (12-hour shift). Read it without
+// verifying the signature — that is the server's job; here we only need to know
+// whether it is worth sending, so an expired session can be caught up front
+// instead of every page rendering empty against a wall of 401s.
+export function tokenExpiry(token) {
+  try {
+    // Backend format is `body.signature`, urlsafe base64 with the padding
+    // stripped (services/auth.py:_b64) — restore it before atob.
+    let body = token.split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
+    body += "=".repeat((4 - (body.length % 4)) % 4);
+    const exp = JSON.parse(atob(body)).exp;
+    return typeof exp === "number" ? exp : null;
+  } catch {
+    return null;
+  }
+}
+
+export function sessionIsLive(s) {
+  if (!s?.token || !s?.employee) return false;
+  const exp = tokenExpiry(s.token);
+  return exp === null || exp * 1000 > Date.now();
+}
+
+// A 401 on anything but /auth/* means the token is gone or expired. Drop the
+// stale session and send the user to the login screen; without this the app
+// keeps rendering as if signed in while every request fails silently.
+function onUnauthorized(path) {
+  if (typeof window === "undefined") return;
+  if (path.startsWith("/auth/") || path.startsWith("/api/auth/")) return;
+  session.clear();
+  if (window.location.pathname !== "/login") window.location.replace("/login");
+}
+
 async function http(path, options) {
   const token = session.get()?.token;
   const res = await fetch(`${API_BASE}/api${path}`, {
@@ -34,6 +67,7 @@ async function http(path, options) {
     ...options,
   });
   if (!res.ok) {
+    if (res.status === 401) onUnauthorized(path);
     let detail;
     try {
       detail = (await res.json()).detail;
@@ -42,6 +76,7 @@ async function http(path, options) {
     }
     const err = new Error(typeof detail === "string" ? detail : detail?.message || "Request failed");
     err.detail = detail;
+    err.status = res.status;
     throw err;
   }
   return res.json();
@@ -60,6 +95,7 @@ export async function apiFetch(path, options) {
     ...options,
   });
   if (!res.ok) {
+    if (res.status === 401) onUnauthorized(path);
     let detail;
     try {
       detail = (await res.json()).detail;
@@ -68,6 +104,7 @@ export async function apiFetch(path, options) {
     }
     const err = new Error(typeof detail === "string" ? detail : detail?.message || "Request failed");
     err.detail = detail;
+    err.status = res.status;
     throw err;
   }
   return res.json();

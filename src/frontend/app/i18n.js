@@ -3,7 +3,7 @@
 export const dict = {
   ar: {
     app: "ProCare AI",
-    tagline: "ليست مجرد صيدليه لكنها عائله لكل احتياجاتك",
+    tagline: "ليست مجرد صيدلية لكنها عائلة لكل احتياجاتك",
     branch: "الفرع",
     all_branches: "كل الفروع",
     backend_status: "حالة الخادم",

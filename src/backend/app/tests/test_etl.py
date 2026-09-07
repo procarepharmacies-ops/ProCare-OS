@@ -365,6 +365,58 @@ def test_load_branch_orders(estock_source):
         reset_and_seed()
 
 
+def test_load_branch_orders_live_column_names(estock_source):
+    """The REAL eStock schema: branch_order_id / details_id / amount.
+
+    The fixture above invents bo_id / bol_id / qty, which exist nowhere in
+    production. That mismatch hid a live fault for weeks: ``_pick`` returned
+    None for the header key, so source_order_id was NULL on all 21,453,855
+    mirrored rows, the dedup map never matched, and every 5-minute cycle
+    re-inserted the full header set (~2.4M rows/day) while branch_order_lines
+    stayed empty at 0. Pin the production names so it cannot come back.
+    """
+    try:
+        with estock_source.begin() as c:
+            c.execute(text(
+                "CREATE TABLE Branch_order_header ("
+                "branch_order_id INT, from_store_id INT, to_store_id INT, "
+                "notes TEXT, insert_date TEXT)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_header VALUES "
+                "(7,1,2,'Transfer OK','2026-07-20 10:00:00')"
+            ))
+            c.execute(text(
+                "CREATE TABLE Branch_order_details ("
+                "details_id INT, branch_order_id INT, product_id INT, amount REAL)"
+            ))
+            c.execute(text(
+                "INSERT INTO Branch_order_details VALUES (1,7,101,20),(2,7,102,5)"
+            ))
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            orders = s.query(m.BranchOrderHeader).all()
+            assert len(orders) == 1
+            order = orders[0]
+            # The source id must survive -- it is the whole dedup key.
+            assert order.source_order_id == 7
+            lines = s.query(m.BranchOrderLine).filter(
+                m.BranchOrderLine.order_id == order.order_id
+            ).all()
+            assert len(lines) == 2
+            assert sorted(l.quantity for l in lines) == [5, 20]
+
+        # A second cycle must add nothing: no duplicate header, no duplicate lines.
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2})
+        with SessionLocal() as s:
+            assert s.query(m.BranchOrderHeader).count() == 1
+            assert s.query(m.BranchOrderLine).count() == 2
+    finally:
+        reset_and_seed()
+
+
 def test_load_gl_accounts(estock_source):
     """Mirror Account_Tree (chart of accounts) verbatim, upserted by source id."""
     try:
@@ -726,3 +778,53 @@ def test_pick_returns_real_casing_not_candidate():
     assert etl._pick({"Flag"}, "flag") == "Flag"
     assert etl._pick({"product_id"}, "PRODUCT_ID", "other") == "product_id"
     assert etl._pick({"x"}, "nope") is None
+
+
+def test_resilient_source_stream_does_not_materialise_the_table():
+    """`stream()` must hand rows over in bounded batches.
+
+    `execute()` deliberately calls Result.freeze() so a WAN drop mid-fetch stays
+    inside its retry — but that holds the whole table in memory, which drove the
+    backend to 2.9 GB on a 5.9 GB box and got it OOM-killed mid-sync. This pins
+    the streaming counterpart: every row still arrives, exactly once, in order,
+    and never as one giant list.
+    """
+    from sqlalchemy import create_engine, text as _text
+    from app.services.etl import _ResilientSource
+
+    eng = create_engine("sqlite://")
+    with eng.begin() as c:
+        c.execute(_text("CREATE TABLE big (id INTEGER PRIMARY KEY, v TEXT)"))
+        c.execute(_text("INSERT INTO big (id, v) VALUES (:i, :v)"),
+                  [{"i": i, "v": f"row-{i}"} for i in range(1, 2501)])
+    src = _ResilientSource(eng)
+    try:
+        seen = [r["id"] for r in src.stream(_text("SELECT id, v FROM big ORDER BY id"), batch=100)]
+        assert seen == list(range(1, 2501)), "every row exactly once, in order"
+
+        # It is a generator: nothing is read until iteration starts, so the
+        # caller never holds the full table.
+        gen = src.stream(_text("SELECT id FROM big ORDER BY id"), batch=100)
+        assert not isinstance(gen, list)
+        first = next(gen)
+        assert first["id"] == 1
+        gen.close()
+    finally:
+        src.close()
+        eng.dispose()
+
+
+def test_raw_mirror_streams_source_rows(monkeypatch):
+    """The raw-mirror wholesale refresh must go through stream(), not execute().
+
+    Guards the actual regression: a future edit that reverts to
+    `.mappings().all()` reintroduces the whole-table materialisation that
+    exhausted the box.
+    """
+    import inspect as _inspect
+    from app.services import etl as _etl
+
+    body = _inspect.getsource(_etl._mirror_one_raw_table)
+    assert "src.stream(" in body, "wholesale refresh must stream its source rows"
+    assert 'src.execute(text("SELECT * FROM " + tbl)).mappings().all()' not in body, \
+        "whole-table materialisation is back"

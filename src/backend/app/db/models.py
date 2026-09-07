@@ -1008,6 +1008,13 @@ class SyncState(Base):
     full_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Set (and committed) just before a cycle touches the mirror, cleared once
+    # it commits. Finding it still set means that cycle died mid-flight — the
+    # wipe is durable but the reload is not, so the mirror is PARTIAL. Kept in
+    # the database precisely because the crash that leaves it set is the one
+    # that also loses process memory.
+    cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cycle_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
 class AuthEvent(Base):

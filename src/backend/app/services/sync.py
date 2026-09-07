@@ -48,9 +48,49 @@ def _record_cycle(source_name: str, mode: str) -> None:
                 row.full_synced_at = now
             row.last_cycle_at = now
             row.last_mode = mode or None
+            # The cycle committed, so the mirror is whole again.
+            row.cycle_started_at = None
+            row.cycle_mode = None
             st.commit()
     except Exception:  # noqa: BLE001
         pass
+
+def _mark_cycle_start(source_name: str, mode: str) -> None:
+    """Record — durably, before the mirror is touched — that a cycle is running.
+
+    etl.mirror() wipes the branch's rows and reloads them, but the loaders commit
+    per chunk (SQL Server 2008 kills one gigantic transaction), so the wipe
+    becomes durable long before the reload finishes. Kill the process in between
+    and the mirror is left PARTIAL while every bookkeeping field still says the
+    last full load succeeded — the dashboard then reports 0 sales as if it were
+    fact. This marker is what tells the next cycle, and /api/sync/status, that
+    the numbers cannot be trusted yet.
+    """
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with SessionLocal() as st:
+            row = st.get(m.SyncState, source_name)
+            if row is None:
+                row = m.SyncState(source_name=source_name)
+                st.add(row)
+            row.cycle_started_at = now
+            row.cycle_mode = mode
+            st.commit()
+    except Exception:  # noqa: BLE001 — never let bookkeeping block a sync
+        pass
+
+
+def interrupted_sources() -> list[str]:
+    """Sources whose last cycle never committed, so their mirror is partial."""
+    try:
+        with SessionLocal() as st:
+            return [
+                r.source_name
+                for r in st.query(m.SyncState).filter(m.SyncState.cycle_started_at.isnot(None)).all()
+            ]
+    except Exception:  # noqa: BLE001
+        return []
+
 
 _DEFAULT_INTERVAL = 30
 
@@ -67,6 +107,10 @@ _state: dict = {
 _lock = threading.Lock()
 _thread: threading.Thread | None = None
 _stop = threading.Event()
+# True only while this process is actually inside a mirror cycle. The durable
+# cycle_started_at marker is set during a HEALTHY run too, so this is what tells
+# "a cycle is writing right now" apart from "a cycle died while writing".
+_cycle_active = False
 
 
 def interval_seconds() -> int:
@@ -229,6 +273,7 @@ def run_once(source_engine=None) -> dict:
             for b in blocks
         ]
 
+    global _cycle_active
     all_counts: dict[str, dict] = {}
     errors: dict[str, str] = {}
     try:
@@ -253,13 +298,35 @@ def run_once(source_engine=None) -> dict:
                         # history pull.
                         with SessionLocal() as st:
                             state = st.get(m.SyncState, s["name"])
-                            inc = incremental_days() if (state and state.full_synced_at) else 0
-                        with SessionLocal() as dst:
-                            _apply_lock_timeout(dst)
-                            counts = etl.mirror(
-                                s["engine"], dst, s["store_branch_map"], branch_scoped=True,
-                                incremental_days=inc or None,
+                            # An interrupted FULL load wiped history it never
+                            # finished restoring. full_synced_at still points at
+                            # the earlier good run, so the plain gate would go
+                            # incremental and repair only the last few days —
+                            # leaving the older history missing for good. Force
+                            # a full re-load until one actually completes.
+                            broken_full = bool(
+                                state
+                                and state.cycle_started_at is not None
+                                and not (state.cycle_mode or "").startswith("incremental")
                             )
+                            inc = (
+                                incremental_days()
+                                if (state and state.full_synced_at and not broken_full)
+                                else 0
+                            )
+                        _mark_cycle_start(
+                            s["name"], f"incremental({inc}d)" if inc else "full"
+                        )
+                        _cycle_active = True
+                        try:
+                            with SessionLocal() as dst:
+                                _apply_lock_timeout(dst)
+                                counts = etl.mirror(
+                                    s["engine"], dst, s["store_branch_map"], branch_scoped=True,
+                                    incremental_days=inc or None,
+                                )
+                        finally:
+                            _cycle_active = False
                     all_counts[s["name"]] = counts
                     _record_cycle(s["name"], counts.get("sync_mode", ""))
                 except Exception as e:  # noqa: BLE001 — soft-fail per source
@@ -360,4 +427,15 @@ def status() -> dict:
     s["stalled"] = bool(s["enabled"] and age is not None and age > max(600, 3 * interval_seconds()))
     if s["stalled"] and s.get("last_status") == "ok":
         s["last_status"] = "stalled"
+
+    # A cycle that died between the wipe and its commit leaves the mirror
+    # partial. Surfacing it matters more than any other field here: every other
+    # field would happily report "ok" while the dashboard shows a day's sales as
+    # zero. Suppressed while a cycle is genuinely in flight, since the marker is
+    # set for the whole of a healthy run too.
+    partial = [] if _cycle_active else interrupted_sources()
+    s["mirror_partial"] = bool(partial)
+    s["mirror_partial_sources"] = partial or None
+    if partial and s.get("last_status") in ("ok", "idle"):
+        s["last_status"] = "partial mirror (interrupted cycle; rebuilding)"
     return s

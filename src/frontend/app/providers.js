@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { api, session as sessionStore } from "./api";
+import { api, session as sessionStore, sessionIsLive } from "./api";
 
 const UIContext = createContext(null);
 
@@ -42,8 +42,13 @@ export default function Providers({ children }) {
     if (t === "light" || t === "dark") setTheme(t);
     if (b != null) setBranch(Number(b) || 0);
 
+    // Only a session whose token is still inside its 12-hour window counts as
+    // signed in. Trusting the stored employee alone left an expired session
+    // rendering the full app while every request came back 401 — an empty
+    // dashboard with no way to tell the user why.
     const saved = sessionStore.get();
-    setUser(saved?.employee || null);
+    if (saved && !sessionIsLive(saved)) sessionStore.clear();
+    setUser(sessionIsLive(saved) ? saved.employee : null);
     setAuthChecked(true);
   }, []);
 

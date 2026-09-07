@@ -70,6 +70,18 @@ def _bulk_insert(dst: Session, table, rows: list) -> None:
         dst.execute(insert(table), rows[i : i + _BULK_CHUNK])
         dst.commit()
 
+
+def _bulk_update(dst: Session, stmt, params: list) -> None:
+    """Chunked executemany UPDATE. One giant param list makes SQL Server raise
+    701 "insufficient system memory in resource pool 'default'" and the whole
+    sync run fails, so feed it the same bounded chunks the insert paths use.
+    Unlike the insert helpers this does NOT commit — callers run inside a
+    larger per-table transaction and rely on it staying all-or-nothing."""
+    if not params:
+        return
+    for i in range(0, len(params), _BULK_CHUNK):
+        dst.execute(stmt, params[i : i + _BULK_CHUNK])
+
 # eStock source table -> ProCare destination, with the cleaning rule applied.
 # (Row counts are from the 2026-06-23 audit; see docs/02 and docs/06.)
 MIRROR_PLAN = [
@@ -302,6 +314,9 @@ def _ar(raw_ar, raw_en=None, placeholder: str = "بدون اسم") -> str:
 # transformed/inserted only after the fetch fully succeeds.
 
 _CHUNK_ROWS = int(os.environ.get("SYNC_CHUNK_ROWS", "20000") or 20000)
+# Rows held in memory at once when streaming a table instead of materialising
+# it. Small enough that even a wide table stays in tens of MB.
+_STREAM_BATCH = int(os.environ.get("SYNC_STREAM_BATCH", "5000") or 5000)
 _RETRY_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 2.0
 
@@ -351,6 +366,26 @@ class _ResilientSource:
                 time.sleep(_RETRY_BACKOFF_SECONDS * attempt)
                 self._reconnect()
         raise RuntimeError("unreachable")  # pragma: no cover
+
+    def stream(self, statement, parameters=None, batch: int = _STREAM_BATCH):
+        """Yield row mappings in bounded batches instead of one giant list.
+
+        The counterpart to ``execute()``. That one calls ``Result.freeze()`` so a
+        WAN drop mid-fetch stays inside the retry — at the cost of holding the
+        whole table in memory, which is what drove this backend to 2.9 GB on a
+        5.9 GB box and had the OS killing processes mid-sync.
+
+        Streaming cannot retry mid-scan without re-yielding rows the caller has
+        already consumed, so a communication failure propagates from here and the
+        CALLER retries the whole table instead (see ``_load_uncovered_tables``,
+        which rolls its SAVEPOINT back first, so the retry starts from a clean
+        slate). Resilience is kept; only its granularity changes.
+        """
+        result = self._conn.execution_options(yield_per=batch).execute(
+            statement, parameters or {}
+        )
+        for part in result.mappings().partitions(batch):
+            yield from part
 
     def _reconnect(self) -> None:
         try:
@@ -943,7 +978,7 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
                 is_deleted=bindparam("b_deleted"),
             )
         )
-        dst.execute(stmt, updates)
+        _bulk_update(dst, stmt, updates)
     dst.flush()
     for r, obj in pairs:
         if pid and r.get(pid) is not None:
@@ -1020,7 +1055,7 @@ def _load_customers(insp, src, dst, counts, dedup: bool = False, update_on_match
     dst.add_all([obj for _, obj in pairs])
     if updates:
         stmt = m.Customer.__table__.update().where(m.Customer.customer_id == bindparam("b_cid"))
-        dst.execute(stmt, [dict(u, b_cid=u.pop("customer_id")) for u in updates])
+        _bulk_update(dst, stmt, [dict(u, b_cid=u.pop("customer_id")) for u in updates])
     dst.flush()
     for r, obj in pairs:
         if cid and r.get(cid) is not None:
@@ -1488,8 +1523,8 @@ def _load_cash_shift_closes(insp, src, dst, counts, branch_map, default_branch) 
 def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default_branch) -> None:
     """Mirror eStock's Branch_order_header/details (inter-branch transfers).
 
-    Inferred columns (header): bo_id, from_store_id, to_store_id, order_date, received_date, status
-    Inferred columns (details): bol_id, bo_id (FK), product_id, qty, received_qty
+    Inferred columns (header): branch_order_id, from_store_id, to_store_id, order_date, received_date, status
+    Inferred columns (details): details_id, branch_order_id (FK), product_id, amount
     """
     if not insp.has_table("Branch_order_header"):
         counts["branch_orders"] = 0
@@ -1497,7 +1532,11 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
 
     # Load headers
     h_cols = {c["name"] for c in insp.get_columns("Branch_order_header")}
-    h_id = _pick(h_cols, "bo_id")
+    # eStock names the header key ``branch_order_id``; there is no ``bo_id``
+    # column, so picking that alone returned None, left ``source_order_id``
+    # NULL on every mirrored row, and made the dedup map below permanently
+    # empty — re-inserting all 8,321 headers every 5-minute cycle.
+    h_id = _pick(h_cols, "branch_order_id", "bo_id")
     h_from_store = _pick(h_cols, "from_store_id", "from_branch_id")
     h_to_store = _pick(h_cols, "to_store_id", "to_branch_id")
     h_order_date = _pick(h_cols, "order_date")
@@ -1557,12 +1596,30 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
         return
 
     d_cols = {c["name"] for c in insp.get_columns("Branch_order_details")}
-    d_id = _pick(d_cols, "bol_id")
-    d_order_id = _pick(d_cols, "bo_id")
+    # Same wrong-name trap as the header key above. eStock calls these
+    # ``details_id`` / ``branch_order_id`` / ``amount``; bol_id / bo_id / qty
+    # exist only in this module's own test fixtures. On the live schema
+    # d_order_id came back None, so every line failed the h_map lookup below
+    # and was dropped as an orphan -- branch_order_lines sat at 0 rows while
+    # 62,229 lines waited upstream.
+    d_id = _pick(d_cols, "details_id", "bol_id")
+    d_order_id = _pick(d_cols, "branch_order_id", "bo_id")
     d_product_id = _pick(d_cols, "product_id")
-    d_qty = _pick(d_cols, "qty", "quantity")
+    d_qty = _pick(d_cols, "amount", "qty", "quantity")
     d_received_qty = _pick(d_cols, "received_qty")
-    d_notice = _pick(d_cols, "notice")
+    d_notice = _pick(d_cols, "notes", "notice")
+
+    # branch_order_lines is NOT cleared on an incremental cycle: only
+    # _wipe_destination lists it, and the 5-minute path runs
+    # _wipe_branch_rows / _wipe_branch_sales_window, neither of which touches
+    # it. Re-inserting the full detail set every cycle would therefore repeat
+    # the header bloat at 62,229 rows a cycle, so load lines only for orders
+    # that hold none yet. That backfills the already-mirrored headers on the
+    # first cycle and is a no-op after, which is also what the header loader
+    # does -- a known order is skipped, never updated.
+    have_lines = {
+        oid for (oid,) in dst.execute(select(m.BranchOrderLine.order_id).distinct()).all()
+    }
 
     d_rows = src.execute(text("SELECT * FROM Branch_order_details")).mappings().all()
     line_objs = []
@@ -1571,6 +1628,8 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
         order_id = h_map.get(src_order_id)
         if not order_id:
             continue  # orphan line (no matching header)
+        if order_id in have_lines:
+            continue  # this order's lines are already mirrored
         src_pid = int(r[d_product_id]) if d_product_id and r.get(d_product_id) is not None else None
         dst_pid = product_map.get(src_pid)
         if not dst_pid:
@@ -1591,6 +1650,7 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
 
     counts["branch_orders"] = len(header_objs)
     counts["branch_orders_duplicates_skipped"] = n_dupes
+    counts["branch_order_lines"] = len(line_objs)
 
 
 def _load_sales(
@@ -2846,9 +2906,8 @@ def _mirror_one_raw_table(insp, src, dst, tbl: str, bm: dict[int, int] | None = 
     # -- wholesale refresh: keyless, small, or no column safe to read forward on
     if not forward:
         dst.execute(text("DELETE FROM estock_raw_mirror WHERE source_table = :t"), {"t": tbl})
-        rows = src.execute(text("SELECT * FROM " + tbl)).mappings().all()
         seen: set = set()
-        for row in rows:
+        for row in src.stream(text("SELECT * FROM " + tbl)):
             digest = _row_digest(row)
             sid = _raw_key(row, pk_cols) if pk_cols else None
             dedup = sid if pk_cols else digest
@@ -2978,13 +3037,26 @@ def _load_uncovered_tables(insp, src, dst, counts: dict,
         if not insp.has_table(tbl):
             continue
         bm = _source_table_branch_id(insp, src, tbl, branch_map, default_branch_id)
-        sp = dst.begin_nested()
-        try:
-            n = _mirror_one_raw_table(insp, src, dst, tbl, bm, max_ref)
-            sp.commit()
-        except Exception as exc:
-            sp.rollback()
-            failed.append(f"{tbl}: {type(exc).__name__}")
+        # _mirror_one_raw_table streams its source rows, which trades the
+        # mid-scan retry for bounded memory (see _ResilientSource.stream), so a
+        # dropped connection is repaired HERE instead: the SAVEPOINT is rolled
+        # back first, so re-running the table reads it from a clean slate.
+        n = None
+        for attempt in range(1, _RETRY_ATTEMPTS + 1):
+            sp = dst.begin_nested()
+            try:
+                n = _mirror_one_raw_table(insp, src, dst, tbl, bm, max_ref)
+                sp.commit()
+                break
+            except Exception as exc:
+                sp.rollback()
+                if _is_comm_error(exc) and attempt < _RETRY_ATTEMPTS:
+                    time.sleep(_RETRY_BACKOFF_SECONDS * attempt)
+                    continue
+                failed.append(f"{tbl}: {type(exc).__name__}")
+                n = None
+                break
+        if n is None:  # 0 is a real result (empty table); only None means failed
             continue
         mirrored += 1
         total_new += n

@@ -51,6 +51,7 @@ from app.db.migrate import (
     ensure_prescription_status_columns,
     ensure_product_classification_columns,
     ensure_product_unit_columns,
+    ensure_sync_cycle_columns,
     ensure_role_column,
     ensure_roster,
     ensure_shelf_location_column,
@@ -79,6 +80,7 @@ async def lifespan(_app: FastAPI):
     ensure_titan_match_columns(engine)
     ensure_titan_drug_columns(engine)
     ensure_product_unit_columns(engine)
+    ensure_sync_cycle_columns(engine)
     ensure_product_classification_columns(engine)
     ensure_customer_address_column(engine)
     ensure_branch_names_corrected(engine)  # السنطة / مسهلة spelling fix

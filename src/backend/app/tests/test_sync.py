@@ -8,6 +8,8 @@ runs against SQL Server / the real eStock on a host that can reach it.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 from sqlalchemy import create_engine, func, select
 
@@ -513,3 +515,67 @@ def test_customers_only_flag_survives_config_read(tmp_path, monkeypatch):
     assert by_name["mashala"]["sync_mode"] == "customers_only"
     # The main server carries no mode at all — it must take the full path.
     assert "sync_mode" not in by_name["elsanta"]
+
+
+def test_interrupted_full_cycle_forces_a_full_reload(estock_source, monkeypatch):
+    """A cycle killed between the wipe and its commit must not be mistaken for a
+    finished one.
+
+    The loaders commit per chunk, so the wipe is durable long before the reload
+    is. Before the guard, ``full_synced_at`` still pointed at the earlier good
+    run, so the next cycle went incremental and repaired only the trailing
+    window — the older history stayed missing and the dashboard reported the
+    hole as fact.
+    """
+    monkeypatch.setenv("SYNC_INCREMENTAL_DAYS", "7")
+    try:
+        # A good full load first: this is what sets full_synced_at.
+        res1 = sync.run_once(source_engine=estock_source)
+        assert res1["counts"]["source"]["sync_mode"] == "branch_full"
+
+        # Simulate a cycle that died mid-flight: the durable marker survives,
+        # every other bookkeeping field still says the last full load was fine.
+        with SessionLocal() as s:
+            row = s.get(m.SyncState, "source")
+            assert row.cycle_started_at is None, "a completed cycle must clear its marker"
+            row.cycle_started_at = datetime.utcnow()
+            row.cycle_mode = "full"
+            s.commit()
+
+        # The damage is visible to callers instead of silently reported as ok.
+        st = sync.status()
+        assert st["mirror_partial"] is True
+        assert st["mirror_partial_sources"] == ["source"]
+
+        # And the recovery cycle is a FULL reload, not the incremental window
+        # that would have left the older history missing.
+        res2 = sync.run_once(source_engine=estock_source)
+        assert res2["counts"]["source"]["sync_mode"] == "branch_full"
+
+        # Once it commits, the mirror is whole again and the flag clears.
+        with SessionLocal() as s:
+            assert s.get(m.SyncState, "source").cycle_started_at is None
+        assert sync.status()["mirror_partial"] is False
+    finally:
+        reset_and_seed()
+
+
+def test_interrupted_incremental_cycle_stays_incremental(estock_source, monkeypatch):
+    """An interrupted INCREMENTAL cycle only ever wiped its own trailing window,
+    which the next incremental repairs — so it must not escalate to a full
+    history re-pull over the flaky WAN."""
+    monkeypatch.setenv("SYNC_INCREMENTAL_DAYS", "7")
+    try:
+        sync.run_once(source_engine=estock_source)
+        with SessionLocal() as s:
+            row = s.get(m.SyncState, "source")
+            row.cycle_started_at = datetime.utcnow()
+            row.cycle_mode = "incremental(7d)"
+            s.commit()
+
+        assert sync.status()["mirror_partial"] is True
+        res = sync.run_once(source_engine=estock_source)
+        assert res["counts"]["source"]["sync_mode"] == "incremental(7d)"
+        assert sync.status()["mirror_partial"] is False
+    finally:
+        reset_and_seed()
