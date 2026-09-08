@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>أم أدهم - جدول النظافة اليومي</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0D7377 0%, #143B5A 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .logo-text {
+            font-size: 12px;
+            margin-top: 10px;
+            opacity: 0.8;
+        }
+
+        .content {
+            padding: 30px 20px;
+        }
+
+        .date-info {
+            background: #f0f8ff;
+            border-right: 4px solid #0D7377;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 4px;
+        }
+
+        .time-shift {
+            font-size: 18px;
+            font-weight: 600;
+            color: #143B5A;
+            margin-bottom: 5px;
+        }
+
+        .date-label {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            background: #0D7377;
+            color: white;
+            padding: 12px 15px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-icon {
+            font-size: 20px;
+        }
+
+        .checklist {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .checklist-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-top: 2px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .checklist-item label {
+            cursor: pointer;
+            flex: 1;
+            font-size: 15px;
+            color: #333;
+        }
+
+        .notes-box {
+            background: #fff3cd;
+            border-right: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+
+        .notes-title {
+            font-weight: 600;
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .notes-text {
+            font-size: 14px;
+            color: #856404;
+            line-height: 1.6;
+        }
+
+        .footer {
+            background: #f5f5f5;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .signature-area {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+
+        .signature-row {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+        }
+
+        .signature-box {
+            text-align: center;
+            width: 200px;
+        }
+
+        .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 40px;
+            margin-bottom: 5px;
+            height: 30px;
+        }
+
+        .signature-label {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .priority-high {
+            background: #ffe6e6;
+            border-right: 4px solid #dc3545;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+
+        .en-text {
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <h1>📋 جدول النظافة اليومي</h1>
+            <p>صيدليات بروكير — الفرع الأول</p>
+            <p class="logo-text">ProCare Pharmacies — Branch 1 Daily Cleaning Checklist</p>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div class="content">
+            <!-- DATE & TIME -->
+            <div class="date-info">
+                <div class="time-shift">⏰ الساعة 10 ص - 3 م</div>
+                <div class="date-label en-text">10:00 AM - 3:00 PM Daily (Sat - Thu)</div>
+            </div>
+
+            <!-- MORNING TASKS (10 AM - 12 PM) -->
+            <div class="section">
+                <div class="section-title">
+                    <span class="section-icon">🌅</span>
+                    <span>المرحلة الأولى: الصباح (10 ص - 12 ص)</span>
+                </div>
+                <div class="checklist">
+                    <div class="checklist-item priority-high">
+                        <input type="checkbox" id="item1">
+                        <label for="item1"><strong>تنظيف الأرضيات:</strong> مسح جميع الأرضيات بالماء والمنظف، بما في ذلك الزوايا والرفوف السفلى</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item2">
+                        <label for="item2"><strong>تنظيف الواجهات الزجاجية:</strong> الأبواب والنوافذ والفترينات</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item3">
+                        <label for="item3"><strong>تنظيف الرفوف:</strong> مسح جميع الرفوف وترتيب المنتجات (بدون تحريك الأسعار)</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item4">
+                        <label for="item4"><strong>تنظيف الكاونترات:</strong> كاونتر الصيدلي، كاونتر الكاشير، أسطح العمل</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item5">
+                        <label for="item5"><strong>تفريغ سلات القمامة:</strong> في المناطق الأمامية والخلفية</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MIDDAY TASKS (12 PM - 2 PM) -->
+            <div class="section">
+                <div class="section-title">
+                    <span class="section-icon">☀️</span>
+                    <span>المرحلة الثانية: الظهيرة (12 ص - 2 م)</span>
+                </div>
+                <div class="checklist">
+                    <div class="checklist-item priority-high">
+                        <input type="checkbox" id="item6">
+                        <label for="item6"><strong>تنظيف المرحاض:</strong> تنظيف شامل + تعقيم المقابض والأسطح</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item7">
+                        <label for="item7"><strong>تنظيف منطقة الانتظار:</strong> الكراسي والطاولات والأرضية</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item8">
+                        <label for="item8"><strong>تنظيف المدخل والممرات:</strong> كسح وتنظيف الأرضية</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item9">
+                        <label for="item9"><strong>إعادة ترتيب المنتجات المشتتة:</strong> تجميع الأشياء المتناثرة وإرجاعها لأماكنها</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item10">
+                        <label for="item10"><strong>تنظيف الأجهزة (AC/معدات):</strong> مسح الأتربة من المروحات والأجهزة</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AFTERNOON TASKS (2 PM - 3 PM) -->
+            <div class="section">
+                <div class="section-title">
+                    <span class="section-icon">🌤️</span>
+                    <span>المرحلة الثالثة: العصر (2 م - 3 م) - التفقد النهائي</span>
+                </div>
+                <div class="checklist">
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item11">
+                        <label for="item11"><strong>الكسح النهائي:</strong> كسح أي أتربة متبقية من الأرضية</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item12">
+                        <label for="item12"><strong>تنظيف الواجهات:</strong> تلميع الزجاج والمرايا من جديد</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="item13">
+                        <label for="item13"><strong>ملء أدوات التنظيف:</strong> التأكد من توفر الورق والمناشف والصابون</label>
+                    </div>
+                    <div class="checklist-item priority-high">
+                        <input type="checkbox" id="item14">
+                        <label for="item14"><strong>التفقد النهائي:</strong> التحقق من أن كل شيء نظيف وفي مكانه</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- IMPORTANT NOTES -->
+            <div class="notes-box">
+                <div class="notes-title">⚠️ ملاحظات مهمة:</div>
+                <div class="notes-text">
+                    ✓ <strong>لا تلمسي المنتجات:</strong> فقط نظفي حول المنتجات وليس عليها<br>
+                    ✓ <strong>استخدمي المنتجات الآمنة:</strong> استخدمي المنظفات المعتمدة فقط<br>
+                    ✓ <strong>الحفاظ على السرية:</strong> لا تتحدثي عن أسعار أو معلومات الصيدلة<br>
+                    ✓ <strong>تجنب التشويش:</strong> نظفي في أوقات الهدوء قدر الإمكان<br>
+                    ✓ <strong>الأمان أولاً:</strong> كوني حذرة مع المواد الكيمياوية والأرضيات الرطبة
+                </div>
+            </div>
+
+            <!-- SUPPLIES NEEDED -->
+            <div class="section">
+                <div class="section-title">
+                    <span class="section-icon">🧹</span>
+                    <span>المستلزمات المطلوبة</span>
+                </div>
+                <div class="checklist">
+                    <div class="checklist-item">
+                        <input type="checkbox" id="supply1" disabled checked>
+                        <label for="supply1" style="opacity: 0.7;">ممسحة + دلو ماء</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="supply2" disabled checked>
+                        <label for="supply2" style="opacity: 0.7;">مكنسة وجاروف</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="supply3" disabled checked>
+                        <label for="supply3" style="opacity: 0.7;">مناديل وممسحات</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="supply4" disabled checked>
+                        <label for="supply4" style="opacity: 0.7;">مستحضرات التعقيم</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="supply5" disabled checked>
+                        <label for="supply5" style="opacity: 0.7;">قفازات وكمامة</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="supply6" disabled checked>
+                        <label for="supply6" style="opacity: 0.7;">سلات القمامة</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SIGNATURE AREA -->
+            <div class="signature-area">
+                <div class="signature-row">
+                    <div class="signature-box">
+                        <div class="signature-label">التوقيع — Signature</div>
+                        <div class="signature-line"></div>
+                    </div>
+                    <div class="signature-box">
+                        <div class="signature-label">التاريخ — Date</div>
+                        <div class="signature-line"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            صيدليات بروكير — شكراً لحرصك على نظافة الفرع 💚<br>
+            ProCare Pharmacies — Thank you for keeping our branch clean! 💚
+        </div>
+    </div>
+</body>
+</html>

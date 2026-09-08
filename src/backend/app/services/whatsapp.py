@@ -358,6 +358,40 @@ def tomorrow_schedule_message() -> str:
     return "\n".join(lines)
 
 
+def um_adham_daily_checklist_message() -> str:
+    """Daily cleaning checklist reminder for Um Adham (النظافة)."""
+    return (
+        "🧹 *جدول النظافة اليومي — Daily Cleaning Checklist*\n"
+        "صيدليات بروكير — الفرع الأول\n\n"
+        "📅 *اليوم / Today:* " + datetime.now().strftime("%A / %d/%m/%Y") + "\n"
+        "⏰ *الساعة / Time:* 10:00 AM - 3:00 PM\n\n"
+        "*المرحلة الأولى 🌅 (10 ص - 12 ص) — Morning Phase:*\n"
+        "✓ تنظيف الأرضيات (Floor cleaning)\n"
+        "✓ تنظيف الزجاج والواجهات (Glass & windows)\n"
+        "✓ تنظيف الرفوف (Shelves)\n"
+        "✓ تنظيف الكاونترات (Counters)\n"
+        "✓ تفريغ القمامة (Trash)\n\n"
+        "*المرحلة الثانية ☀️ (12 ص - 2 م) — Midday Phase:*\n"
+        "✓ تنظيف المرحاض (Restroom)\n"
+        "✓ تنظيف منطقة الانتظار (Waiting area)\n"
+        "✓ تنظيف المدخل (Entrance)\n"
+        "✓ إعادة ترتيب المنتجات (Reorder items)\n"
+        "✓ تنظيف الأجهزة (Equipment)\n\n"
+        "*المرحلة الثالثة 🌤️ (2 م - 3 م) — Final Phase:*\n"
+        "✓ الكسح النهائي (Final sweep)\n"
+        "✓ تلميع الزجاج (Polish glass)\n"
+        "✓ ملء المستلزمات (Restock supplies)\n"
+        "✓ التفقد النهائي (Final check)\n\n"
+        "📋 *ملاحظات مهمة / Important Notes:*\n"
+        "• لا تلمسي المنتجات (Don't touch products)\n"
+        "• استخدمي المنظفات الآمنة (Use safe cleaners)\n"
+        "• احرسي على السرية (Keep confidentiality)\n"
+        "• الأمان أولاً (Safety first)\n\n"
+        "شكراً لك! 💚 Thank you!\n"
+        "بروكير — صيدليات بروكير"
+    )
+
+
 def sop_announcement_message(sop_code: str, title_ar: str, summary_ar: str) -> str:
     """Announce a new/updated SOP to the staff group."""
     return (
