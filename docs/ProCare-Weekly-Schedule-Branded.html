@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>جدول صيدليات بروكير الأسبوعي</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        /* HEADER WITH LOGO & BRANDING */
+        .header {
+            background: linear-gradient(135deg, #0D7377 0%, #143B5A 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+            border-bottom: 4px solid #2ECC71;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .logo-icon {
+            font-size: 48px;
+            line-height: 1;
+        }
+
+        .logo-text {
+            text-align: left;
+        }
+
+        .company-name {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .tagline {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+
+        .schedule-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-top: 20px;
+            border-top: 2px solid rgba(255, 255, 255, 0.3);
+            padding-top: 15px;
+        }
+
+        /* CONTENT SECTION */
+        .content {
+            padding: 40px 30px;
+        }
+
+        .branch-section {
+            margin-bottom: 50px;
+        }
+
+        .branch-title {
+            background: #0D7377;
+            color: white;
+            padding: 15px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .branch-icon {
+            font-size: 22px;
+        }
+
+        /* SCHEDULE TABLE */
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .schedule-table thead {
+            background: #143B5A;
+            color: white;
+        }
+
+        .schedule-table th {
+            padding: 15px 12px;
+            text-align: center;
+            font-weight: 600;
+            border: 1px solid #0D7377;
+            font-size: 14px;
+        }
+
+        .schedule-table td {
+            padding: 14px 12px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .schedule-table tr:nth-child(even) {
+            background: #f9fafb;
+        }
+
+        .schedule-table tr:hover {
+            background: #e8f5f9;
+        }
+
+        /* DAY COLUMN */
+        .day-cell {
+            background: linear-gradient(135deg, #0D7377 0%, #2ECC71 100%);
+            color: white !important;
+            font-weight: 600;
+            text-align: right;
+            padding-right: 15px;
+        }
+
+        /* STAFF NAME STYLING */
+        .staff-name {
+            font-weight: 600;
+            color: #143B5A;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .shift-time {
+            font-size: 12px;
+            color: #666;
+            display: block;
+        }
+
+        .shift-time.morning {
+            color: #E67E22;
+        }
+
+        .shift-time.afternoon {
+            color: #3498DB;
+        }
+
+        .shift-time.night {
+            color: #9B59B6;
+        }
+
+        .shift-time.cleaning {
+            color: #27AE60;
+        }
+
+        .shift-time.late-night {
+            color: #34495E;
+        }
+
+        .day-off {
+            background: #FFE5E5;
+            color: #C0392B;
+            font-weight: 600;
+        }
+
+        /* COVERAGE GUARANTEE SECTION */
+        .coverage-section {
+            background: #E8F5F9;
+            border-right: 4px solid #0D7377;
+            padding: 20px;
+            border-radius: 4px;
+            margin-top: 30px;
+        }
+
+        .coverage-title {
+            color: #0D7377;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+
+        .coverage-list {
+            list-style: none;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .coverage-list li {
+            padding-left: 25px;
+            position: relative;
+            color: #333;
+            font-size: 13px;
+        }
+
+        .coverage-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #2ECC71;
+            font-weight: 700;
+        }
+
+        /* LEGEND */
+        .legend-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #F5F5F5;
+            border-radius: 4px;
+        }
+
+        .legend-title {
+            color: #143B5A;
+            font-weight: 700;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .legend-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .legend-box {
+            width: 24px;
+            height: 24px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+        }
+
+        .legend-morning { background: linear-gradient(135deg, #F39C12, #E67E22); }
+        .legend-midday { background: linear-gradient(135deg, #3498DB, #2980B9); }
+        .legend-evening { background: linear-gradient(135deg, #E67E22, #D35400); }
+        .legend-night { background: linear-gradient(135deg, #9B59B6, #8E44AD); }
+        .legend-cleaning { background: linear-gradient(135deg, #27AE60, #229954); }
+        .legend-latenight { background: linear-gradient(135deg, #34495E, #2C3E50); }
+
+        /* FOOTER */
+        .footer {
+            background: #143B5A;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            margin-top: 30px;
+        }
+
+        .footer-text {
+            margin: 5px 0;
+        }
+
+        .footer-logo {
+            font-size: 18px;
+            margin: 10px 0;
+        }
+
+        /* PRINT STYLES */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+            }
+            .schedule-table tr:hover {
+                background: #e8f5f9;
+            }
+        }
+
+        .en-text {
+            font-family: Arial, sans-serif;
+        }
+
+        /* UTILITIES */
+        .text-center {
+            text-align: center;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .mt-30 {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER WITH LOGO -->
+        <div class="header">
+            <div class="logo-section">
+                <div class="logo-icon">💊</div>
+                <div class="logo-text">
+                    <div class="company-name">صيدليات بروكير</div>
+                    <div class="tagline en-text">ProCare Pharmacies</div>
+                </div>
+            </div>
+            <div class="schedule-title">📅 الجدول الأسبوعي 2026</div>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div class="content">
+            <!-- BRANCH 1 SCHEDULE -->
+            <div class="branch-section">
+                <div class="branch-title">
+                    <span class="branch-icon">🏥</span>
+                    <span>الفرع الأول — Branch 1</span>
+                </div>
+
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>اليوم / Day</th>
+                            <th>الصيدلانية الصباحية / Morning Pharma</th>
+                            <th>الصيدلانية الوسطى / Midday Pharma</th>
+                            <th>الصيدلاني المسائي / Evening Pharma</th>
+                            <th>الليلي / Night Staff</th>
+                            <th>الليلي المتأخر / Late Night</th>
+                            <th>النظافة / Cleaning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="day-cell">السبت<br><span class="en-text">Saturday</span></td>
+                            <td><span class="staff-name">ندى</span><span class="shift-time morning">8 ص - 4 م</span></td>
+                            <td><span class="staff-name">نور</span><span class="shift-time afternoon">12 ص - 8 م</span></td>
+                            <td><span class="staff-name">يوسف</span><span class="shift-time evening">4 - 12 م</span></td>
+                            <td><span class="staff-name">عبدالله</span><span class="shift-time night">8 م - 4 ص</span></td>
+                            <td><span class="staff-name">كريم</span><span class="shift-time late-night">12 ص - 8 ص</span></td>
+                            <td><span class="staff-name">أم أدهم</span><span class="shift-time cleaning">10 ص - 3 م</span></td>
+                        </tr>
+                        <tr>
+                            <td class="day-cell">الأحد<br><span class="en-text">Sunday</span></td>
+                            <td><span class="staff-name">ندى</span><span class="shift-time morning">8 ص - 4 م</span></td>
+                            <td><span class="staff-name">نور</span><span class="shift-time afternoon">12 ص - 8 م</span></td>
+                            <td><span class="staff-name">يوسف</span><span class="shift-time evening">4 - 12 م</span></td>
+                            <td><span class="staff-name">عبدالله</span><span class="shift-time night">8 م - 4 ص</span></td>
+                            <td><span class="staff-name">كريم</span><span class="shift-time late-night">12 ص - 8 ص</span></td>
+                            <td><span class="staff-name">أم أدهم</span><span class="shift-time cleaning">10 ص - 3 م</span></td>
+                        </tr>
+                        <tr>
+                            <td class="day-cell">الاثنين<br><span class="en-text">Monday</span></td>
+                            <td><span class="staff-name">ندى</span><span class="shift-time morning">8 ص - 4 م</span></td>
+                            <td><span class="staff-name">نور</span><span class="shift-time afternoon">12 ص - 8 م</span></td>
+                            <td class="day-off">إجازة</td>
+                            <td><span class="staff-name">عبدالله</span><span class="shift-time night">8 م - 4 ص</span></td>
+                            <td><span class="staff-name">كريم</span><span class="shift-time late-night">12 ص - 8 ص</span></td>
+                            <td><span class="staff-name">أم أدهم</span><span class="shift-time cleaning">10 ص - 3 م</span></td>
+                        </tr>
+                        <tr>
+                            <td class="day-cell">الثلاثاء<br><span class="en-text">Tuesday</span></td>
+                            <td><span class="staff-name">ندى</span><span class="shift-time morning">مسهلة ر2</span></td>
+                            <td><span class="staff-name">نور</span><span class="shift-time afternoon">12 ص - 8 م</span></td>
+                            <td><span class="staff-name">يوسف</span><span class="shift-time evening">6 م - 2 ص</span></td>
+                            <td><span class="staff-name">عبدالله</span><span class="shift-time night">8 - 4</span></td>
+                            <td><span class="staff-name">كريم</span><span class="shift-time late-night">12 ص - 8 ص</span></td>
+                            <td><span class="staff-name">أم أدهم</span><span class="shift-time cleaning">10 ص - 3 م</span></td>
+                        </tr>
+                        <tr>
+                            <td class="day-cell">الأربعاء<br><span class="en-text">Wednesday</span></td>
+                            <td class="day-off">إجازة</td>
+                            <td><span class="staff-name">نور</span><span class="shift-time afternoon">12 ص - 8 م</span></td>
+                            <td><span class="staff-name">يوسف</span><span class="shift-time evening">6 م - 2 ص</span></td>
+                            <td><span class="staff-name">عبدالله</span><span class="shift-time night">متغير</span></td>
+                            <td><span class="staff-name">كريم</span><span class="shift-time late-night">12 ص - 8 ص</span></td>
+                            <td><span class="staff-name">أم أدهم</span><span class="shift-time cleaning">10 ص - 3 م</span></td>
+                        </tr>
+                        <tr>
+                            <td class="day-cell">الخميس<br><span class="en-text">Thursday</span></td>
+                            <td><span class="staff-name">ندى</span><span class="shift-time morning">8 ص - 4 م</span></td>
+                            <td class="day-off">إجازة</td>
+                            <td><span class="staff-name">يوسف</span><span class="shift-time evening">4 - 12 م</span></td>
+                            <td><span class="staff-name">عبدالله</span><span class="shift-time night">8 م - 4 ص</span></td>
+                            <td><span class="staff-name">كريم</span><span class="shift-time late-night">12 ص - 8 ص</span></td>
+                            <td><span class="staff-name">أم أدهم</span><span class="shift-time cleaning">10 ص - 3 م</span></td>
+                        </tr>
+                        <tr>
+                            <td class="day-cell">الجمعة<br><span class="en-text">Friday</span></td>
+                            <td><span class="staff-name">ندى</span><span class="shift-time morning">8 ص - 4 م</span></td>
+                            <td><span class="staff-name">نور</span><span class="shift-time afternoon">12 ص - 8 م</span></td>
+                            <td><span class="staff-name">يوسف</span><span class="shift-time evening">4 - 12 م</span></td>
+                            <td class="day-off">إجازة</td>
+                            <td class="day-off">إجازة</td>
+                            <td class="day-off">إجازة</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- BRANCH 2 SCHEDULE -->
+            <div class="branch-section">
+                <div class="branch-title">
+                    <span class="branch-icon">🏥</span>
+                    <span>الفرع الثاني — Branch 2</span>
+                </div>
+
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>اليوم / Day</th>
+                            <th>الصباح / Morning</th>
+                            <th>المساء / Evening</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="day-cell">السبت - الجمعة<br><span class="en-text">Sat - Fri</span></td>
+                            <td><span class="staff-name">ريم</span><span class="shift-time morning">8 ص - 4 م</span><br><span style="font-size:11px; color:#999;">الثلاثاء: ندى (مسهلة)</span></td>
+                            <td><span class="staff-name">عفاف (المديرة)</span><span class="shift-time afternoon">4 - 12 م</span><br><span style="font-size:11px; color:#999;">بدون إجازات</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- COVERAGE GUARANTEES -->
+            <div class="coverage-section">
+                <div class="coverage-title">📊 ضمانات التغطية / Coverage Guarantees</div>
+                <ul class="coverage-list">
+                    <li><strong>ساعات العمل:</strong> الاثنين-الخميس: 8 ص-4 ص | الجمعة: 8 ص-12 ا</li>
+                    <li><strong>ساعات الذروة (12 ص-8 م):</strong> 71.1% من المبيعات اليومية</li>
+                    <li><strong>حد أدنى 2 صيدلاني:</strong> طول ساعات الذروة كل يوم</li>
+                    <li><strong>تغطية ليلية:</strong> 8 م - 8 ص بدون فجوات (عبدالله + كريم)</li>
+                    <li><strong>أيام إجازات مختلفة:</strong> لا يوجد يومان معاً</li>
+                    <li><strong>نظافة يومية:</strong> 10 ص - 3 م (6 أيام، الجمعة إجازة)</li>
+                </ul>
+            </div>
+
+            <!-- LEGEND -->
+            <div class="legend-section">
+                <div class="legend-title">مفتاح الألوان / Shift Color Legend</div>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <div class="legend-box legend-morning"></div>
+                        <span>صباحي (8 ص - 4 م) | Morning</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-box legend-midday"></div>
+                        <span>وسط (12 ص - 8 م) | Midday</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-box legend-evening"></div>
+                        <span>مسائي (4 - 12 م) | Evening</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-box legend-night"></div>
+                        <span>ليلي (8 م - 4 ص) | Night</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-box legend-latenight"></div>
+                        <span>ليلي متأخر (12 ص - 8 ص) | Late Night</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-box legend-cleaning"></div>
+                        <span>نظافة (10 ص - 3 م) | Cleaning</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            <div class="footer-logo">💚 صيدليات بروكير | ProCare Pharmacies</div>
+            <div class="footer-text">الجودة والصحة أولاً | Quality & Care First</div>
+            <div class="footer-text" style="font-size: 11px; margin-top: 15px; opacity: 0.8;">
+                الجدول الأسبوعي لعام 2026 | Weekly Schedule 2026<br>
+                تم الطباعة بتاريخ: <span id="printDate"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set current date
+        document.getElementById('printDate').textContent = new Date().toLocaleDateString('ar-EG', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    </script>
+</body>
+</html>
