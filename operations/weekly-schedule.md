@@ -30,6 +30,7 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 | Evening (مسائي) | 4:00 PM - 12:00 AM | 8h | Youssef (5 days) |
 | Extended Evening (مسائي ليلي) | 6:00 PM - 2:00 AM | 8h | Youssef (Tue/Wed) |
 | Night (ليلي) | 8:00 PM - 4:00 AM | 8h | Abdalla (varies with Youssef) |
+| Late Night (ليلي متأخر) | 12:00 AM - 8:00 AM | 8h | Karim Mohy (نوبة إضافية) |
 
 ### Overlap Windows (peak coverage)
 
@@ -40,15 +41,15 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 
 ### Weekly Schedule
 
-| Day | Nada | Nour | Youssef | Abdalla | Um Adham (Cleaning) |
-|-----|------|------|---------|---------|-----------------|
-| السبت Sat | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | 8م-4ص ليلي | 10ص-3م |
-| الأحد Sun | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | 8م-4ص ليلي | 10ص-3م |
-| الاثنين Mon | 8-4 صباحي | 12-8 وسط | **OFF إجازة** | 8م-4ص ليلي | 10ص-3م |
-| الثلاثاء Tue | مسهلة ر2 (الفرع الثاني) | 12-8 وسط | 6م-2ص مسائي ليلي | 8-4 صباحي (تغطية) | 10ص-3م |
-| الأربعاء Wed | **OFF إجازة** | 12-8 وسط | 6م-2ص مسائي ليلي | يتحدد حسب الوردية | 10ص-3م |
-| الخميس Thu | 8-4 صباحي | **OFF إجازة** | 4-12 مسائي | 8م-4ص ليلي | 10ص-3م |
-| الجمعة Fri | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | **OFF إجازة** | **OFF إجازة** |
+| Day | Nada | Nour | Youssef | Abdalla | Karim Mohy | Um Adham (Cleaning) |
+|-----|------|------|---------|---------|-----------|-----------------|
+| السبت Sat | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | 8م-4ص ليلي | 12ص-8 ليلي متأخر | 10ص-3م |
+| الأحد Sun | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | 8م-4ص ليلي | 12ص-8 ليلي متأخر | 10ص-3م |
+| الاثنين Mon | 8-4 صباحي | 12-8 وسط | **OFF إجازة** | 8م-4ص ليلي | 12ص-8 ليلي متأخر | 10ص-3م |
+| الثلاثاء Tue | مسهلة ر2 (الفرع الثاني) | 12-8 وسط | 6م-2ص مسائي ليلي | 8-4 صباحي (تغطية) | 12ص-8 ليلي متأخر | 10ص-3م |
+| الأربعاء Wed | **OFF إجازة** | 12-8 وسط | 6م-2ص مسائي ليلي | يتحدد حسب الوردية | 12ص-8 ليلي متأخر | 10ص-3م |
+| الخميس Thu | 8-4 صباحي | **OFF إجازة** | 4-12 مسائي | 8م-4ص ليلي | 12ص-8 ليلي متأخر | 10ص-3م |
+| الجمعة Fri | 8-4 صباحي | 12-8 وسط | 4-12 مسائي | **OFF إجازة** | **OFF إجازة** | **OFF إجازة** |
 
 **Tuesday Coverage (Nada's Mashala at Branch 2):** Nada goes to Branch 2 for morning coverage as مسهلة ر2. Abdalla covers Branch 1 morning (8 AM - 4 PM) to ensure continuity.
 
@@ -62,6 +63,7 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 | Nour | 48h | Thursday | Midday shift 12-8 (covers peak hours 12 PM - 8 PM daily) |
 | Youssef | 48h | Monday | 5 days 4-12 PM (Mon, Thu, Fri, Sat, Sun) + 2 days 6 PM-2 AM (Tue, Wed); government work accommodation |
 | Abdalla | 48h | Friday | Varies: 8 PM-4 AM (nights), 8 AM-4 PM (Tuesday at Branch 1 when Nada at Branch 2) |
+| Karim Mohy (كريم محي) | 40h | Friday | Late-night shift 12 AM - 8 AM (6 days/week); covers 12 AM-4 AM overlap with Abdalla |
 | Um Adham (أم أدهم) | 30h | Friday | Cleaning: 10 AM - 3 PM (6 days/week) |
 
 ---
@@ -132,6 +134,14 @@ Based on analysis of **3,370 invoices over 5 years** of sales data.
 - **Overlap with Abdalla**: 8 PM - 12 AM (regular) / 8 PM - 2 AM (Tue, Wed)
 - **Tasks**: Evening peak coverage, evening sales, narcotics/controlled dispensing
 - **Key role**: Flexible split-shift (5 evenings + 2 extended nights) accommodates government work + peak coverage
+
+### Karim Mohy — كريم محي (Night Coverage)
+- **Shift**: Late-night 12 AM - 8 AM (6 days/week)
+- **Overlap with Abdalla**: 12 AM - 4 AM (4h) — night continuity
+- **Overlap with Nada**: 4 AM - 8 AM (4h) — morning handoff
+- **Tasks**: Late-night operations, emergency dispensing, stock monitoring, night security
+- **Day off**: Friday
+- **Key role**: Extended night coverage; ensures 24h pharmaceutical care + bridges night-to-morning shift
 
 ### Reem (Branch 2)
 - **Shift**: Morning 8 AM - 4 PM
