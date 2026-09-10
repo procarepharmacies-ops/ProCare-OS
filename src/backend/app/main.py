@@ -58,6 +58,7 @@ from app.db.migrate import (
     ensure_task_priority_columns,
     ensure_titan_match_columns,
     ensure_titan_drug_columns,
+    ensure_arabic_columns_unicode,
 )
 from app.db.seed import ensure_seeded
 from app.services import scheduler, sync
@@ -121,6 +122,12 @@ async def lifespan(_app: FastAPI):
     ensure_purchase_header_extra_columns(engine)
     # Phase 6: eStock Jobs master mirror (job titles / المسمى الوظيفي)
     ensure_job_source_columns(engine)
+    # Arabic integrity: this database's collation (SQL_Latin1_General_CP1_CI_AS)
+    # has no Arabic codepage, so a VARCHAR column silently stores '?' in place
+    # of every Arabic character AT WRITE TIME. Widen every text column that can
+    # carry Arabic to NVARCHAR. Must run before the sync thread starts, or the
+    # next mirror cycle writes another batch of '?'.
+    ensure_arabic_columns_unicode(engine)
     # Daily safety net: the pharmacy never opens without a fresh backup.
     #
     # Opt out with STARTUP_BACKUP=0 where a scheduled job already owns backups.

@@ -21,6 +21,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Unicode,
     UniqueConstraint,
     func,
 )
@@ -38,7 +39,7 @@ class Branch(Base):
 
     branch_id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(20), unique=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
     name_en: Mapped[str] = mapped_column(String(100))
     is_pilot: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -49,7 +50,7 @@ class Company(Base):
     __tablename__ = "companies"
 
     company_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(150))
+    name_ar: Mapped[str] = mapped_column(Unicode(150))
     name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
 
@@ -58,7 +59,7 @@ class ProductGroup(Base):
     __tablename__ = "product_groups"
 
     group_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
 
@@ -66,7 +67,7 @@ class Unit(Base):
     __tablename__ = "units"
 
     unit_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(50))
+    name_ar: Mapped[str] = mapped_column(Unicode(50))
     name_en: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
@@ -74,7 +75,7 @@ class CustomerClass(Base):
     __tablename__ = "customer_classes"
 
     customer_class_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(50))
+    name_ar: Mapped[str] = mapped_column(Unicode(50))
     name_en: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
@@ -84,7 +85,7 @@ class Product(Base):
     product_id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     fast_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    name_ar: Mapped[str] = mapped_column(String(150))
+    name_ar: Mapped[str] = mapped_column(Unicode(150))
     name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     titan_drug_id: Mapped[int | None] = mapped_column(nullable=True)
@@ -110,18 +111,18 @@ class Product(Base):
     # Units (وحدات الصنف): the big unit (علبة) subdivides into ``unit_factor``
     # small units (شريط/أمبول/كبسولة). Stock amounts are ALWAYS in big units;
     # selling one small unit deducts 1/unit_factor of a big unit.
-    unit_big: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    unit_small: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    unit_big: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
+    unit_small: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
     unit_factor: Mapped[float] = mapped_column(Qty, default=1)
     # Classification (التصنيف): pharmaceutical form (أقراص/شراب/حقن/كريم…),
     # OTC vs prescription, and free-text uses/indications (الاستخدامات) — the
     # filter axes of the items screen alongside scientific name and shelf place.
-    dosage_form: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    dosage_form: Mapped[str | None] = mapped_column(Unicode(50), nullable=True)
     is_otc: Mapped[bool] = mapped_column(default=False)
-    uses: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    uses: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     # Merchandising: physical shelf/place code (eStock's Sites — 314 locations),
     # e.g. "A3", "رف الأطفال", "counter fridge".
-    shelf_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    shelf_location: Mapped[str | None] = mapped_column(Unicode(80), nullable=True)
     # Incentive points earned per unit sold (for OTC incentive list).
     incentive_points: Mapped[float] = mapped_column(Qty, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -150,7 +151,7 @@ class TitanDrug(Base):
     titan_drug_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
     # Nullable: the TITAN.349 build carries drugs with an Arabic name only.
     name_en: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    name_ar: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    name_ar: Mapped[str | None] = mapped_column(Unicode(60), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(40), nullable=True)
     scientific_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -174,10 +175,10 @@ class Customer(Base):
     __tablename__ = "customers"
 
     customer_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    address: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    address: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     customer_class_id: Mapped[int | None] = mapped_column(
         ForeignKey("customer_classes.customer_class_id"), nullable=True
     )
@@ -206,7 +207,7 @@ class Vendor(Base):
     __tablename__ = "vendors"
 
     vendor_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tel: Mapped[str | None] = mapped_column(String(20), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -230,7 +231,7 @@ class Job(Base):
     job_id: Mapped[int] = mapped_column(primary_key=True)
     source_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     code: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    name_ar: Mapped[str] = mapped_column(String(80))
+    name_ar: Mapped[str] = mapped_column(Unicode(80))
     name_en: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
@@ -238,7 +239,7 @@ class Employee(Base):
     __tablename__ = "employees"
 
     employee_id: Mapped[int] = mapped_column(primary_key=True)
-    name_ar: Mapped[str] = mapped_column(String(100))
+    name_ar: Mapped[str] = mapped_column(Unicode(100))
     name_en: Mapped[str | None] = mapped_column(String(100), nullable=True)
     username: Mapped[str] = mapped_column(String(50), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
@@ -335,7 +336,7 @@ class Sale(Base):
     # Back_sales_header -> Sales_header link).
     original_sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
     # Free-text note the cashier typed during the sale (prints on the receipt).
-    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     lines: Mapped[list["SaleLine"]] = relationship(back_populates="sale", cascade="all, delete-orphan")
@@ -495,7 +496,7 @@ class LedgerEntry(Base):
     # Named adjustment reason (eStock Tuning_accounts parity) — only set on
     # manual adjustment entries (ref_type='adjust'); NULL for machine postings.
     reason_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -549,7 +550,7 @@ class CashShiftClose(Base):
     actual_cash: Mapped[float] = mapped_column(Money, default=0)
     transferred_to_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     transfer_amount: Mapped[float] = mapped_column(Money, default=0)
-    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -573,7 +574,7 @@ class BranchOrderHeader(Base):
     order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     received_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/received/cancelled
-    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -591,7 +592,7 @@ class BranchOrderLine(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.product_id"))
     quantity: Mapped[float] = mapped_column(Qty, default=0)
     received_qty: Mapped[float] = mapped_column(Qty, default=0)
-    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
 
     __table_args__ = (
         Index("IX_orderline_product", "order_id", "product_id"),
@@ -607,8 +608,8 @@ class EmployeeTask(Base):
     __tablename__ = "employee_tasks"
 
     task_id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(200))
-    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    title: Mapped[str] = mapped_column(Unicode(200))
+    details: Mapped[str | None] = mapped_column(Unicode(1000), nullable=True)
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -682,8 +683,8 @@ class EmployeeGoal(Base):
 
     goal_id: Mapped[int] = mapped_column(primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.employee_id"))
-    title: Mapped[str] = mapped_column(String(200))
-    details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    title: Mapped[str] = mapped_column(Unicode(200))
+    details: Mapped[str | None] = mapped_column(Unicode(1000), nullable=True)
     category: Mapped[str] = mapped_column(String(20), default="performance")
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")
@@ -713,7 +714,7 @@ class LoyaltyTransaction(Base):
     sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.sale_id"), nullable=True)
     points_delta: Mapped[float] = mapped_column(Qty)  # + earn, - redeem/clawback
     kind: Mapped[str] = mapped_column(String(20))  # earn/redeem/clawback/adjust
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -737,12 +738,12 @@ class Prescription(Base):
     prescription_id: Mapped[int] = mapped_column(primary_key=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
-    doctor_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    doctor_name: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
     doctor_specialty: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    clinic: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    clinic: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
     # JSON array of {name, dose, frequency, duration} the reader extracted.
-    drugs_json: Mapped[str] = mapped_column(String(4000), default="[]")
-    raw_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    drugs_json: Mapped[str] = mapped_column(Unicode(4000), default="[]")
+    raw_text: Mapped[str | None] = mapped_column(Unicode(4000), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # gemini/manual
     # Workflow: captured (just read) -> reviewed (staff confirmed + matched to
     # catalogue products) -> dispensed (turned into a sale).
@@ -771,9 +772,9 @@ class ShortageItem(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.product_id"), nullable=True)
     # Free-text when the product isn't in the catalogue yet.
-    product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    product_name: Mapped[str | None] = mapped_column(Unicode(200), nullable=True)
     qty_requested: Mapped[float] = mapped_column(Qty, default=1)
-    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="open")  # open/ordered/received/cancelled
     reported_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -799,7 +800,7 @@ class TreasuryTransfer(Base):
     from_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     to_branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     amount: Mapped[float] = mapped_column(Money)
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -821,8 +822,8 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     campaign_id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120))
-    message: Mapped[str] = mapped_column(String(2000))
+    name: Mapped[str] = mapped_column(Unicode(120))
+    message: Mapped[str] = mapped_column(Unicode(2000))
     audience: Mapped[str] = mapped_column(String(20), default="all")
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/sent
     recipient_count: Mapped[int] = mapped_column(default=0)
@@ -849,7 +850,7 @@ class SocialPost(Base):
     post_id: Mapped[int] = mapped_column(primary_key=True)
     channel: Mapped[str] = mapped_column(String(20))  # fb / ig / wa-status
     title: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    body_ar: Mapped[str] = mapped_column(String(2000))
+    body_ar: Mapped[str] = mapped_column(Unicode(2000))
     body_en: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     image_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)  # URL or base64 ref
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft/approved/published
@@ -880,7 +881,7 @@ class PromoCode(Base):
 
     promo_code_id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(50), unique=True)
-    description_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    description_ar: Mapped[str | None] = mapped_column(Unicode(200), nullable=True)
     description_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
     discount_type: Mapped[str] = mapped_column(String(10))  # percentage / fixed
     discount_value: Mapped[float] = mapped_column(Money)  # % or EGP amount
@@ -919,7 +920,7 @@ class StockCount(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     count_type: Mapped[str] = mapped_column(String(10), default="full")  # full/periodic/partial
     status: Mapped[str] = mapped_column(String(10), default="open")  # open/posted/cancelled
-    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -950,7 +951,7 @@ class StockCountLine(Base):
     count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.count_id"))
     batch_id: Mapped[int] = mapped_column()
     product_id: Mapped[int] = mapped_column()
-    name_ar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    name_ar: Mapped[str | None] = mapped_column(Unicode(200), nullable=True)
     expected_qty: Mapped[float] = mapped_column(Qty, default=0)
     counted_qty: Mapped[float | None] = mapped_column(Qty, nullable=True)
     posted_delta: Mapped[float | None] = mapped_column(Qty, nullable=True)
@@ -1149,9 +1150,9 @@ class DecisionCard(Base):
         nullable=False
     )
     severity: Mapped[str] = mapped_column(String(20), default="info")
-    title_ar: Mapped[str] = mapped_column(String(256))
+    title_ar: Mapped[str] = mapped_column(Unicode(256))
     title_en: Mapped[str] = mapped_column(String(256))
-    body_ar: Mapped[str] = mapped_column(Text)
+    body_ar: Mapped[str] = mapped_column(Unicode())
     body_en: Mapped[str] = mapped_column(Text)
     action_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ref_product_id: Mapped[int | None] = mapped_column(ForeignKey("products.product_id"), nullable=True)
@@ -1194,7 +1195,7 @@ class CommissionRun(Base):
     total_sales: Mapped[float] = mapped_column(Money, default=0)
     total_commission: Mapped[float] = mapped_column(Money, default=0)
     status: Mapped[str] = mapped_column(String(20), default="posted")
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     posted_by: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -1302,11 +1303,11 @@ class Shareholder(Base):
     # eStock coow_id, kept so the ETL can upsert without duplicating on re-sync.
     source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)
     code: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    name_ar: Mapped[str] = mapped_column(String(150))
+    name_ar: Mapped[str] = mapped_column(Unicode(150))
     name_en: Mapped[str | None] = mapped_column(String(150), nullable=True)
     tel: Mapped[str | None] = mapped_column(String(30), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    address: Mapped[str | None] = mapped_column(Unicode(255), nullable=True)
     current_capital: Mapped[float] = mapped_column(Money, default=0)
     start_capital: Mapped[float] = mapped_column(Money, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -1363,7 +1364,7 @@ class GlAccount(Base):
     gl_account_id: Mapped[int] = mapped_column(primary_key=True)
     source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Account_Tree.account_id
     code: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    name_ar: Mapped[str] = mapped_column(String(200))
+    name_ar: Mapped[str] = mapped_column(Unicode(200))
     name_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
     parent_source_id: Mapped[int | None] = mapped_column(nullable=True)  # account_major, loose self-ref
     start_money: Mapped[float] = mapped_column(Money, default=0)
@@ -1399,7 +1400,7 @@ class GlJournalEntry(Base):
     to_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     to_id: Mapped[int | None] = mapped_column(nullable=True)
     form_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     computer_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     actual_cashier: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -1433,7 +1434,7 @@ class GlAdjustment(Base):
     who_id: Mapped[int | None] = mapped_column(nullable=True)  # party's eStock source id
     reason_source_id: Mapped[int | None] = mapped_column(nullable=True)  # Tuning_accounts_reason_id
     amount: Mapped[float] = mapped_column(Money, default=0)  # Tuning_accounts_money
-    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -1480,7 +1481,7 @@ class GlSubledgerBalance(Base):
     for_him: Mapped[float] = mapped_column(Money, default=0)
     for_me: Mapped[float] = mapped_column(Money, default=0)
     total: Mapped[float] = mapped_column(Money, default=0)
-    notes: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Unicode(150), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -1561,9 +1562,9 @@ class HeldInvoice(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.branch_id"))
     cashier_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
-    label: Mapped[str | None] = mapped_column(String(80), nullable=True)  # e.g. customer name / ticket
-    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    cart_json: Mapped[str] = mapped_column(Text)  # the cart lines, verbatim
+    label: Mapped[str | None] = mapped_column(Unicode(80), nullable=True)  # e.g. customer name / ticket
+    note: Mapped[str | None] = mapped_column(Unicode(300), nullable=True)
+    cart_json: Mapped[str] = mapped_column(Unicode())  # the cart lines, verbatim
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -1633,7 +1634,7 @@ class EstockRawMirror(Base):
     row_id: Mapped[int] = mapped_column(primary_key=True)
     source_table: Mapped[str] = mapped_column(String(100), nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    raw: Mapped[str] = mapped_column(Text, nullable=False)
+    raw: Mapped[str] = mapped_column(Unicode(), nullable=False)
     branch_id: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 

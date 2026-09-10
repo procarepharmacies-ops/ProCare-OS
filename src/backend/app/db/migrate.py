@@ -8,6 +8,7 @@ column. Run once at startup, idempotent, safe on SQLite and SQL Server.
 """
 from __future__ import annotations
 
+import logging
 import os
 
 from sqlalchemy import inspect, text
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.db import models as m
 from app.services import auth as auth_svc
+
+log = logging.getLogger("procare.migrate")
 
 
 # FK-check indexes: SQLite (and SQL Server) verify child references on every
@@ -637,3 +640,249 @@ def ensure_estock_raw_mirror_tables(engine) -> None:
 
         tables = [EstockRawMirror.__table__, EstockRawWatermark.__table__]
         Base.metadata.create_all(engine, tables=[t for t in tables if t.name in missing])
+
+
+_ARABIC_UNICODE_COLUMNS_PART1 = [
+    ("branches", "name_ar", 100),
+    ("companies", "name_ar", 150),
+    ("customer_classes", "name_ar", 50),
+    ("estock_raw_mirror", "raw", None),
+    ("gl_accounts", "name_ar", 200),
+    ("gl_adjustments", "notes", 300),
+    ("gl_journal_entries", "notes", 300),
+    ("gl_subledger_balances", "notes", 150),
+    ("jobs", "name_ar", 80),
+    ("product_groups", "name_ar", 100),
+    ("shareholders", "name_ar", 150),
+    ("shareholders", "address", 255),
+    ("titan_drugs", "name_ar", 60),
+    ("units", "name_ar", 50),
+    ("vendors", "name_ar", 100),
+    ("branch_order_headers", "note", 300),
+    ("customers", "name_ar", 100),
+    ("customers", "address", 300),
+    ("employees", "name_ar", 100),
+    ("ledger_entries", "note", 255),
+    ("products", "name_ar", 150),
+    ("products", "unit_big", 50),
+    ("products", "unit_small", 50),
+    ("products", "dosage_form", 50),
+    ("products", "uses", 300),
+    ("products", "shelf_location", 80),
+]
+_ARABIC_UNICODE_COLUMNS_PART2 = [
+    ("branch_order_lines", "note", 300),
+    ("campaigns", "name", 120),
+    ("campaigns", "message", 2000),
+    ("cash_shift_closes", "note", 300),
+    ("commission_runs", "note", 255),
+    ("decision_cards", "title_ar", 256),
+    ("decision_cards", "body_ar", None),
+    ("employee_goals", "title", 200),
+    ("employee_goals", "details", 1000),
+    ("employee_tasks", "title", 200),
+    ("employee_tasks", "details", 1000),
+    ("held_invoices", "label", 80),
+    ("held_invoices", "note", 300),
+    ("held_invoices", "cart_json", None),
+    ("prescriptions", "doctor_name", 150),
+    ("prescriptions", "clinic", 150),
+    ("prescriptions", "drugs_json", 4000),
+    ("prescriptions", "raw_text", 4000),
+    ("promo_codes", "description_ar", 200),
+    ("sales", "note", 300),
+    ("shortage_items", "product_name", 200),
+    ("shortage_items", "note", 500),
+    ("social_posts", "body_ar", 2000),
+    ("stock_counts", "note", 300),
+    ("treasury_transfers", "note", 255),
+    ("loyalty_transactions", "note", 255),
+    ("stock_count_lines", "name_ar", 200),
+]
+# The ``*_en`` and free-text columns below were typed VARCHAR on the assumption
+# that they only ever hold Latin text. eStock does not honour that: its own
+# ``customer_name_en`` / ``product_name_en`` / ``vendor_name_en`` fields are
+# filled by pharmacists who type Arabic into whichever box is in front of them,
+# and the journal's cashier/terminal names are Arabic throughout. Every one of
+# these was verified to be holding '?' runs in the live database before this
+# migration was implemented (customers.name_en 13,116 rows; vendors.name_en
+# 15,480; products.name_en 4,035), so they belong on the Unicode list too.
+_ARABIC_UNICODE_COLUMNS_PART3 = [
+    ("agent_runs", "output", 2000),
+    ("agent_runs", "task", 500),
+    ("branches", "name_en", 100),
+    ("companies", "name_en", 150),
+    ("customer_classes", "name_en", 50),
+    ("customers", "name_en", 100),
+    ("decision_cards", "body_en", None),
+    ("decision_cards", "title_en", 256),
+    ("employees", "name_en", 100),
+    ("gl_accounts", "name_en", 200),
+    ("gl_journal_entries", "actual_cashier", 80),
+    ("gl_journal_entries", "computer_name", 80),
+    ("gl_journal_entries", "form_type", 40),
+    ("gl_journal_entries", "gedo_type", 40),
+    ("gl_subledger_balances", "gf_ref", 50),
+    ("jobs", "name_en", 80),
+    ("prescriptions", "doctor_specialty", 100),
+    ("product_groups", "name_en", 100),
+    ("products", "fast_code", 20),
+    ("products", "name_en", 150),
+    ("products", "scientific_name", 200),
+    ("promo_codes", "description_en", 200),
+    ("purchases", "bill_number", 50),
+    ("shareholders", "name_en", 150),
+    ("social_posts", "body_en", 2000),
+    ("social_posts", "title", 120),
+    ("titan_drugs", "category", 80),
+    ("titan_drugs", "manufacturer", 40),
+    ("titan_drugs", "name_en", 60),
+    ("titan_drugs", "scientific_name", 80),
+    ("units", "name_en", 50),
+    ("vendors", "name_en", 100),
+]
+_ARABIC_UNICODE_COLUMNS = (
+    _ARABIC_UNICODE_COLUMNS_PART1
+    + _ARABIC_UNICODE_COLUMNS_PART2
+    + _ARABIC_UNICODE_COLUMNS_PART3
+)
+
+# sys.types names that already store Unicode — nothing to do for these.
+_UNICODE_TYPES = {"nvarchar", "nchar", "ntext"}
+
+
+def _mssql_text_column(conn, table: str, column: str):
+    """Return (typ, max_length, is_nullable) for a column, or None if absent."""
+    return conn.execute(
+        text(
+            """
+            SELECT ty.name AS typ, c.max_length AS ml, c.is_nullable AS nul
+            FROM sys.columns c
+            JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+            WHERE c.object_id = OBJECT_ID(:t) AND c.name = :c
+            """
+        ),
+        {"t": table, "c": column},
+    ).first()
+
+
+def _mssql_column_is_constrained(conn, table: str, column: str) -> bool:
+    """True when the column backs a PK / unique index or constraint.
+
+    ALTER COLUMN through one of those needs the constraint dropped and rebuilt,
+    which is a different (and riskier) operation than a type widening. Such a
+    column is left alone and reported rather than silently restructured.
+    """
+    return bool(
+        conn.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM sys.indexes i
+                JOIN sys.index_columns ic
+                  ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+                JOIN sys.columns c
+                  ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                WHERE i.object_id = OBJECT_ID(:t)
+                  AND c.name = :c
+                  AND (i.is_primary_key = 1 OR i.is_unique_constraint = 1 OR i.is_unique = 1)
+                """
+            ),
+            {"t": table, "c": column},
+        ).scalar()
+    )
+
+
+def _mssql_plain_indexes_on(conn, table: str, column: str) -> list[tuple[str, str]]:
+    """Return [(index_name, create_sql)] for the non-unique indexes covering
+    ``column``. SQL Server refuses ALTER COLUMN while an index covers the
+    column, so each one is dropped and rebuilt around the change.
+    """
+    rows = conn.execute(
+        text(
+            """
+            SELECT i.name AS idx,
+                   STUFF((SELECT ',' + QUOTENAME(c2.name)
+                          FROM sys.index_columns ic2
+                          JOIN sys.columns c2
+                            ON c2.object_id = ic2.object_id AND c2.column_id = ic2.column_id
+                          WHERE ic2.object_id = i.object_id AND ic2.index_id = i.index_id
+                            AND ic2.is_included_column = 0
+                          ORDER BY ic2.key_ordinal
+                          FOR XML PATH('')), 1, 1, '') AS key_cols
+            FROM sys.indexes i
+            WHERE i.object_id = OBJECT_ID(:t)
+              AND i.is_primary_key = 0 AND i.is_unique_constraint = 0 AND i.is_unique = 0
+              AND i.type IN (1, 2)
+              AND EXISTS (SELECT 1 FROM sys.index_columns ic
+                          JOIN sys.columns c
+                            ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                          WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                            AND c.name = :c)
+            """
+        ),
+        {"t": table, "c": column},
+    ).all()
+    return [
+        (r.idx, f"CREATE INDEX [{r.idx}] ON [{table}] ({r.key_cols})")
+        for r in rows
+        if r.idx and r.key_cols
+    ]
+
+
+def ensure_arabic_columns_unicode(engine) -> None:
+    """Widen VARCHAR to NVARCHAR for columns that carry Arabic text.
+
+    ProCare's database collation (SQL_Latin1_General_CP1_CI_AS) has no Arabic
+    in its codepage, so a plain VARCHAR column can only store what that
+    codepage covers — every Arabic character is replaced by '?' AT WRITE TIME,
+    silently and unrecoverably. NVARCHAR stores Unicode regardless of
+    collation, which matches how eStock's own source tables already work
+    (Arabic_CI_AS).
+
+    Widening the column type does not rewrite existing row values; a follow-up
+    data refresh from eStock repopulates the affected text columns with
+    correctly stored Arabic (``tools/repair_arabic.py``).
+
+    Idempotent: skips a column already NVARCHAR/NTEXT and any table that
+    doesn't exist yet; no-op on SQLite (dev), which has one text type.
+    """
+    if engine.dialect.name != "mssql":
+        return
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+
+    for table, column, size in _ARABIC_UNICODE_COLUMNS:
+        if table not in tables:
+            continue
+        try:
+            with engine.begin() as conn:
+                meta = _mssql_text_column(conn, table, column)
+                if meta is None or meta.typ in _UNICODE_TYPES:
+                    continue
+                if _mssql_column_is_constrained(conn, table, column):
+                    log.warning(
+                        "arabic-unicode: skipping %s.%s - backs a unique/primary index",
+                        table,
+                        column,
+                    )
+                    continue
+                # max_length is in BYTES; -1 means varchar(max) -> nvarchar(max).
+                # Never shrink: the declared size is a floor, not a cap.
+                if size is None or int(meta.ml) == -1 or meta.typ == "text":
+                    target = "NVARCHAR(MAX)"
+                else:
+                    target = f"NVARCHAR({max(int(size), int(meta.ml))})"
+                nullness = "NULL" if meta.nul else "NOT NULL"
+
+                indexes = _mssql_plain_indexes_on(conn, table, column)
+                for idx_name, _ in indexes:
+                    conn.execute(text(f"DROP INDEX [{idx_name}] ON [{table}]"))
+                conn.execute(
+                    text(f"ALTER TABLE [{table}] ALTER COLUMN [{column}] {target} {nullness}")
+                )
+                for _, create_sql in indexes:
+                    conn.execute(text(create_sql))
+                log.info("arabic-unicode: %s.%s %s -> %s", table, column, meta.typ, target)
+        except Exception as e:  # noqa: BLE001 - one bad column must not stop startup
+            log.warning("arabic-unicode: could not convert %s.%s: %s", table, column, e)
