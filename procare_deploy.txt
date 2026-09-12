@@ -1,0 +1,110 @@
+You are deploying ProCare OS weekly staff schedule automation at Pharmacy Elsanta.
+
+CONTEXT:
+- Project: ProCare Pharmacies pharmacy management system
+- Location: Elsanta branch (Egypt, Africa/Cairo timezone)
+- Objective: Set up automated staff schedule notifications via WhatsApp
+- Status: All code and documentation are ready; this is environment setup
+
+FILES READY (in repo):
+- operations/weekly-schedule.md (master schedule with peak-hour optimization)
+- operations/sop-attendance.md (global attendance policy with new shifts)
+- docs/ProCare-Weekly-Schedule-Branded.html (staff-facing schedule PDF)
+- docs/Um-Adham-Daily-Checklist.html (cleaning checklist)
+- deploy/SCHEDULE-DEPLOYMENT-GUIDE.md (deployment manual)
+- deploy/ENVIRONMENT-CONFIGURATION.md (setup guide)
+- src/backend/app/services/scheduler.py (automated jobs configured)
+- src/backend/app/services/whatsapp.py (WhatsApp integration)
+
+TASKS TO COMPLETE:
+
+1. ENVIRONMENT SETUP
+   - Copy .env.example to .env in project root
+   - Set AUTOMATION_ENABLED=1
+   - Set BRANCH_TIMEZONE=Africa/Cairo
+   - Set WHATSAPP_TOKEN=ask_user_for_meta_token
+   - Set WHATSAPP_PHONE_ID=ask_user_for_phone_id
+   - Set MANAGER_PHONE=ask_user_for_manager_phone
+   - Optionally set SYNC_ENABLED=1 if eStock connection exists
+   - Save .env securely (git-ignored, never commit)
+
+2. BACKEND STARTUP
+   - Navigate to src/backend directory
+   - Install dependencies: pip install -r requirements.txt
+   - Start backend: python run.py
+   - Verify output: 'Uvicorn running on http://0.0.0.0:8100'
+   - Wait 5 seconds for startup to complete
+
+3. HEALTH CHECK
+   - Call: curl http://localhost:8100/api/health
+   - Expected response: {"status": "ok"}
+   - If fails, check logs and report error
+
+4. SCHEDULER VERIFICATION
+   - Call: curl http://localhost:8100/api/automation/scheduler-status
+   - Verify enabled: true
+   - Verify jobs exist: shift_reminder_daily, weekly_schedule_share, um_adham_checklist
+   - Print job schedule details
+
+5. WHATSAPP VALIDATION
+   - If WHATSAPP_TOKEN provided, validate credentials:
+     curl -X GET "https://graph.facebook.com/v20.0/{PHONE_ID}" \
+       -H "Authorization: Bearer {TOKEN}"
+   - Expected: 200 status with phone details
+   - If fails: alert user to check Meta Business Manager credentials
+
+6. TEST INITIAL BROADCAST (optional - ask user)
+   - Ask user: 'Send test schedule message to staff WhatsApp group now? (y/n)'
+   - If yes: curl -X POST http://localhost:8100/api/staff/broadcast \
+              -H 'Content-Type: application/json' \
+              -d '{"message_type": "weekly_schedule", "to": "all_staff"}'
+   - If yes: confirm message sent status
+
+7. AUTOMATION JOBS CONFIGURED
+   - Daily 9:00 PM (Africa/Cairo): Tomorrow's shift reminder to staff group
+   - Saturday 8:00 AM (Africa/Cairo): Full weekly schedule broadcast to all staff
+   - Daily 10:00 AM Sat-Thu (Africa/Cairo): Um Adham daily cleaning checklist
+   - Print confirmation of all jobs
+
+8. DATABASE CHECK
+   - Verify database initialized: check for Employee table
+   - Verify seed data loaded: confirm staff members in database
+   - Expected staff: Nada, Nour, Youssef, Abdalla, Karim Mohy, Reem, Afaf, Um Adham
+
+9. FINAL CHECKLIST
+   - ✅ .env configured with all required keys
+   - ✅ Backend running on :8100
+   - ✅ /api/health returns ok
+   - ✅ Scheduler enabled with 3+ jobs
+   - ✅ WhatsApp credentials validated
+   - ✅ Database seeded with 8 staff members
+   - ✅ All automated jobs scheduled for correct times
+
+10. DEPLOYMENT CONFIRMATION
+    - Print summary report:
+      * ProCare OS Status: READY
+      * Location: Pharmacy Elsanta
+      * Timezone: Africa/Cairo
+      * Automation: ENABLED
+      * WhatsApp: CONFIGURED
+      * Next scheduled job: [show next job time]
+    - Ask user: 'Is Pharmacy Elsanta ready for production? (y/n)'
+    - If yes: Save deployment timestamp, print success
+    - If no: Ask what needs adjustment
+
+CONFIGURATION REFERENCE:
+- AI_PROVIDER: gemini (optional, for prescription reading)
+- SYNC_ENABLED: 1 (optional, if eStock connected)
+- SYNC_INTERVAL_SECONDS: 30
+- DB_SIZE_CAP_MB: 10240 (SQL Server Express cap)
+
+SUCCESS CRITERIA:
+✅ Backend starts without errors
+✅ All 3 scheduler jobs are enabled
+✅ WhatsApp credentials validated
+✅ Staff database populated
+✅ Pharmacy ready for automated daily notifications
+
+If any step fails, provide detailed error message and suggest fix.
+
+Execute this deployment now with detailed progress reporting.
