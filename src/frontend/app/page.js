@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Shell from "./components/Shell";
-import { BarChart, HBar, CountUp } from "./components/charts";
+import { CapsuleChart, CapsuleBar, CountUp } from "./components/charts";
 import Icon from "./components/icons";
 import DetailModal from "./components/DetailModal";
 import DecisionCardsWidget from "./components/DecisionCardsWidget";
@@ -121,9 +121,6 @@ export default function DashboardPage() {
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const pct = (n) => `${Number(n || 0).toFixed(1)}%`;
 
-  // Ratio status color
-  const ratioColor = { green: "var(--ok)", red: "var(--danger)", yellow: "#f59e0b" };
-
   return (
     <Shell titleKey="nav_dashboard">
       {/* ===== جرد Alert Banner ===== */}
@@ -171,6 +168,7 @@ export default function DashboardPage() {
               href="/reports"
               go={router.push.bind(router)}
               fmt={fmt}
+              tone="brand"
             />
             <KpiCard
               label={L("sales_month")}
@@ -180,6 +178,7 @@ export default function DashboardPage() {
               href="/reports"
               go={router.push.bind(router)}
               fmt={fmt}
+              tone="deep"
             />
             <KpiCard
               label={L("profit_month")}
@@ -194,7 +193,7 @@ export default function DashboardPage() {
               href="/reports"
               go={router.push.bind(router)}
               fmt={fmt}
-              valueColor={data.summary.kpis?.profit_month >= 0 ? "var(--ok)" : "var(--danger)"}
+              tone={data.summary.kpis?.profit_month >= 0 ? "lime" : "red"}
             />
           </div>
 
@@ -208,6 +207,7 @@ export default function DashboardPage() {
               href="/purchasing"
               go={router.push.bind(router)}
               fmt={fmt}
+              tone="deep"
             />
             <KpiCard
               label={L("purch_month")}
@@ -217,29 +217,16 @@ export default function DashboardPage() {
               href="/purchasing"
               go={router.push.bind(router)}
               fmt={fmt}
+              tone="brand"
             />
             <div
-              className="card"
+              className={`kpi-g ${{ green: "lime", yellow: "amber", red: "red" }[purchasing?.ratio_status ?? "yellow"]}`}
               onClick={() => router.push("/purchasing")}
-              style={{ cursor: "pointer" }}
             >
+              <span className="gico"><Icon name="scale" size={18} /></span>
               <div className="kpi-label">{L("purch_ratio")}</div>
-              <div className="kpi-value num" style={{ color: ratioColor[purchasing?.ratio_status] ?? "inherit" }}>
-                {pct(purchasing?.ratio_pct ?? 0)}
-              </div>
-              <div
-                className="kpi-sub"
-                style={{
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  background: ratioColor[purchasing?.ratio_status ?? "yellow"] + "22",
-                  color: ratioColor[purchasing?.ratio_status ?? "yellow"],
-                  fontWeight: 600,
-                  display: "inline-block",
-                  fontSize: 12,
-                  marginTop: 4,
-                }}
-              >
+              <div className="kpi-value num">{pct(purchasing?.ratio_pct ?? 0)}</div>
+              <div className="kpi-sub">
                 {L(`purch_status_${purchasing?.ratio_status ?? "yellow"}`)} · {L("purch_ratio_target")}
               </div>
             </div>
@@ -257,7 +244,7 @@ export default function DashboardPage() {
                 href="/treasury"
                 go={router.push.bind(router)}
                 fmt={fmt}
-                valueColor={br.cash_balance >= 0 ? "var(--ok)" : "var(--danger)"}
+                tone={br.cash_balance >= 0 ? "lime" : "red"}
               />
             ))}
             {cashData.length === 0 && [0, 1].map((i) => (
@@ -270,6 +257,7 @@ export default function DashboardPage() {
                 href="/treasury"
                 go={router.push.bind(router)}
                 fmt={fmt}
+                tone="deep"
               />
             ))}
             <KpiCard
@@ -280,15 +268,15 @@ export default function DashboardPage() {
               href="/treasury"
               go={router.push.bind(router)}
               fmt={fmt}
-              valueColor="var(--danger)"
+              tone="amber"
             />
           </div>
 
           {/* ===== KPI Row 4: Alerts ===== */}
           <div className="grid kpis" style={{ marginTop: 10 }}>
-            <KpiCard label={L("low_stock")} value={data.summary.kpis?.low_stock} sub="" ico="pill" href="/alerts" go={router.push.bind(router)} fmt={fmt} />
-            <KpiCard label={L("expiring_30")} value={data.summary.kpis?.expiring_30} sub="" ico="bell" href="/alerts" go={router.push.bind(router)} fmt={fmt} />
-            <KpiCard label={L("debtors")} value={data.summary.kpis?.debtors} sub="" ico="customers" href="/customers" go={router.push.bind(router)} fmt={fmt} />
+            <KpiCard label={L("low_stock")} value={data.summary.kpis?.low_stock} sub="" ico="pill" href="/alerts" go={router.push.bind(router)} fmt={fmt} tone="amber" />
+            <KpiCard label={L("expiring_30")} value={data.summary.kpis?.expiring_30} sub="" ico="bell" href="/alerts" go={router.push.bind(router)} fmt={fmt} tone="red" />
+            <KpiCard label={L("debtors")} value={data.summary.kpis?.debtors} sub="" ico="customers" href="/customers" go={router.push.bind(router)} fmt={fmt} tone="deep" />
           </div>
 
           {/* ===== Daily Decisions (القرارات اليومية) ===== */}
@@ -323,7 +311,18 @@ export default function DashboardPage() {
           {view === "month" && (
             <div className="card" style={{ marginTop: 16 }}>
               <h3 className="section-title">{L("view_month")}</h3>
-              <BarChart data={months} valueKey="revenue" labelKey="month" />
+              <CapsuleChart
+                data={months}
+                labelKey="month"
+                valueKey="revenue"
+                fmt={fmt}
+                metrics={[
+                  { key: "revenue", label: L("revenue"), suffix: " " + L("egp") },
+                  { key: "bills", label: L("bills"), suffix: " " + L("bills") },
+                  { key: "profit", label: L("profit_lbl"), suffix: " " + L("egp") },
+                  { key: "discount", label: L("discount_lbl"), suffix: " " + L("egp") },
+                ]}
+              />
               <div className="table-wrapper" style={{ marginTop: 12 }}>
                 <table className="tbl">
                   <thead>
@@ -376,7 +375,16 @@ export default function DashboardPage() {
             <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr", marginTop: 16 }}>
               <div className="card">
                 <h3 className="section-title">{L("daily_sales")}</h3>
-                <BarChart data={data.daily} valueKey="revenue" labelKey="date" />
+                <CapsuleChart
+                  data={data.daily}
+                  labelKey="date"
+                  valueKey="revenue"
+                  fmt={fmt}
+                  metrics={[
+                    { key: "revenue", label: L("revenue"), suffix: " " + L("egp") },
+                    { key: "bills", label: L("bills"), suffix: " " + L("bills") },
+                  ]}
+                />
               </div>
               <div className="card">
                 <h3 className="section-title">{L("top_products")}</h3>
@@ -441,7 +449,6 @@ export default function DashboardPage() {
               }))}
               fmt={fmt}
               unit={L("egp")}
-              color="var(--primary)"
             />
           </div>
 
@@ -495,17 +502,12 @@ export default function DashboardPage() {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, ico, href, go, fmt, valueColor }) {
+function KpiCard({ label, value, sub, ico, href, go, fmt, tone = "brand" }) {
   return (
-    <div
-      className="card"
-      onClick={() => go(href)}
-      style={{ cursor: "pointer" }}
-      title={label}
-    >
-      <span className="kpi-ico"><Icon name={ico} size={19} /></span>
+    <div className={`kpi-g ${tone}`} onClick={() => go(href)} title={label}>
+      <span className="gico"><Icon name={ico} size={18} /></span>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value num" style={valueColor ? { color: valueColor } : undefined}>
+      <div className="kpi-value num">
         <CountUp value={value} format={(n) => fmt(Math.round(n))} />
       </div>
       <div className="kpi-sub">{sub || "—"}</div>
@@ -513,23 +515,24 @@ function KpiCard({ label, value, sub, ico, href, go, fmt, valueColor }) {
   );
 }
 
-function Ranked({ rows, fmt, unit, color = "var(--accent)" }) {
+function Ranked({ rows, fmt, unit }) {
   if (!rows || rows.length === 0) return <p className="muted">—</p>;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column" }}>
       {rows.map((r, i) => (
         <div
           key={i}
+          className="ranked-row"
           onClick={r.onClick || undefined}
           style={r.onClick ? { cursor: "pointer" } : undefined}
           title={r.onClick ? "↗" : undefined}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 4 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, marginBottom: 5 }}>
             <span>{r.name}{r.onClick ? " ›" : ""}</span>
-            <span className="num muted">{fmt(r.value)} {unit} {r.sub ? `· ${r.sub}` : ""}</span>
+            <span className="num muted" style={{ fontSize: 12 }}>{r.sub || ""}</span>
           </div>
-          <HBar value={r.value} max={max} color={color} />
+          <CapsuleBar value={r.value} max={max} unit={` ${unit}`} fmt={fmt} />
         </div>
       ))}
     </div>
@@ -563,9 +566,29 @@ function YoyChart({ current, prev, valueKey, L, fmt }) {
           const prevH = Math.round((prevVal / maxVal) * 100);
           return (
             <div key={mo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 100 }}>
-                <div title={`${L("last_year")}: ${fmt(prevVal)}`} style={{ width: 10, height: prevH, background: "var(--accent)", borderRadius: "2px 2px 0 0", minHeight: prevVal > 0 ? 3 : 0 }} />
-                <div title={`${L("this_year")}: ${fmt(curVal)}`} style={{ width: 10, height: curH, background: "var(--primary)", borderRadius: "2px 2px 0 0", minHeight: curVal > 0 ? 3 : 0 }} />
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 100 }}>
+                <div
+                  title={`${L("last_year")}: ${fmt(prevVal)}`}
+                  style={{
+                    width: 12,
+                    height: prevH,
+                    background: "linear-gradient(180deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent))",
+                    borderRadius: 999,
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,.45)",
+                    minHeight: prevVal > 0 ? 6 : 0,
+                  }}
+                />
+                <div
+                  title={`${L("this_year")}: ${fmt(curVal)}`}
+                  style={{
+                    width: 12,
+                    height: curH,
+                    background: "linear-gradient(180deg, color-mix(in srgb, var(--primary) 70%, #fff), var(--primary))",
+                    borderRadius: 999,
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,.45)",
+                    minHeight: curVal > 0 ? 6 : 0,
+                  }}
+                />
               </div>
               <div style={{ fontSize: 10, color: "var(--muted)", textAlign: "center" }}>{mo}</div>
             </div>

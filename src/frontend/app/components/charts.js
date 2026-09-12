@@ -234,6 +234,96 @@ export function StackedBar({ data, height = 180, labelKey = "date", series = [] 
   );
 }
 
+// Capsule/tablet chart — the Dashboard's brand charting metaphor: vertical
+// pill bars with the figure printed on the bar, a hover tooltip, and an
+// optional metric toggle (e.g. Revenue / Bills / Profit over the same dates).
+// `metrics` (optional): [{ key, label, suffix }] — when given, a pill row lets
+// the viewer switch which field drives the bar heights without a re-render.
+function shortNum(n) {
+  const v = Math.abs(n);
+  if (v >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (v >= 1e3) return Math.round(n / 1e3) + "k";
+  return String(Math.round(n));
+}
+
+export function CapsuleChart({ data, labelKey = "date", valueKey = "revenue", metrics, height = 264, fmt }) {
+  const format = fmt || ((n) => Number(n || 0).toLocaleString("en-US"));
+  const metricList = metrics && metrics.length ? metrics : [{ key: valueKey, label: "", suffix: "" }];
+  const [metric, setMetric] = useState(metricList[0]);
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const [pinIdx, setPinIdx] = useState(null);
+  const [tooltip, setTooltip] = useState(null);
+
+  if (!data || data.length === 0) return <p className="muted">—</p>;
+  const max = Math.max(...data.map((d) => d[metric.key] || 0), 1);
+  const activeIdx = hoverIdx ?? pinIdx;
+
+  const showTip = (e, d) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setTooltip({ x: r.left + r.width / 2, y: r.top, label: d[labelKey], value: format(Math.round(d[metric.key] || 0)) + (metric.suffix || "") });
+  };
+
+  return (
+    <div>
+      {metricList.length > 1 && (
+        <div className="metric-tabs">
+          {metricList.map((m) => (
+            <button key={m.key} type="button" className={`mtab ${m.key === metric.key ? "on" : ""}`} onClick={() => setMetric(m)}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="cap-scroll">
+        <div className="cap-chart" style={{ height }} onMouseLeave={() => { setHoverIdx(null); setTooltip(null); }}>
+          {data.map((d, i) => {
+            const v = d[metric.key] || 0;
+            const h = Math.max(18, Math.round((v / max) * 100));
+            return (
+              <div
+                key={i}
+                className={`cap ${activeIdx === i ? "sel" : ""}`}
+                style={{ height: `${h}%`, animationDelay: `${60 + i * 22}ms` }}
+                onMouseEnter={(e) => { setHoverIdx(i); showTip(e, d); }}
+                onMouseMove={(e) => showTip(e, d)}
+                onClick={() => setPinIdx((p) => (p === i ? null : i))}
+              >
+                <b>{shortNum(v)}</b>
+              </div>
+            );
+          })}
+        </div>
+        <div className="cap-x">
+          {data.map((d, i) => (
+            <span key={i}>{String(d[labelKey]).slice(-2)}</span>
+          ))}
+        </div>
+      </div>
+      {tooltip && (
+        <div className="chart-tip on" style={{ left: tooltip.x, top: tooltip.y }}>
+          <b>{tooltip.label}</b>
+          <span>{tooltip.value}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Horizontal capsule bar for ranked lists (top products, cashiers, vendors):
+// a tablet-shaped pill whose width encodes the value, with the figure printed
+// inside it — replaces a plain progress bar with the Dashboard's own idiom.
+export function CapsuleBar({ value, max, unit = "", fmt }) {
+  const format = fmt || ((n) => Number(n || 0).toLocaleString("en-US"));
+  const w = Math.max(16, Math.min(100, (value / (max || 1)) * 100));
+  return (
+    <div className="caph-track">
+      <div className="caph" style={{ width: `${w}%` }}>
+        <span>{format(Math.round(value)) + unit}</span>
+      </div>
+    </div>
+  );
+}
+
 export function BulletBar({ actual, target, max, label, color = "var(--primary)" }) {
   const actualPct = Math.min(100, (actual / (max || 1)) * 100);
   const targetPct = (target / (max || 1)) * 100;
