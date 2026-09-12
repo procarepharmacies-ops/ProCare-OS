@@ -837,6 +837,215 @@ table.tbl tbody tr:hover {
   color: var(--muted);
 }
 
+/* ---- Gradient KPI cards + capsule charts (Dashboard) -----------------------
+   Brand-derived gradient tones (ProCare blue -> lime, per the logo ring) and a
+   pharmaceutical-capsule charting metaphor, baked to the "frosted / tablet /
+   airy" look chosen during design review — no runtime toggle, this is the
+   shipped look. */
+.kpi-g {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 22px 24px;
+  color: #fff;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  animation: fade-up 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  isolation: isolate;
+  cursor: pointer;
+}
+.kpi-g:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+.kpi-g::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 140% at 100% 0%, rgba(255, 255, 255, 0.16), transparent 60%);
+}
+/* Specular sheen sweeping across on hover. */
+.kpi-g::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  inset-inline-start: -60%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  transform: skewX(-18deg);
+  transition: inset-inline-start 0.55s cubic-bezier(0.2, 0.7, 0.3, 1);
+  pointer-events: none;
+}
+.kpi-g:hover::before {
+  inset-inline-start: 120%;
+}
+.kpi-g.brand { background: linear-gradient(135deg, #12557f, #2f7a4a); }
+.kpi-g.deep { background: linear-gradient(135deg, #0b3c5f, #1a76b4); }
+.kpi-g.lime { background: linear-gradient(135deg, #245417, #4f9b2f); }
+.kpi-g.amber { background: linear-gradient(135deg, #6b3a05, #a35f0a); }
+.kpi-g.red { background: linear-gradient(135deg, #71180e, #b03c29); }
+.kpi-g .kpi-label { color: rgba(255, 255, 255, 0.94); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; background: none; padding-inline-end: 66px; }
+.kpi-g .kpi-value { background: none; -webkit-text-fill-color: #fff; color: #fff; font-size: 33px; margin: 9px 0 4px; padding-inline-end: 66px; }
+.kpi-g .kpi-sub { color: rgba(255, 255, 255, 0.92); font-size: 12px; padding-inline-end: 66px; }
+.kpi-g .gico {
+  position: absolute;
+  inset-inline-end: 18px;
+  top: 18px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 3px 10px rgba(0, 0, 0, 0.18);
+  transition: transform 0.2s ease;
+}
+.kpi-g:hover .gico { transform: scale(1.08) rotate(-3deg); }
+
+/* Capsule / tablet chart — bars and ranked rows drawn as a dosage tablet:
+   single-tone gradient, light -> the brand tone, with a printed figure. */
+.cap-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+.cap-chart { display: flex; align-items: flex-end; gap: 8px; height: 264px; }
+.cap {
+  flex: 1;
+  min-width: 26px;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 10px;
+  min-height: 40px;
+  --c2: var(--primary);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c2) 76%, #fff), var(--c2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 4px 12px rgba(10, 40, 62, 0.18);
+  transform-origin: center bottom;
+  animation: cap-grow 0.7s cubic-bezier(0.2, 0.7, 0.3, 1);
+  transition: height 0.5s cubic-bezier(0.2, 0.7, 0.3, 1), filter 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
+  cursor: pointer;
+}
+@keyframes cap-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.cap::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(50% - 1px);
+  top: 14%;
+  bottom: 14%;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.cap b {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  position: relative;
+  z-index: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+.cap-x { display: flex; gap: 8px; margin-top: 6px; }
+.cap-x span { flex: 1; min-width: 26px; text-align: center; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cap-chart:hover .cap { opacity: 0.45; }
+.cap-chart .cap:hover { opacity: 1; transform: translateY(-5px) scaleX(1.06); filter: saturate(1.3) brightness(1.1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 10px 26px color-mix(in srgb, var(--primary) 45%, transparent); }
+.cap.sel { opacity: 1 !important; box-shadow: inset 0 0 0 2px #fff, 0 8px 22px color-mix(in srgb, var(--primary) 55%, transparent); }
+
+.caph-track { background: color-mix(in srgb, var(--text) 7%, transparent); border-radius: 999px; box-shadow: inset 0 1px 2px rgba(10, 40, 62, 0.1); }
+.caph {
+  --c2: var(--primary);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c2) 76%, #fff), var(--c2));
+  height: 34px;
+  border-radius: 9px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline-end: 12px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 3px 10px rgba(10, 40, 62, 0.16);
+  transform-origin: left center;
+  min-width: 78px;
+  cursor: pointer;
+  transition: width 0.5s cubic-bezier(0.2, 0.7, 0.3, 1), filter 0.18s ease, transform 0.18s ease;
+}
+.caph span { position: relative; z-index: 1; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28); }
+.caph-track:hover .caph { transform: translateY(-1px); filter: saturate(1.28) brightness(1.09); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 20px color-mix(in srgb, var(--primary) 40%, transparent); }
+.ranked-row + .ranked-row { margin-top: 16px; }
+.ranked-row:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.ranked-row { padding: 4px 6px; margin-inline: -6px; border-radius: 10px; transition: background 0.18s ease; }
+
+/* Metric toggle — glass pills (Daily Sales: Revenue / Bills / Profit). */
+.metric-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.mtab {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.mtab:hover { color: var(--text); transform: translateY(-1px); }
+.mtab.on {
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+/* Glass tooltip that tracks the hovered capsule. */
+.chart-tip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -100%) translateY(-8px) scale(0.96);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(170%);
+  -webkit-backdrop-filter: blur(14px) saturate(170%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-hover);
+  padding: 8px 12px;
+  min-width: 110px;
+}
+.chart-tip.on { opacity: 1; transform: translate(-50%, -100%) translateY(-12px) scale(1); }
+.chart-tip b { display: block; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.03em; text-transform: uppercase; margin-bottom: 2px; }
+.chart-tip span { display: block; font-size: 16px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 760px) {
+  .cap-chart { height: 180px; }
+  .kpi-g { padding: 16px 18px; border-radius: 16px; }
+  .kpi-g .kpi-value { font-size: 26px; }
+}
+
 /* Accessibility: users who prefer reduced motion get an instant, static UI. */
 @media (prefers-reduced-motion: reduce) {
   *,
