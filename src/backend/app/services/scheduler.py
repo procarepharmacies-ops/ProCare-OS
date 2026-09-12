@@ -214,6 +214,30 @@ def _run_weekly_schedule_share():
     log.info("weekly_schedule_share: sent=%s", sent)
 
 
+def _run_um_adham_daily_checklist():
+    """Daily 10 AM: send cleaning checklist reminder to Um Adham (النظافة)."""
+    from app.db.models import Employee
+    from sqlalchemy.orm import Session
+
+    try:
+        with Session(engine) as session:
+            # Find Um Adham by name
+            um_adham = session.query(Employee).filter(
+                Employee.name_en.ilike("%um adham%") | Employee.name_ar.ilike("%أم أدهم%")
+            ).first()
+            if um_adham and um_adham.phone:
+                msg = whatsapp.um_adham_daily_checklist_message()
+                sent = whatsapp.send_text(um_adham.phone, msg)
+                _last_results["um_adham_checklist"] = {"sent": sent, "phone": um_adham.phone}
+                log.info("um_adham_checklist: sent=%s to %s", sent, um_adham.phone)
+            else:
+                _last_results["um_adham_checklist"] = {"sent": False, "reason": "um_adham_not_found"}
+                log.warning("um_adham_checklist: Um Adham not found or no phone number")
+    except Exception as exc:  # noqa: BLE001
+        _last_results["um_adham_checklist"] = {"sent": False, "error": str(exc)}
+        log.error("um_adham_checklist failed: %s", exc)
+
+
 # --- lifecycle --------------------------------------------------------------
 def _branch_tz():
     """Resolve ``BRANCH_TIMEZONE`` to a tzinfo for time-of-day cron jobs, or
@@ -277,6 +301,9 @@ def build_scheduler():
                   id="shift_reminder_daily", replace_existing=True)
     sched.add_job(_run_weekly_schedule_share, CronTrigger(day_of_week="sat", hour=8, minute=0, timezone=tz),
                   id="weekly_schedule_share", replace_existing=True)
+    # Um Adham daily cleaning checklist at 10 AM (Sat-Thu; OFF Friday)
+    sched.add_job(_run_um_adham_daily_checklist, CronTrigger(day_of_week="0-4", hour=10, minute=0, timezone=tz),
+                  id="um_adham_daily_checklist", replace_existing=True)
     # Phase 5: Demand forecasting + decision card generation
     sched.add_job(_run_forecast_computation, CronTrigger(hour=1, minute=0, timezone=tz),
                   id="forecast_computation_nightly", replace_existing=True)
