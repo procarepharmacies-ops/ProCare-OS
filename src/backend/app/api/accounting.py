@@ -158,13 +158,46 @@ def gl_adjustments(
     return {"adjustments": accounting.gl_adjustments(session, limit)}
 
 
-@router.get("/gl-subledgers")
-def gl_subledgers(
-    party_type: str | None = Query(None),
+@router.get("/gedo-customer-balances")
+def gedo_customer_balances(
     limit: int = Query(500, ge=1, le=5000),
     session: Session = Depends(get_session),
 ):
-    """eStock's per-party GL sub-ledger balances (Gedo_customers/Gedo_Vendors/
-    Gedo_branches/Gedo_employee/Gedo_installment mirror), read-only, newest
-    first. Optional party_type filter: customer/vendor/branch/employee/installment."""
-    return {"balances": accounting.gl_subledgers(session, party_type, limit)}
+    """eStock's per-customer GL sub-ledger balances (Gedo_customers mirror), read-only."""
+    return {"balances": accounting.gedo_customer_balances(session, limit)}
+
+
+@router.get("/gedo-vendor-balances")
+def gedo_vendor_balances(
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's per-vendor GL sub-ledger balances (Gedo_Vendors mirror), read-only."""
+    return {"balances": accounting.gedo_vendor_balances(session, limit)}
+
+
+@router.get("/gedo-branch-balances")
+def gedo_branch_balances(
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's per-branch GL sub-ledger balances (Gedo_branches mirror), read-only."""
+    return {"balances": accounting.gedo_branch_balances(session, limit)}
+
+
+@router.get("/gedo-employee-balances")
+def gedo_employee_balances(
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's per-employee GL sub-ledger balances (Gedo_employee mirror), read-only."""
+    return {"balances": accounting.gedo_employee_balances(session, limit)}
+
+
+@router.get("/gedo-installment-balances")
+def gedo_installment_balances(
+    limit: int = Query(500, ge=1, le=5000),
+    session: Session = Depends(get_session),
+):
+    """eStock's installment GL sub-ledger balances (Gedo_installment mirror), read-only."""
+    return {"balances": accounting.gedo_installment_balances(session, limit)}

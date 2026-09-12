@@ -77,6 +77,7 @@ COVERED_SOURCE_TABLES = frozenset({
     "Gedo_customers", "Gedo_Vendors", "Gedo_branches", "Gedo_employee", "Gedo_installment",
     "company_Owner", "Gedo_Dividends_paied",
     "Employee_salary", "Employee_cash_advance",
+    "Gedo_customers", "Gedo_Vendors", "Gedo_branches", "Gedo_employee", "Gedo_installment",
 })
 
 
@@ -507,6 +508,12 @@ def mirror(
         _load_payroll(insp, src, dst, counts)
         # Salary advances ledger (optional, upsert by source id).
         _load_salary_advances(insp, src, dst, counts)
+        # GL sub-ledger balances (optional, upsert by source id; PR 2e).
+        _load_gedo_customer_balances(insp, src, dst, counts, customer_map)
+        _load_gedo_vendor_balances(insp, src, dst, counts)
+        _load_gedo_branch_balances(insp, src, dst, counts)
+        _load_gedo_employee_balances(insp, src, dst, counts)
+        _load_gedo_installment_balances(insp, src, dst, counts, customer_map)
 
         dst.commit()
     finally:
@@ -2082,6 +2089,204 @@ def _load_salary_advances(insp, src, dst, counts) -> None:
         n += 1
     dst.flush()
     counts["salary_advances"] = n
+
+
+def _load_gedo_customer_balances(insp, src, dst, counts, customer_map: dict[int, int] | None = None) -> None:
+    """Mirror eStock's ``Gedo_customers`` (per-customer GL sub-ledger balance).
+
+    ``customer_id`` is resolved from eStock's own customer_id; unknown customers
+    are skipped (never a dangling FK). Upserted by source_id (gc_id); not in
+    ``_WIPE_ORDER``. Optional — absent source = skipped."""
+    if not insp.has_table("Gedo_customers"):
+        return
+    if customer_map is None:
+        customer_map = {c.source_counter: c.customer_id for c in dst.scalars(select(m.Customer)).all() if c.source_counter}
+    cols = {c["name"] for c in insp.get_columns("Gedo_customers")}
+    gc_id = _pick(cols, "gc_id")
+    gc_gf_id = _pick(cols, "gf_id")
+    gc_flag = _pick(cols, "Flag")
+    gc_type = _pick(cols, "gc_type")
+    gc_cust = _pick(cols, "customer_id")
+    gc_for_him = _pick(cols, "gc_for_him")
+    gc_for_me = _pick(cols, "gc_for_me")
+    gc_total = _pick(cols, "total")
+    gc_notes = _pick(cols, "notes")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GedoCustomerBalance)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Gedo_customers")).mappings().all():
+        cust_pk = customer_map.get(int(r.get(gc_cust))) if gc_cust and r.get(gc_cust) is not None else None
+        sid = int(r.get(gc_id)) if gc_id and r.get(gc_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GedoCustomerBalance(source_id=sid)
+            dst.add(obj)
+        obj.gf_id = _str(r.get(gc_gf_id)) if gc_gf_id else None
+        obj.flag = int(r[gc_flag]) if gc_flag and r.get(gc_flag) is not None else None
+        obj.gc_type = _str(r.get(gc_type)) if gc_type else None
+        obj.customer_id = cust_pk
+        obj.for_him = _num(r.get(gc_for_him)) if gc_for_him else 0
+        obj.for_me = _num(r.get(gc_for_me)) if gc_for_me else 0
+        obj.total = _num(r.get(gc_total)) if gc_total else 0
+        obj.notes = _str(r.get(gc_notes)) if gc_notes else None
+        n += 1
+    dst.flush()
+    counts["gedo_customer_balances"] = n
+
+
+def _load_gedo_vendor_balances(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Gedo_Vendors`` (per-vendor GL sub-ledger balance)."""
+    if not insp.has_table("Gedo_Vendors"):
+        return
+    # ProCare vendors don't carry eStock source_id, so vendor_id in Gedo_Vendors
+    # can't be resolved to a ProCare vendor. Store the row with NULL vendor_id.
+    vendor_map = {}
+    cols = {c["name"] for c in insp.get_columns("Gedo_Vendors")}
+    gv_id = _pick(cols, "gv_id")
+    gv_gf_id = _pick(cols, "gf_id")
+    gv_flag = _pick(cols, "Flag")
+    gv_type = _pick(cols, "gv_type")
+    gv_vend = _pick(cols, "vendor_id")
+    gv_for_him = _pick(cols, "gv_for_him")
+    gv_for_me = _pick(cols, "gv_for_me")
+    gv_total = _pick(cols, "total")
+    gv_notes = _pick(cols, "notes")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GedoVendorBalance)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Gedo_Vendors")).mappings().all():
+        vend_pk = vendor_map.get(int(r.get(gv_vend))) if gv_vend and r.get(gv_vend) is not None else None
+        sid = int(r.get(gv_id)) if gv_id and r.get(gv_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GedoVendorBalance(source_id=sid)
+            dst.add(obj)
+        obj.gf_id = _str(r.get(gv_gf_id)) if gv_gf_id else None
+        obj.flag = int(r[gv_flag]) if gv_flag and r.get(gv_flag) is not None else None
+        obj.gv_type = _str(r.get(gv_type)) if gv_type else None
+        obj.vendor_id = vend_pk
+        obj.for_him = _num(r.get(gv_for_him)) if gv_for_him else 0
+        obj.for_me = _num(r.get(gv_for_me)) if gv_for_me else 0
+        obj.total = _num(r.get(gv_total)) if gv_total else 0
+        obj.notes = _str(r.get(gv_notes)) if gv_notes else None
+        n += 1
+    dst.flush()
+    counts["gedo_vendor_balances"] = n
+
+
+def _load_gedo_branch_balances(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Gedo_branches`` (per-branch GL sub-ledger balance)."""
+    if not insp.has_table("Gedo_branches"):
+        return
+    # Build branch_id -> ProCare branch_id map. Branches have store_id which maps to source_id,
+    # but this is handled via _resolve_branch_map. For now, we skip branch resolution.
+    branch_map = {}
+    cols = {c["name"] for c in insp.get_columns("Gedo_branches")}
+    gb_id = _pick(cols, "gb_id")
+    gb_gf_id = _pick(cols, "gf_id")
+    gb_flag = _pick(cols, "Flag")
+    gb_type = _pick(cols, "gb_type")
+    gb_branch = _pick(cols, "branch_id")
+    gb_for_him = _pick(cols, "gb_for_him")
+    gb_for_me = _pick(cols, "gb_for_me")
+    gb_total = _pick(cols, "total")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GedoBranchBalance)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Gedo_branches")).mappings().all():
+        branch_pk = branch_map.get(int(r.get(gb_branch))) if gb_branch and r.get(gb_branch) is not None else None
+        sid = int(r.get(gb_id)) if gb_id and r.get(gb_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GedoBranchBalance(source_id=sid)
+            dst.add(obj)
+        obj.gf_id = _str(r.get(gb_gf_id)) if gb_gf_id else None
+        obj.flag = int(r[gb_flag]) if gb_flag and r.get(gb_flag) is not None else None
+        obj.gb_type = _str(r.get(gb_type)) if gb_type else None
+        obj.branch_id = branch_pk
+        obj.for_him = _num(r.get(gb_for_him)) if gb_for_him else 0
+        obj.for_me = _num(r.get(gb_for_me)) if gb_for_me else 0
+        obj.total = _num(r.get(gb_total)) if gb_total else 0
+        n += 1
+    dst.flush()
+    counts["gedo_branch_balances"] = n
+
+
+def _load_gedo_employee_balances(insp, src, dst, counts) -> None:
+    """Mirror eStock's ``Gedo_employee`` (per-employee GL sub-ledger balance)."""
+    if not insp.has_table("Gedo_employee"):
+        return
+    # Build emp_id -> ProCare employee_id map from loaded employees via username resolution.
+    # _load_employees ran first and resolved every eStock emp_id via username.
+    # We can't directly map emp_id without storing source_id on employees, so we'll
+    # skip employee resolution (NULL employee_id) and just store the source data.
+    employee_map = {}
+    cols = {c["name"] for c in insp.get_columns("Gedo_employee")}
+    ge_id = _pick(cols, "ge_id")
+    ge_gf_id = _pick(cols, "gf_id")
+    ge_flag = _pick(cols, "flag")  # note: lowercase on this table
+    ge_type = _pick(cols, "ge_type")
+    ge_emp = _pick(cols, "emp_id")
+    ge_for_him = _pick(cols, "ge_for_him")
+    ge_for_me = _pick(cols, "ge_for_me")
+    ge_total = _pick(cols, "total")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GedoEmployeeBalance)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Gedo_employee")).mappings().all():
+        emp_pk = employee_map.get(int(r.get(ge_emp))) if ge_emp and r.get(ge_emp) is not None else None
+        sid = int(r.get(ge_id)) if ge_id and r.get(ge_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GedoEmployeeBalance(source_id=sid)
+            dst.add(obj)
+        obj.gf_id = _str(r.get(ge_gf_id)) if ge_gf_id else None
+        obj.flag = int(r[ge_flag]) if ge_flag and r.get(ge_flag) is not None else None
+        obj.ge_type = _str(r.get(ge_type)) if ge_type else None
+        obj.employee_id = emp_pk
+        obj.for_him = _num(r.get(ge_for_him)) if ge_for_him else 0
+        obj.for_me = _num(r.get(ge_for_me)) if ge_for_me else 0
+        obj.total = _num(r.get(ge_total)) if ge_total else 0
+        n += 1
+    dst.flush()
+    counts["gedo_employee_balances"] = n
+
+
+def _load_gedo_installment_balances(insp, src, dst, counts, customer_map: dict[int, int] | None = None) -> None:
+    """Mirror eStock's ``Gedo_installment`` (per-customer installment GL sub-ledger balance)."""
+    if not insp.has_table("Gedo_installment"):
+        return
+    if customer_map is None:
+        customer_map = {c.source_counter: c.customer_id for c in dst.scalars(select(m.Customer)).all() if c.source_counter}
+    cols = {c["name"] for c in insp.get_columns("Gedo_installment")}
+    gi_id = _pick(cols, "gi_id")
+    gi_f_id = _pick(cols, "f_id")
+    gi_flag = _pick(cols, "flag")  # note: lowercase on this table
+    gi_type = _pick(cols, "gi_type")
+    gi_cust = _pick(cols, "cu_id")
+    gi_for_him = _pick(cols, "gi_for_him")
+    gi_for_me = _pick(cols, "gi_for_me")
+    gi_total = _pick(cols, "total")
+
+    by_src = {a.source_id: a for a in dst.scalars(select(m.GedoInstallmentBalance)).all() if a.source_id is not None}
+    n = 0
+    for r in src.execute(text("SELECT * FROM Gedo_installment")).mappings().all():
+        cust_pk = customer_map.get(int(r.get(gi_cust))) if gi_cust and r.get(gi_cust) is not None else None
+        sid = int(r.get(gi_id)) if gi_id and r.get(gi_id) is not None else None
+        obj = by_src.get(sid)
+        if obj is None:
+            obj = m.GedoInstallmentBalance(source_id=sid)
+            dst.add(obj)
+        obj.f_id = _str(r.get(gi_f_id)) if gi_f_id else None
+        obj.flag = int(r[gi_flag]) if gi_flag and r.get(gi_flag) is not None else None
+        obj.gi_type = _str(r.get(gi_type)) if gi_type else None
+        obj.customer_id = cust_pk
+        obj.for_him = _num(r.get(gi_for_him)) if gi_for_him else 0
+        obj.for_me = _num(r.get(gi_for_me)) if gi_for_me else 0
+        obj.total = _num(r.get(gi_total)) if gi_total else 0
+        n += 1
+    dst.flush()
+    counts["gedo_installment_balances"] = n
 
 
 def _load_treasury(insp, src, dst, counts, branch_map, default_branch) -> None:

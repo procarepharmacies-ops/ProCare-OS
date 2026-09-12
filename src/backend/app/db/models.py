@@ -1562,3 +1562,127 @@ class HeldInvoice(Base):
     __table_args__ = (
         Index("IX_held_branch_created", "branch_id", "created_at"),
     )
+
+
+class GedoCustomerBalance(Base):
+    """Per-customer GL sub-ledger balance (eStock ``Gedo_customers`` mirror).
+
+    Read-only mirror of customer account balances in the GL: what-we-owe-them
+    (for_him) vs. what-they-owe-us (for_me), plus the journal id (gf_id). The
+    ``for_him`` / ``for_me`` columns are the named balance columns that PR 2e
+    confirms from the schema dump. Upserted by source_id (gc_id); not in
+    ``_WIPE_ORDER`` (sub-ledger history, survives full refreshes).
+    """
+
+    __tablename__ = "gedo_customer_balances"
+
+    balance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_customers.gc_id
+    gf_id: Mapped[str | None] = mapped_column(String(40), nullable=True)  # Gedo_Financial reference
+    flag: Mapped[int | None] = mapped_column(nullable=True)  # eStock flag
+    gc_type: Mapped[str | None] = mapped_column(String(40), nullable=True)  # party-type code
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)
+    for_him: Mapped[float] = mapped_column(Money, default=0)  # what-we-owe-them
+    for_me: Mapped[float] = mapped_column(Money, default=0)  # what-they-owe-us
+    total: Mapped[float] = mapped_column(Money, default=0)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gedo_customer_source", "source_id"),
+        Index("IX_gedo_customer_id", "customer_id"),
+    )
+
+
+class GedoVendorBalance(Base):
+    """Per-vendor GL sub-ledger balance (eStock ``Gedo_Vendors`` mirror)."""
+
+    __tablename__ = "gedo_vendor_balances"
+
+    balance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_Vendors.gv_id
+    gf_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    flag: Mapped[int | None] = mapped_column(nullable=True)
+    gv_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    vendor_id: Mapped[int | None] = mapped_column(ForeignKey("vendors.vendor_id"), nullable=True)
+    for_him: Mapped[float] = mapped_column(Money, default=0)
+    for_me: Mapped[float] = mapped_column(Money, default=0)
+    total: Mapped[float] = mapped_column(Money, default=0)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gedo_vendor_source", "source_id"),
+        Index("IX_gedo_vendor_id", "vendor_id"),
+    )
+
+
+class GedoBranchBalance(Base):
+    """Per-branch GL sub-ledger balance (eStock ``Gedo_branches`` mirror)."""
+
+    __tablename__ = "gedo_branch_balances"
+
+    balance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_branches.gb_id
+    gf_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    flag: Mapped[int | None] = mapped_column(nullable=True)
+    gb_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.branch_id"), nullable=True)
+    for_him: Mapped[float] = mapped_column(Money, default=0)
+    for_me: Mapped[float] = mapped_column(Money, default=0)
+    total: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gedo_branch_source", "source_id"),
+        Index("IX_gedo_branch_id", "branch_id"),
+    )
+
+
+class GedoEmployeeBalance(Base):
+    """Per-employee GL sub-ledger balance (eStock ``Gedo_employee`` mirror)."""
+
+    __tablename__ = "gedo_employee_balances"
+
+    balance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_employee.ge_id
+    gf_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    flag: Mapped[int | None] = mapped_column(nullable=True)
+    ge_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.employee_id"), nullable=True)
+    for_him: Mapped[float] = mapped_column(Money, default=0)
+    for_me: Mapped[float] = mapped_column(Money, default=0)
+    total: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gedo_employee_source", "source_id"),
+        Index("IX_gedo_employee_id", "employee_id"),
+    )
+
+
+class GedoInstallmentBalance(Base):
+    """Per-customer installment GL sub-ledger balance (eStock ``Gedo_installment``).
+
+    Installment plans tracked separately from the main customer balance. ``cu_id``
+    is eStock's own customer id reference (not resolved to ProCare FK, same pattern
+    as party-type codes).
+    """
+
+    __tablename__ = "gedo_installment_balances"
+
+    balance_id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True)  # Gedo_installment.gi_id
+    f_id: Mapped[str | None] = mapped_column(String(40), nullable=True)  # Gedo_Financial reference
+    flag: Mapped[int | None] = mapped_column(nullable=True)
+    gi_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.customer_id"), nullable=True)  # cu_id resolved
+    for_him: Mapped[float] = mapped_column(Money, default=0)
+    for_me: Mapped[float] = mapped_column(Money, default=0)
+    total: Mapped[float] = mapped_column(Money, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("IX_gedo_installment_source", "source_id"),
+        Index("IX_gedo_installment_customer", "customer_id"),
+    )

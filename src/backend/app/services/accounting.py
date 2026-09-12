@@ -577,29 +577,109 @@ def gl_adjustments(session: Session, limit: int = 500) -> list[dict]:
     ]
 
 
-def gl_subledgers(session: Session, party_type: str | None = None, limit: int = 500) -> list[dict]:
-    """eStock's per-party GL sub-ledger balances (Gedo_customers/Gedo_Vendors/
-    Gedo_branches/Gedo_employee/Gedo_installment mirror, read-only, most
-    recent first). ``party_source_id`` is the RAW eStock party id — NOT
-    resolved to a ProCare customer/vendor/branch/employee PK (see
-    GlSubledgerBalance's docstring for why branch specifically can't be)."""
-    q = select(m.GlSubledgerBalance).order_by(m.GlSubledgerBalance.gl_subledger_id.desc())
-    if party_type:
-        q = q.where(m.GlSubledgerBalance.party_type == party_type)
-    rows = session.scalars(q.limit(limit)).all()
+def gedo_customer_balances(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's per-customer GL sub-ledger balances (Gedo_customers mirror,
+    read-only). for_him/for_me are the named balance columns confirming from PR 2e schema dump."""
+    rows = session.scalars(
+        select(m.GedoCustomerBalance).order_by(m.GedoCustomerBalance.balance_id.desc()).limit(limit)
+    ).all()
     return [
         {
-            "gl_subledger_id": b.gl_subledger_id,
-            "party_type": b.party_type,
+            "balance_id": b.balance_id,
             "source_id": b.source_id,
-            "gf_ref": b.gf_ref,
+            "gf_id": b.gf_id,
             "flag": b.flag,
-            "type_code": b.type_code,
-            "party_source_id": b.party_source_id,
+            "gc_type": b.gc_type,
+            "customer_id": b.customer_id,
             "for_him": float(b.for_him or 0),
             "for_me": float(b.for_me or 0),
             "total": float(b.total or 0),
             "notes": b.notes,
+        }
+        for b in rows
+    ]
+
+
+def gedo_vendor_balances(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's per-vendor GL sub-ledger balances (Gedo_Vendors mirror, read-only)."""
+    rows = session.scalars(
+        select(m.GedoVendorBalance).order_by(m.GedoVendorBalance.balance_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "balance_id": b.balance_id,
+            "source_id": b.source_id,
+            "gf_id": b.gf_id,
+            "flag": b.flag,
+            "gv_type": b.gv_type,
+            "vendor_id": b.vendor_id,
+            "for_him": float(b.for_him or 0),
+            "for_me": float(b.for_me or 0),
+            "total": float(b.total or 0),
+            "notes": b.notes,
+        }
+        for b in rows
+    ]
+
+
+def gedo_branch_balances(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's per-branch GL sub-ledger balances (Gedo_branches mirror, read-only)."""
+    rows = session.scalars(
+        select(m.GedoBranchBalance).order_by(m.GedoBranchBalance.balance_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "balance_id": b.balance_id,
+            "source_id": b.source_id,
+            "gf_id": b.gf_id,
+            "flag": b.flag,
+            "gb_type": b.gb_type,
+            "branch_id": b.branch_id,
+            "for_him": float(b.for_him or 0),
+            "for_me": float(b.for_me or 0),
+            "total": float(b.total or 0),
+        }
+        for b in rows
+    ]
+
+
+def gedo_employee_balances(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's per-employee GL sub-ledger balances (Gedo_employee mirror, read-only)."""
+    rows = session.scalars(
+        select(m.GedoEmployeeBalance).order_by(m.GedoEmployeeBalance.balance_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "balance_id": b.balance_id,
+            "source_id": b.source_id,
+            "gf_id": b.gf_id,
+            "flag": b.flag,
+            "ge_type": b.ge_type,
+            "employee_id": b.employee_id,
+            "for_him": float(b.for_him or 0),
+            "for_me": float(b.for_me or 0),
+            "total": float(b.total or 0),
+        }
+        for b in rows
+    ]
+
+
+def gedo_installment_balances(session: Session, limit: int = 500) -> list[dict]:
+    """eStock's installment GL sub-ledger balances (Gedo_installment mirror, read-only)."""
+    rows = session.scalars(
+        select(m.GedoInstallmentBalance).order_by(m.GedoInstallmentBalance.balance_id.desc()).limit(limit)
+    ).all()
+    return [
+        {
+            "balance_id": b.balance_id,
+            "source_id": b.source_id,
+            "f_id": b.f_id,
+            "flag": b.flag,
+            "gi_type": b.gi_type,
+            "customer_id": b.customer_id,
+            "for_him": float(b.for_him or 0),
+            "for_me": float(b.for_me or 0),
+            "total": float(b.total or 0),
         }
         for b in rows
     ]
