@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>جدول الأسبوع الخاص - 13-19 سبتمبر 2026</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .warning-banner {
+            background: #fff3cd;
+            border-right: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px;
+            border-radius: 4px;
+        }
+
+        .warning-title {
+            font-weight: 700;
+            color: #856404;
+            margin-bottom: 5px;
+        }
+
+        .warning-text {
+            color: #856404;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px 20px;
+        }
+
+        .date-info {
+            background: #e8f4f8;
+            border-right: 4px solid #0D7377;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 4px;
+        }
+
+        .date-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0D7377;
+        }
+
+        .date-value {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .schedule-table th {
+            background: #0D7377;
+            color: white;
+            padding: 12px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .schedule-table td {
+            padding: 15px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            text-align: center;
+        }
+
+        .schedule-table tr:hover {
+            background: #f9f9f9;
+        }
+
+        .day-name {
+            font-weight: 600;
+            color: #0D7377;
+            width: 20%;
+        }
+
+        .day-date {
+            font-size: 13px;
+            color: #999;
+        }
+
+        .working {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .off {
+            background: #ffebee;
+            color: #c62828;
+            font-weight: 700;
+        }
+
+        .staff-name {
+            font-weight: 600;
+        }
+
+        .shift-time {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .branch-header {
+            background: #f0f0f0;
+            padding: 15px 20px;
+            font-weight: 700;
+            color: #333;
+            margin-top: 30px;
+            margin-bottom: 0;
+        }
+
+        .notes-box {
+            background: #f0f8ff;
+            border-right: 4px solid #0D7377;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        .notes-title {
+            font-weight: 600;
+            color: #0D7377;
+            margin-bottom: 10px;
+        }
+
+        .notes-text {
+            color: #333;
+            line-height: 1.8;
+        }
+
+        .footer {
+            background: #f5f5f5;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .en-text {
+            font-family: Arial, sans-serif;
+        }
+
+        .discord-notice {
+            background: #7289da;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <h1>📋 جدول الأسبوع الخاص</h1>
+            <p>صيدليات بروكير — الفرع الأول</p>
+            <p class="en-text" style="font-size: 12px; margin-top: 10px;">Special Weekly Schedule - September 13-19, 2026</p>
+        </div>
+
+        <!-- WARNING BANNER -->
+        <div class="warning-banner">
+            <div class="warning-title">⚠️ جدول خاص لهذا الأسبوع فقط</div>
+            <div class="warning-text">
+                هذا الجدول ينطبق على الفترة من 13-19 سبتمبر 2026 فقط.
+                ابتداءً من السبت 20 سبتمبر، ستعود إلى الجدول الأساسي المعتاد.
+            </div>
+        </div>
+
+        <!-- DISCORD NOTICE -->
+        <div class="discord-notice">
+            📱 تم نشر هذا الجدول على Discord Bot
+        </div>
+
+        <!-- DATE INFO -->
+        <div class="content">
+            <div class="date-info">
+                <div class="date-label">📅 تاريخ الجدول: الأسبوع من 13-19 سبتمبر 2026</div>
+                <div class="date-value en-text">Week of September 13-19, 2026 (Saturday to Friday)</div>
+            </div>
+
+            <!-- BRANCH 1 SCHEDULE -->
+            <div class="branch-header">الفرع الأول — Branch 1</div>
+            <table class="schedule-table">
+                <thead>
+                    <tr>
+                        <th>اليوم</th>
+                        <th>الموظفون</th>
+                        <th>الحالة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="day-name">
+                            السبت<br>
+                            <span class="day-date">Sat 13</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Nada</span> 8-4 |
+                            <span class="staff-name">Nour</span> 12-8 |
+                            <span class="staff-name">Youssef</span> 4-12 |
+                            <span class="staff-name">Abdalla</span> 8م-4ص
+                        </td>
+                        <td class="working">✅ عامل</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">
+                            الأحد<br>
+                            <span class="day-date">Sun 14</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Nada</span> 8-4 |
+                            <span class="staff-name">Nour</span> 12-8 |
+                            <span class="staff-name">Abdalla</span> 4-12 + 8م-4ص<br>
+                            <span class="staff-name">Youssef</span> مسهل
+                        </td>
+                        <td class="off">❌ يوسف اجازة</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">
+                            الاثنين<br>
+                            <span class="day-date">Mon 15</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Nada</span> 8-4 |
+                            <span class="staff-name">Nour</span> 12-8 |
+                            <span class="staff-name">Youssef</span> 4-12<br>
+                            <span class="staff-name">Karim Mohy</span> 12ص-8 (مساعد)
+                        </td>
+                        <td class="off">❌ عبدالله اجازة</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">
+                            الثلاثاء<br>
+                            <span class="day-date">Tue 16</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Abdalla</span> 8-4 (تغطية) |
+                            <span class="staff-name">Nour</span> 12-8 |
+                            <span class="staff-name">Youssef</span> 6م-2ص<br>
+                            <span class="staff-name">Karim Mohy</span> 12ص-8
+                        </td>
+                        <td class="off">❌ ندي اجازة</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">
+                            الأربعاء<br>
+                            <span class="day-date">Wed 17</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Nour</span> 12-8 |
+                            <span class="staff-name">Youssef</span> 6م-2ص |
+                            <span class="staff-name">Karim Mohy</span> 12ص-8<br>
+                            <span class="staff-name">Abdalla</span> 8م-4ص (ليل)
+                        </td>
+                        <td class="off">❌ مدير اجازة</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">
+                            الخميس<br>
+                            <span class="day-date">Thu 18</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Nada</span> 8-4 |
+                            <span class="staff-name">Youssef</span> 4-12 |
+                            <span class="staff-name">Abdalla</span> 8م-4ص |
+                            <span class="staff-name">Karim Mohy</span> 12ص-8
+                        </td>
+                        <td class="working">✅ عامل</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">
+                            الجمعة<br>
+                            <span class="day-date">Fri 19</span>
+                        </td>
+                        <td>
+                            <span class="staff-name">Nada</span> 8-4 |
+                            <span class="staff-name">Nour</span> 12-8 |
+                            <span class="staff-name">Youssef</span> 4-12
+                        </td>
+                        <td class="off">❌ كريم اجازة</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- BRANCH 2 SCHEDULE -->
+            <div class="branch-header">الفرع الثاني — Branch 2</div>
+            <table class="schedule-table">
+                <thead>
+                    <tr>
+                        <th>اليوم</th>
+                        <th>الموظفون</th>
+                        <th>الحالة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="day-name">السبت-الخميس<br><span class="day-date">Sat 13 - Thu 18</span></td>
+                        <td><span class="staff-name">Reem</span> 8-4 | <span class="staff-name">Afaf</span> 4-12</td>
+                        <td class="working">✅ عامل</td>
+                    </tr>
+                    <tr>
+                        <td class="day-name">الجمعة<br><span class="day-date">Fri 19</span></td>
+                        <td><span class="staff-name">Reem</span> 8-4 | <span class="staff-name">Afaf</span> 4-12</td>
+                        <td class="working">✅ عامل</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- NOTES -->
+            <div class="notes-box">
+                <div class="notes-title">📌 ملاحظات مهمة:</div>
+                <div class="notes-text">
+                    ✓ <strong>تغطية الثلاثاء:</strong> عبدالله يغطي فرع 1 صباحي (8-4) بدلاً من ندي (مسهلة)<br>
+                    ✓ <strong>تغطية الأربعاء:</strong> لا يوجد موظف صباحي في الفرع الأول (نادي اجازة)<br>
+                    ✓ <strong>ساعات الذروة:</strong> مضمونة 12-8 مع فارماسيين مرخصين<br>
+                    ✓ <strong>مدة الجدول:</strong> أسبوع واحد فقط (13-19 سبتمبر)<br>
+                    ✓ <strong>العودة للجدول الأساسي:</strong> السبت 20 سبتمبر 2026
+                </div>
+            </div>
+
+            <!-- STAFF CONTACTS -->
+            <div class="notes-box">
+                <div class="notes-title">📱 التواصل الطوارئ:</div>
+                <div class="notes-text">
+                    أي تغيير أو مشكلة، تواصل عبر Discord Bot أو WhatsApp مباشرة<br>
+                    <strong>تاريخ الجدول:</strong> 2026-09-12 (تم الإعداد يوم الجمعة)
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            صيدليات بروكير — جدول أسبوع خاص 13-19 سبتمبر 2026<br>
+            ProCare Pharmacies — Special Week Schedule Sep 13-19, 2026<br>
+            <br>
+            ✅ تم النشر على Discord Bot<br>
+            <span class="en-text">Published via Discord Bot</span>
+        </div>
+    </div>
+</body>
+</html>
