@@ -14,9 +14,13 @@ provider. This centralises them so the same four providers work everywhere:
                      (http://localhost:11434). NO API key — fully offline.
   * ``claude-cli`` — shell out to a locally installed & logged-in Claude Code
                      CLI. NO API key.
+  * ``hermes-cli`` — shell out to a locally installed Hermes CLI. NO API key
+                     held by ProCare (the binary carries its own auth).
 
 ``hermes`` and ``ollama`` share one OpenAI-compatible transport
 (``_openai_*``); they differ only in base URL, key and model list.
+``claude-cli`` and ``hermes-cli`` share one subprocess transport
+(``_run_cli``); they differ only in which executable and args are invoked.
 
 Two public entry points, both provider-agnostic and both fail-soft (return
 ``None`` on any error) so the assistant always falls back to its deterministic
@@ -101,7 +105,7 @@ def classify(query: str, choices: dict[str, str], branch_id: int | None) -> tupl
             return _classify_gemini(query, choices, branch_id)
         if p in ("hermes", "ollama"):
             return _classify_openai(query, choices, branch_id)
-        if p == "claude-cli":
+        if p in _cli_providers():
             return _classify_cli(query, choices, branch_id)
         return _classify_anthropic(query, choices, branch_id)
     except Exception:  # noqa: BLE001
@@ -248,7 +252,7 @@ def _classify_openai(query, choices, branch_id):
 
 
 def _classify_cli(query, choices, branch_id):
-    """Shell out to the Claude Code CLI, asking for a single JSON label."""
+    """Shell out to the active provider's CLI, asking for a single JSON label."""
     prompt = (
         _system_prompt(choices)
         + " Reply with ONLY a JSON object {\"intent\": <one intent key>, \"branch_id\": <0|1|2>}. "
@@ -276,7 +280,7 @@ def complete(prompt: str, system: str | None = None, max_tokens: int = 400) -> s
             return _complete_gemini(prompt, system, max_tokens)
         if p in ("hermes", "ollama"):
             return _complete_openai(prompt, system, max_tokens)
-        if p == "claude-cli":
+        if p in _cli_providers():
             return _run_cli(f"{system}\n\n{prompt}" if system else prompt)
         return _complete_anthropic(prompt, system, max_tokens)
     except Exception:  # noqa: BLE001
@@ -345,14 +349,50 @@ def _complete_openai(prompt, system, max_tokens):
     return None
 
 
-# --- Claude CLI helpers -----------------------------------------------------
+# --- local-CLI helpers ------------------------------------------------------
+def _cli_providers() -> dict:
+    """Providers answered by shelling out to a local binary (claude-cli,
+    hermes-cli). Read live from config so a reload picks up new entries."""
+    from app.config import _CLI_PROVIDERS
+
+    return _CLI_PROVIDERS
+
+
+def _cli_argv(prompt: str) -> list[str] | None:
+    """argv for the active provider's CLI, or None if it is not a CLI provider.
+
+    The executable and the args placed before the prompt both default from the
+    provider table and can be overridden per install with e.g.
+    ``HERMES_CLI_BIN`` / ``HERMES_CLI_ARGS`` (``CLAUDE_CLI_BIN`` / ``_ARGS``),
+    because a locally installed binary's name and flags are a property of that
+    machine, not of ProCare. The prompt is always the final argv element and is
+    never interpolated into a shell string — no shell=True on this path, so a
+    prescription or question containing shell metacharacters cannot execute.
+    """
+    import os
+    import shlex
+
+    spec = _cli_providers().get(settings.ai_provider)
+    if not spec:
+        return None
+    env_prefix = settings.ai_provider.replace("-", "_").upper()  # HERMES_CLI
+    binary = (os.environ.get(f"{env_prefix}_BIN") or spec["bin"]).strip()
+    if not binary:
+        return None
+    raw_args = os.environ.get(f"{env_prefix}_ARGS")
+    args = shlex.split(raw_args if raw_args is not None else spec["args"])
+    return [binary, *args, prompt]
+
+
 def _run_cli(prompt: str) -> str | None:
-    """Run `claude -p <prompt>` and return its text, or None if unavailable."""
+    """Run the active provider's CLI and return its text, or None if the binary
+    is missing, times out, or exits non-zero — fail-soft like every other
+    provider path, so a missing CLI drops to the keyword router, not an error."""
+    argv = _cli_argv(prompt)
+    if not argv:
+        return None
     try:
-        proc = subprocess.run(
-            ["claude", "-p", prompt],
-            capture_output=True, text=True, timeout=60,
-        )
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=60)
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
     if proc.returncode != 0:
@@ -378,6 +418,10 @@ def status() -> dict:
         # The whole chain, so a settings screen shows what will actually be
         # tried when a free slug is retired — not just the dead primary.
         "models": _openai_models() if settings.ai_provider in ("hermes", "ollama") else [settings.ai_model],
+        # For a local-CLI provider, the executable that will actually be run —
+        # otherwise "configured: true, keyless: true" looks healthy on a PC
+        # where the binary was never installed. The prompt is omitted.
+        "cli_bin": (_cli_argv("") or [None])[0],
     }
 
 

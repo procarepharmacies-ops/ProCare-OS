@@ -535,6 +535,7 @@ drops to the deterministic keyword router, never to a broken screen).
 | `anthropic` | Claude API | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
 | `ollama` | local server `:11434` | none (keyless) | `hermes3` |
 | `claude-cli` | local Claude Code CLI | none (keyless) | — |
+| `hermes-cli` | local Hermes CLI binary | none (keyless) | — |
 
 Invariants: **`hermes` means hosted OpenRouter, NOT a local Ollama model** — it
 was formerly an alias for `ollama` and is now its own provider with its own key
@@ -552,6 +553,24 @@ localhost default used to point hosted providers at a machine not serving
 them), and a config-file `base_url` applies only when that block targets the
 ACTIVE provider. `llm.status()` reports the whole model chain, not just the
 primary, so a settings screen shows what will actually be tried.
+
+**`hermes-cli` is NOT `hermes`.** `hermes` posts to OpenRouter over HTTP with
+`OPENROUTER_API_KEY`; `hermes-cli` shells out to a Hermes binary installed on
+that PC, and is keyless only in the sense that ProCare holds no key — the
+binary carries its own auth. The two must never be aliased to each other: a
+keyless install silently routed to the hosted endpoint has no key and would
+drop straight to the keyword router. `claude-cli` and `hermes-cli` share one
+subprocess transport (`_run_cli`), driven by the `cli_bin`/`cli_args` entries
+in `_AI_PROVIDER_DEFAULTS` — a provider missing `cli_bin` falls out of CLI
+dispatch entirely, so both entries must carry one. The executable and its
+pre-prompt args are overridable per machine (`HERMES_CLI_BIN`/`HERMES_CLI_ARGS`,
+`CLAUDE_CLI_BIN`/`CLAUDE_CLI_ARGS`), because a local binary's name and flags
+belong to the PC, not to ProCare. The prompt is **always the final argv
+element and never interpolated into a shell string** (no `shell=True`), so
+Arabic prescription text or a question containing `;` `$( )` backticks cannot
+execute. `status()` reports `cli_bin` so a settings screen can show what will
+be invoked — "configured + keyless" otherwise looks healthy on a PC where the
+binary was never installed.
 
 ---
 

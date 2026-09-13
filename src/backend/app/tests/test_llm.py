@@ -230,3 +230,146 @@ def test_network_error_fails_soft(reload_config, monkeypatch):
     monkeypatch.setattr(httpx, "post", boom)
     assert llm.classify("q", {"help": "y"}, None) is None
     assert llm.complete("q") is None
+
+
+# --- hermes-cli: local binary, distinct from hosted hermes -------------------
+def test_hermes_cli_is_its_own_provider_not_hosted_hermes(reload_config):
+    """"hermes-cli" must NOT collapse into "hermes". They are different
+    transports: one shells out to a local binary, the other posts to
+    OpenRouter. Aliasing them would silently send a keyless install to a
+    hosted endpoint it has no key for."""
+    cfg = reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+    assert cfg.settings.ai_provider == "hermes-cli"
+    assert cfg.settings.ai_is_configured() is True  # keyless
+    # The hosted provider is untouched by the new entry.
+    assert reload_config(AI_PROVIDER="hermes").settings.ai_provider == "hermes"
+
+
+def test_hermes_cli_aliases(reload_config):
+    for name in ("hermes-cli", "hermes_cli", "hermescli", "HERMES-CLI"):
+        assert reload_config(AI_PROVIDER=name).settings.ai_provider == "hermes-cli"
+
+
+def test_hermes_cli_invokes_the_binary_with_prompt_last(reload_config, monkeypatch):
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+    seen = {}
+
+    class Proc:
+        returncode = 0
+        stdout = "ملخص الأداء جيد."
+        stderr = ""
+
+    def fake_run(argv, **kw):
+        seen["argv"] = argv
+        seen["shell"] = kw.get("shell", False)
+        return Proc()
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert llm.complete("phrase these facts") == "ملخص الأداء جيد."
+    assert seen["argv"][0] == "hermes"
+    assert seen["argv"][-1] == "phrase these facts"  # prompt is the last argv
+    # Never through a shell: a prompt with metacharacters must not execute.
+    assert seen["shell"] is False
+
+
+def test_hermes_cli_prompt_is_not_shell_interpreted(reload_config, monkeypatch):
+    """A pharmacy question or prescription text can contain ; $( ` — these must
+    arrive as one literal argument, never as shell syntax."""
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+    nasty = 'سعر; rm -rf / $(whoami) `id`'
+    seen = {}
+
+    class Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: (seen.update(argv=argv), Proc())[1])
+    llm.complete(nasty)
+    assert seen["argv"].count(nasty) == 1
+    assert seen["argv"][-1] == nasty
+
+
+def test_hermes_cli_binary_and_args_are_overridable(reload_config, monkeypatch):
+    """The binary's name/flags belong to the machine, not to ProCare."""
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN="/opt/hermes/bin/hermes",
+                  HERMES_CLI_ARGS="--quiet --format text")
+    seen = {}
+
+    class Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: (seen.update(argv=argv), Proc())[1])
+    llm.complete("q")
+    assert seen["argv"] == ["/opt/hermes/bin/hermes", "--quiet", "--format", "text", "q"]
+
+
+def test_hermes_cli_missing_binary_fails_soft(reload_config, monkeypatch):
+    """No binary on this PC → keyword router, never an exception."""
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+    import subprocess
+
+    def boom(*a, **k):
+        raise FileNotFoundError("hermes not installed")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert llm.classify("q", {"help": "y"}, None) is None
+    assert llm.complete("q") is None
+
+
+def test_hermes_cli_nonzero_exit_fails_soft(reload_config, monkeypatch):
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+
+    class Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "not logged in"
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: Proc())
+    assert llm.complete("q") is None
+    assert llm.classify("q", {"help": "y"}, None) is None
+
+
+def test_hermes_cli_classify_parses_wrapped_json(reload_config, monkeypatch):
+    """CLIs wrap answers in prose/fences; the first {...} must still parse."""
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+
+    class Proc:
+        returncode = 0
+        stdout = 'Sure!\n```json\n{"intent": "sales_today", "branch_id": 2}\n```\n'
+        stderr = ""
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: Proc())
+    assert llm.classify("كام بعنا النهارده", {"sales_today": "x", "help": "y"}, None) == ("sales_today", 2)
+
+
+def test_claude_cli_still_runs_claude(reload_config, monkeypatch):
+    """Generalising the CLI path must not repoint the existing provider."""
+    reload_config(AI_PROVIDER="claude-cli", CLAUDE_CLI_BIN=None, CLAUDE_CLI_ARGS=None)
+    seen = {}
+
+    class Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: (seen.update(argv=argv), Proc())[1])
+    llm.complete("q")
+    assert seen["argv"] == ["claude", "-p", "q"]
+
+
+def test_status_reports_cli_binary(reload_config):
+    """"configured + keyless" looks healthy even where the binary was never
+    installed; the settings screen needs to see what will be invoked."""
+    reload_config(AI_PROVIDER="hermes-cli", HERMES_CLI_BIN=None, HERMES_CLI_ARGS=None)
+    assert llm.status()["cli_bin"] == "hermes"
+    reload_config(AI_PROVIDER="hermes", OPENROUTER_API_KEY="sk-or-v1-test")
+    assert llm.status()["cli_bin"] is None  # HTTP provider, nothing to shell out to
