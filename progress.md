@@ -1522,3 +1522,36 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   as a real gap in the original owner review (2026-07-23) is mirrored.
   What remains uncovered is honestly low-value or already-derived
   elsewhere, not a blind spot.
+
+## 2026-09-13 · P0.4 — Arabic text repair tooling (Phase 6 continuation)
+**Context:** PR #73 (2026-09-12) fixed the root cause of Arabic text corruption
+(VARCHAR→NVARCHAR column type change for Unicode support). This session adds
+the remediation tooling to restore existing corrupted data.
+
+**BUILT:**
+- `src/backend/tools/assess_arabic_damage.py`: Quantifies corruption extent by
+  scanning 7 tables (customers, vendors, products, employees, branches, jobs,
+  units) for '?' corruption markers in name_ar fields. Output guides repair
+  prioritization by table and field.
+- `src/backend/tools/repair_arabic.py`: Restores corrupted names by fetching
+  fresh data from eStock source (read-only). Supports `--dry-run` testing,
+  `--limit N` for batch processing, `--table customers|vendors` for targeting.
+  Integrates with existing eStock credentials + _ResilientSource connection.
+  Idempotent, safe to re-run; detailed logging for audit trail.
+
+**INVARIANTS:**
+- Both scripts are **idempotent** (safe to re-run without duplicate/error effects).
+- Run ONLY AFTER backend deployment of NVARCHAR columns (prevents re-corruption).
+- repair_arabic.py targets highest-priority tables (customers, vendors); can be
+  extended to products/employees/branches/jobs/units as needed.
+- Requires valid `config/connections.json` with read-only eStock credentials.
+
+**NEXT STEPS (P0.4 remediation workflow):**
+1. Establish baseline: `python assess_arabic_damage.py` → record corruption count
+2. Preview changes: `python repair_arabic.py --dry-run --table customers --table vendors`
+3. Execute repair off-peak: `python repair_arabic.py --table customers --table vendors`
+4. Verify success: re-run `assess_arabic_damage.py` → confirm zero corruption
+5. Test POS: verify customer/vendor search/lookup works correctly
+
+**DELIVERY:** Committed to `claude/phase-6-proceed-yju8m0`, pushed to
+`origin/claude/phase-6-proceed-yju8m0`, PR #78 (draft) created for review.
