@@ -36,14 +36,66 @@ HERMES_MODEL = os.environ.get("HERMES_MODEL", "gemma3:1b-it-qat")
 DISPATCH_TIMEOUT = int(os.environ.get("DISPATCH_TIMEOUT", "300"))
 DRY_RUN_DEFAULT = os.environ.get("MCP_AGENT_DRY_RUN", "true").lower() != "false"
 
+# The Hermes Agent CLI is pip-installed into its own venv, which is NOT on the
+# service's PATH, so `_which` alone finds nothing. Look there explicitly.
+# Override with HERMES_CLI when it lives somewhere else.
+_HERMES_CLI_FALLBACK = os.path.join(
+    os.environ.get("LOCALAPPDATA", r"C:\Users\Default\AppData\Local"),
+    "hermes", "hermes-agent", "venv", "Scripts", "hermes.exe",
+)
+
+
+def _hermes_cli() -> str | None:
+    """Path to the Hermes Agent CLI, or None when it is not installed."""
+    explicit = os.environ.get("HERMES_CLI")
+    if explicit and os.path.exists(explicit):
+        return explicit
+    found = _which("hermes")
+    if found:
+        return found
+    return _HERMES_CLI_FALLBACK if os.path.exists(_HERMES_CLI_FALLBACK) else None
+
 
 def _ollama_up() -> bool:
     return _http_ok(OLLAMA_URL.rstrip("/") + "/api/tags")
 
 
-def _run_hermes(task: str) -> str:
-    """Run a task on the local Ollama model (Hermes). Local + private: nothing
-    leaves the machine, so it is safe for sensitive pharmacy data."""
+def hermes_mode() -> str | None:
+    """How Hermes can be reached right now, or None when it cannot.
+
+      * ``"cli"``    — the Hermes Agent CLI. It answers through whatever
+        provider the CLI is logged into (Nous Portal by default), so the task
+        text DOES leave this machine.
+      * ``"ollama"`` — a local Ollama daemon. Nothing leaves the machine.
+
+    The CLI is preferred because it is what the owner actually runs; Ollama is
+    kept for fully-offline installs. The distinction is not cosmetic — it
+    decides whether the dry-run/confirm guard applies (see ``dispatch``).
+    """
+    if _hermes_cli():
+        return "cli"
+    if _ollama_up():
+        return "ollama"
+    return None
+
+
+def _run_hermes_cli(task: str) -> str:
+    """Run the task through the Hermes Agent CLI (`hermes -z <prompt>`)."""
+    exe = _hermes_cli()
+    if not exe:
+        raise RuntimeError("Hermes Agent CLI not installed")
+    r = subprocess.run(
+        [exe, "-z", task],
+        capture_output=True, text=True, timeout=DISPATCH_TIMEOUT, shell=False,
+    )
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout or "")[-300:])
+    return (r.stdout or "").strip() or "(no text)"
+
+
+def _run_hermes_ollama(task: str) -> str:
+    """Run a task on the local Ollama model. Local + private: nothing leaves
+    the machine, so it is safe for sensitive pharmacy data."""
     url = OLLAMA_URL.rstrip("/") + "/api/chat"
     body = json.dumps({
         "model": HERMES_MODEL,
@@ -54,6 +106,16 @@ def _run_hermes(task: str) -> str:
     with urllib.request.urlopen(req, timeout=DISPATCH_TIMEOUT) as r:
         data = json.loads(r.read())
     return (data.get("message", {}) or {}).get("content", "") or "(no text)"
+
+
+def _run_hermes(task: str) -> str:
+    """Dispatch to whichever Hermes transport is available, CLI first."""
+    mode = hermes_mode()
+    if mode == "cli":
+        return _run_hermes_cli(task)
+    if mode == "ollama":
+        return _run_hermes_ollama(task)
+    raise RuntimeError("Hermes unavailable: no CLI installed and Ollama is not running")
 
 
 def _http_ok(url: str, timeout: int = 3) -> bool:
@@ -77,14 +139,19 @@ def agent_status() -> dict:
     """Return the online/offline/dispatchable state of all registered agents."""
     agents = []
 
-    # Hermes = local Ollama model (private, offline, no key). Online AND
-    # dispatchable whenever the Ollama daemon is reachable.
-    hermes_up = _ollama_up()
+    # Hermes = the Hermes Agent CLI (hosted, via whatever provider it is logged
+    # into) or a local Ollama daemon for offline installs. `detail` names which,
+    # because only the Ollama path keeps the task text on this machine.
+    hmode = hermes_mode()
     agents.append({
         "id": "hermes", "label": "Hermes Ops", "label_ar": "هيرمس العمليات",
-        "kind": "ops", "online": hermes_up,
-        "detail": f"local · {HERMES_MODEL}" if hermes_up else "offline (Ollama not running on :11434)",
-        "dispatchable": hermes_up,
+        "kind": "ops", "online": hmode is not None,
+        "detail": {
+            "cli": "Hermes Agent CLI · hosted (task text leaves this machine)",
+            "ollama": f"local · {HERMES_MODEL}",
+        }.get(hmode, "offline (no Hermes CLI, and Ollama not running on :11434)"),
+        "dispatchable": hmode is not None,
+        "local": hmode == "ollama",
     })
 
     # Claude Code CLI
@@ -194,10 +261,14 @@ def dispatch(
     cmd = _build_command(agent, task, workspace)
     base["command"] = " ".join(cmd) if cmd else f"{agent} · {task[:40]}…"
 
-    # Hermes is a LOCAL model (nothing leaves the machine, text-only output), so
-    # it is exempt from the dry-run / external-confirm guard that protects agents
-    # which write externally or send data off-device.
-    local_safe = agent == "hermes"
+    # The dry-run / external-confirm guard is waived ONLY for a transport that
+    # keeps the task text on this machine. That used to be true of "hermes" by
+    # definition, when it was always local Ollama. It no longer is: the Hermes
+    # Agent CLI answers through a hosted provider, so the task — which may quote
+    # patient or financial data — leaves the device. Waiving the guard on the
+    # CLI path would silently strip the protection, so the exemption now follows
+    # the transport, not the agent name.
+    local_safe = agent == "hermes" and hermes_mode() == "ollama"
 
     if dry_run and not local_safe:
         result = {**base, "status": "blocked", "output": "dry run — not executed", "latency_ms": 0}
