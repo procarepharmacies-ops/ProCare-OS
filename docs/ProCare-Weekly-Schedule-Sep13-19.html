@@ -387,13 +387,12 @@ tbody td:first-child{font-family:'Cairo',sans-serif;font-weight:700;color:var(--
           </div>
 
           <!-- الأربعاء -->
-          <div class="cal-row is-off">
-            <div class="cal-day"><span class="dn">الأربعاء</span><span class="dd en">Wed 17</span>
-              <span class="offtag"><svg class="ico"><use href="#i-off"/></svg>المدير</span></div>
+          <div class="cal-row">
+            <div class="cal-day"><span class="dn">الأربعاء</span><span class="dd en">Wed 17</span></div>
             <div class="cal-lanes">
               <div class="lane">
                 <div class="cap c-n" style="grid-column:1/9"><span>عبدالله · ليلي</span></div>
-                <div class="cap-gap" style="grid-column:9/17">بدون تغطية صباحية</div>
+                <div class="cap c-m" style="grid-column:9/17"><span>عبدالله · صباحي</span></div>
                 <div class="cap c-e" style="grid-column:17/25"><span>يوسف · مسائي</span></div>
               </div>
               <div class="lane">
@@ -455,7 +454,6 @@ tbody td:first-child{font-family:'Cairo',sans-serif;font-weight:700;color:var(--
       <div class="offcard"><span class="d">الأحد</span><span class="nm">يوسف</span><span class="dt en">Sun 14 Sep</span></div>
       <div class="offcard"><span class="d">الاثنين</span><span class="nm">عبدالله</span><span class="dt en">Mon 15 Sep</span></div>
       <div class="offcard"><span class="d">الثلاثاء</span><span class="nm">ندى</span><span class="dt en">Tue 16 Sep</span></div>
-      <div class="offcard"><span class="d">الأربعاء</span><span class="nm">المدير</span><span class="dt en">Wed 17 Sep</span></div>
       <div class="offcard"><span class="d">الخميس</span><span class="nm">ريم</span><span class="dt en">Thu 18 Sep</span></div>
       <div class="offcard"><span class="d">الجمعة</span><span class="nm">كريم</span><span class="dt en">Fri 19 Sep</span></div>
     </div>
@@ -480,7 +478,7 @@ tbody td:first-child{font-family:'Cairo',sans-serif;font-weight:700;color:var(--
           <tr><td>الأحد ١٤</td><td><span class="tag t-gap">فجوة</span></td><td><span class="tag t-m">ندى</span></td><td><span class="tag t-p">نور</span></td><td><span class="tag t-e">عبدالله</span></td><td><span class="tag t-off">يوسف</span></td></tr>
           <tr><td>الاثنين ١٥</td><td><span class="tag t-n">كريم</span></td><td><span class="tag t-m">ندى</span></td><td><span class="tag t-p">نور</span></td><td><span class="tag t-e">يوسف</span></td><td><span class="tag t-off">عبدالله</span></td></tr>
           <tr><td>الثلاثاء ١٦</td><td><span class="tag t-n">كريم</span></td><td><span class="tag t-m rel">عبدالله</span></td><td><span class="tag t-p">نور</span></td><td><span class="tag t-e">يوسف</span></td><td><span class="tag t-off">ندى</span></td></tr>
-          <tr><td>الأربعاء ١٧</td><td><span class="tag t-n">عبدالله</span></td><td><span class="tag t-gap">فجوة</span></td><td><span class="tag t-p">نور</span></td><td><span class="tag t-e">يوسف</span></td><td><span class="tag t-off">المدير</span></td></tr>
+          <tr><td>الأربعاء ١٧</td><td><span class="tag t-n">عبدالله</span></td><td><span class="tag t-m rel">عبدالله</span></td><td><span class="tag t-p">نور</span></td><td><span class="tag t-e">يوسف</span></td><td>—</td></tr>
           <tr><td>الخميس ١٨</td><td><span class="tag t-n">عبدالله</span></td><td><span class="tag t-m">ندى</span></td><td><span class="tag t-p rel">كريم</span></td><td><span class="tag t-e">يوسف</span></td><td><span class="tag t-off">ريم</span></td></tr>
           <tr><td>الجمعة ١٩</td><td><span class="tag t-n">عبدالله</span></td><td><span class="tag t-m">ندى</span></td><td><span class="tag t-p">نور</span></td><td><span class="tag t-e">يوسف</span></td><td><span class="tag t-off">كريم</span></td></tr>
         </tbody>
@@ -502,7 +500,7 @@ tbody td:first-child{font-family:'Cairo',sans-serif;font-weight:700;color:var(--
           <tr><td>الاثنين ١٥</td><td><span class="tag t-m">ريم</span></td><td><span class="tag t-e">عفاف</span></td><td>—</td></tr>
           <tr><td>الثلاثاء ١٦</td><td><span class="tag t-m">ريم</span></td><td><span class="tag t-e">عفاف</span></td><td>—</td></tr>
           <tr><td>الأربعاء ١٧</td><td><span class="tag t-m">ريم</span></td><td><span class="tag t-e">عفاف</span></td><td>—</td></tr>
-          <tr><td>الخميس ١٨</td><td><span class="tag t-gap">يحتاج تغطية</span></td><td><span class="tag t-e">عفاف</span></td><td><span class="tag t-off">ريم</span></td></tr>
+          <tr><td>الخميس ١٨</td><td><span class="tag t-m">ندى</span></td><td><span class="tag t-e">عفاف</span></td><td><span class="tag t-off">ريم</span></td></tr>
           <tr><td>الجمعة ١٩</td><td><span class="tag t-m">ريم</span></td><td><span class="tag t-e">عفاف</span></td><td>—</td></tr>
         </tbody>
       </table>
@@ -519,16 +517,16 @@ tbody td:first-child{font-family:'Cairo',sans-serif;font-weight:700;color:var(--
         <p>يوسف في إجازة وعبدالله انتقل للوردية المسائية، فلا يوجد صيدلي في الفترة من ١٢ص إلى ٨ص. السنطة تقفل ليلة الأحد ما لم يُرتَّب بديل.</p>
       </div>
       <div class="note warn">
-        <h4><svg class="ico"><use href="#i-alert"/></svg>الأربعاء ١٧ — الصباح بدون تغطية</h4>
-        <p>المدير في إجازة ولا يوجد موظف صباحي في السنطة. الفرع يبدأ الخدمة الساعة ١٢ ظهراً مع وردية الذروة.</p>
+        <h4><svg class="ico"><use href="#i-alert"/></svg>الأربعاء ١٧ — تغطية مشدودة</h4>
+        <p>عبدالله يغطي الوردية الصباحية بدلاً من المعتاد، مما يسمح بالتركيز على وردية الذروة. تأكد من الحضور في الموعد المحدد.</p>
       </div>
       <div class="note warn">
-        <h4><svg class="ico"><use href="#i-cross"/></svg>الخميس ١٨ — صباح مشعله</h4>
-        <p>ريم في إجازة والوردية الصباحية في مشعله (٨ص–٤م) تحتاج بديلاً. يُرجى تأكيد التغطية قبل الأربعاء.</p>
+        <h4><svg class="ico"><use href="#i-cross"/></svg>الخميس ١٨ — صباح مسهله</h4>
+        <p>ريم في إجازة والوردية الصباحية في مسهله (٨ص–٤م) تُغطَّى من قِبل ندى. تأكد من التنسيق مع فرع السنطة قبل يوم الخميس.</p>
       </div>
       <div class="note">
         <h4><svg class="ico"><use href="#i-users"/></svg>تبديلات التغطية</h4>
-        <p>الثلاثاء: عبدالله يغطي الوردية الصباحية بدلاً من ندى. الخميس: كريم يغطي وردية الذروة. الخانات المحدَّدة بإطار في الجدول هي التبديلات.</p>
+        <p>الثلاثاء: عبدالله يغطي الوردية الصباحية بدلاً من ندى (السنطة). الأربعاء: عبدالله يغطي الصباح (السنطة). الخميس: كريم يغطي وردية الذروة (السنطة) وندى تغطي الصباح (مسهله). الخانات المحدَّدة بإطار في الجدول هي التبديلات.</p>
       </div>
       <div class="note">
         <h4><svg class="ico"><use href="#i-clock"/></svg>التسليم بين الورديات</h4>
