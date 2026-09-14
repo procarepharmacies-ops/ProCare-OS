@@ -154,7 +154,7 @@ use constructs newer than 2008 in query code or migrations:
   │  │  │  ├─ seed.py (demo data, idempotent: safe to run twice)
   │  │  │  └─ migrate.py (idempotent column adds via ensure_* pattern)
   │  │  ├─ services/
-  │  │  │  ├─ llm.py (provider registry: gemini, hermes/OpenRouter, anthropic, ollama, claude-cli; fail-soft)
+  │  │  │  ├─ llm.py (provider registry: gemini, hermes/OpenRouter, anthropic, ollama, claude-cli, hermes-cli; fail-soft)
   │  │  │  ├─ etl.py (eStock→ProCare sync: read, validate, insert atomically per table)
   │  │  │  ├─ prescriptions.py (capture → review → dispensed workflow)
   │  │  │  ├─ transfers.py (stock transfer requests + approval + auto-task creation)
