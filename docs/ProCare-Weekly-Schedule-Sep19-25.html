@@ -106,7 +106,8 @@ tr.fri td:first-child{color:var(--amber)}
 .notes li b{color:var(--ink);font-weight:700}
 .flag{border:1px solid #EAC9A0;background:#FEF8EE;border-radius:9px;padding:9px 12px;font-size:8.3pt;
   color:#7A4A06;line-height:1.62}
-.flag b{font-family:'Cairo';display:block;margin-bottom:2px;color:#6B3F04;font-size:8.8pt}
+.flag b{font-family:'Cairo';display:inline;color:inherit}
+.flag>b:first-child{display:block;margin-bottom:2px;color:#6B3F04;font-size:8.8pt}
 
 .foot{margin-top:12px;padding-top:7px;border-top:1px solid var(--line);
   display:flex;font-size:7pt;color:var(--ink3)}
@@ -128,15 +129,15 @@ tr.fri td:first-child{color:var(--amber)}
 </div>
 
 <div class="strip">
-  <div class="st"><div class="k">إجمالي الورديات</div><div class="v">٤٣</div></div>
-  <div class="st"><div class="k">تغطية السنطة</div><div class="v">١٦٠<small> / ١٦٠ س</small></div></div>
+  <div class="st"><div class="k">إجمالي الورديات</div><div class="v">٤٤</div></div>
+  <div class="st"><div class="k">تغطية السنطة</div><div class="v">١٦٨<small> / ١٦٨ س</small></div></div>
   <div class="st"><div class="k">تغطية مسهله</div><div class="v">١١٢<small> / ١١٢ س</small></div></div>
   <div class="st"><div class="k">أفراد الفريق</div><div class="v">٧<small> + ٢ دعم</small></div></div>
 </div>
 
 <!-- ======== ELSANTA ======== -->
 <div class="sec">
-  <h2>فرع السنطة <span class="en">Elsanta</span><span class="hrs">٢٤ ساعة · سبت–خميس · الجمعة ٨ص–١٢م</span></h2>
+  <h2>فرع السنطة <span class="en">Elsanta</span><span class="hrs">٢٤ ساعة · ٧ أيام · تغطية كاملة</span></h2>
   <table>
     <thead><tr>
       <th>اليوم</th>
@@ -166,8 +167,8 @@ tr.fri td:first-child{color:var(--amber)}
         <td><span class="p m">ندى</span></td><td><span class="p pk">نور</span></td>
         <td><span class="p e">يوسف</span></td><td><span class="dash">—</span></td><td><span class="p n">كريم</span></td></tr>
       <tr class="fri"><td>الجمعة<span class="d">Fri 25</span></td>
-        <td><span class="p m">ندى</span></td><td><span class="p pk">عبدالله</span></td>
-        <td><span class="p e">يوسف</span></td><td><span class="dash">—</span></td><td><span class="p shut">مغلق</span></td></tr>
+        <td><span class="p m">ندى</span></td><td><span class="dash">—</span></td>
+        <td><span class="p e">يوسف</span></td><td><span class="dash">—</span></td><td><span class="p n">عبدالله ▲</span></td></tr>
     </tbody>
   </table>
   <div class="leg">
@@ -245,7 +246,8 @@ tr.fri td:first-child{color:var(--amber)}
       <tr><td>السنطة ٥–٨م (سبت–خميس)</td><td>تغطية مزدوجة</td><td class="ok">✓ مستوفى</td></tr>
       <tr><td>السنطة ٨م – ١٢م</td><td>فرد مصرّح له منفرد</td><td class="ok">✓ مستوفى</td></tr>
       <tr><td>السنطة الليالي سبت–خميس</td><td>كريم محي</td><td class="ok">✓ ٦ ليالٍ</td></tr>
-      <tr><td>الجمعة</td><td>صباحي + مسائي، الليلي مغلق</td><td class="ok">✓ + الذروة</td></tr>
+      <tr><td>السنطة ليلة الجمعة</td><td>تغطية ٢٤ ساعة</td><td class="warn">▲ عبدالله (استثناء)</td></tr>
+      <tr><td>الجمعة — التغطية المزدوجة</td><td>مستثناة (مفيش ذروة)</td><td class="warn">▲ مستثناة</td></tr>
       <tr><td>مسهله ٧ أيام</td><td>تغطية كاملة</td><td class="ok">✓ مستوفى</td></tr>
       <tr><td>الراحة بين الورديات</td><td>٨ ساعات أو أكثر</td><td class="ok">✓ مستوفى</td></tr>
     </tbody>
@@ -266,8 +268,10 @@ tr.fri td:first-child{color:var(--amber)}
       <div class="a">عفاف إجازتها الأربعاء وريم متقدرش تغطي الصباحي والمسائي في يوم واحد. يوسف مصرّح له المسائي منفرد. <b>نقل بين الفروع مسجّل صراحةً.</b></div></div>
     <div class="r"><div class="q">إجازة عفاف يوم الجمعة؟</div>
       <div class="a"><b>تبدأ من الأسبوع القادم</b> (٢٦ سبتمبر فصاعداً) بطلبها — الأسبوع ده لسه الأربعاء. لما تتنقل هترجّع ٨ ساعات ليوسف في السنطة يوم الأربعاء وتشيل يوم الاحتياطي الصفر، بس هتخلي الجمعة أضيق لأن نور وكريم أجازة فيها.</div></div>
-    <div class="r"><div class="q">ليه الليلي مغلق الجمعة؟</div>
-      <div class="a">السنطة أصلاً بتقفل ١٢ص–٨ص الجمعة. كريم — الوحيد المصرّح له بالليل — إجازته الجمعة، ففتح الليلة ده كان هيتطلب فردين.</div></div>
+    <div class="r"><div class="q">ليه السنطة بقت ٢٤ ساعة الجمعة؟</div>
+      <div class="a">بقرارك — عبدالله بياخد الليلي ١٢ص–٨ص بدل ما الفرع يقفل، فالتغطية بقت <b>١٦٨/١٦٨ ساعة</b> بدل ١٦٠. وده معناه مفيش ذروة الجمعة: الباقي ٣ أفراد بس (ندى صباحي، عبدالله ليلي، يوسف مسائي) لأن نور وكريم وعفاف أجازة.</div></div>
+    <div class="r"><div class="q">عبدالله مصرّح له الليلي؟</div>
+      <div class="a"><b>لأ — جدول التصاريح بيقول المصرّح لهم بالليل هم كريم وندى بس.</b> ده <b>استثناء بقرارك</b> لتغطية ليلة الجمعة، ومسجّل هنا عشان يفضل موثّق. لو حبيت البديل المطابق للتصاريح: ندى ليلي وعبدالله صباحي.</div></div>
     <div class="r"><div class="q">ليه يوسف ٥٦ ساعة؟</div>
       <div class="a">أخد يومين إجازة الأسبوع ده بالفعل، فمش هياخد إجازة تانية. مسجّل كاستثناء بقرارك، مش كخرق للقاعدة.</div></div>
   </div>
@@ -283,6 +287,7 @@ tr.fri td:first-child{color:var(--amber)}
     <li>النافذة المكشوفة على المسائي هي <b>٨م – ١٢م</b> بعد انتهاء الذروة — يشغلها منفرداً يوسف أو عبدالله أو ندى فقط.</li>
     <li>عبدالله عنده <b>٨ ساعات راحة بالظبط</b> من مسائي الأحد لصباحي الاثنين — الحد الأدنى المسموح، يُفضَّل عدم تكليفه بأي إضافي ليلة الأحد.</li>
     <li>ندى بتغطي إجازة ريم في مسهله يوم الثلاثاء، ويوسف بيغطي إجازة عفاف يوم الأربعاء — يوم واحد لكل منهما، وبيفضلوا خارج السنطة في اليوم ده.</li>
+    <li><b>الجمعة بقت ٢٤ ساعة</b> — عبدالله ليلي ١٢ص–٨ص، وبكده الفرع مبيقفلش خالص طول الأسبوع. مفيش ذروة الجمعة لأن الباقي ٣ أفراد بس.</li>
     <li><b>من الأسبوع القادم:</b> إجازة عفاف بتتنقل من الأربعاء للجمعة بطلبها — الجدول الجاي هيتبني على الأساس ده.</li>
     <li><b>أم أدهم</b> إجازتها الجمعة عادةً. هذا الأسبوع غابت الأحد ٢٠ (مرض) وهتعوّضها الجمعة ٢٥ — يعني بتشتغل ٧ أيام فعلياً بدون إجازة هذا الأسبوع.</li>
     <li>على كل موظف تأكيد استلام الجدول قبل نهاية يوم السبت ١٩ سبتمبر.</li>
@@ -293,6 +298,13 @@ tr.fri td:first-child{color:var(--amber)}
   <div class="flag">
     <b>▲ تنبيه — الأربعاء بدون احتياطي</b>
     مع إجازة عفاف يوم الأربعاء، الفريق بيغطي ٦ ورديات بـ٦ أفراد بالظبط عبر الفرعين: صفر احتياطي. أي غياب مفاجئ يوم الأربعاء هيفتح فجوة فورية لا يمكن سدها داخلياً. الخيارات وقتها: تأجيل إجازة عفاف، أو تقصير ساعات مسهله ذلك اليوم، أو استدعاء أحمد طارق لتغطية التوصيل فقط وتحرير فرد. <b style="display:inline">ملاحظة:</b> نقل إجازة عفاف للجمعة من الأسبوع القادم بيحلّ اليوم ده.
+  </div>
+</div>
+
+<div class="sec">
+  <div class="flag" style="border-color:#D9A7A0;background:#FDF3F1;color:#8A3229">
+    <b style="color:#7A2B23;font-size:8.8pt">▲ استثناء مسجّل — ليلة الجمعة</b>
+    جدول التصاريح بيحدد كريم وندى فقط كمصرّح لهم بوردية ليلية منفردة. تكليف عبدالله بليلة الجمعة ١٢ص–٨ص هو <b>استثناء بقرار الإدارة</b> لتغطية الـ٢٤ ساعة، ومسجّل هنا للمرجعية. البديل المطابق للتصاريح: ندى ليلي وعبدالله صباحي.
   </div>
 </div>
 
