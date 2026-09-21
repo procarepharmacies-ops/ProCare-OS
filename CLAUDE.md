@@ -301,6 +301,33 @@ plan/progress files after every meaningful task; amend CLAUDE.md only when a
 schema, rule, or architectural invariant changes. On tool failure: analyze the
 real stack trace, patch, re-test, then record the learning in `findings.md`.
 
+### Deliverables to Google Drive
+
+Staff-facing documents (rosters, policies, reports) go to Drive as **PDF, not
+HTML** — a named subfolder under the "Procare Ai" folder. Ahmed asked for this
+explicitly; HTML was only ever a workaround.
+
+**Known blocker:** the Drive connector takes file content inline as base64, so
+a file has to fit in one tool call. A branded Arabic A4 PDF runs ~210-260 KB
+(~285-350 KB base64), which is over that ceiling. The floor is the embedded
+Arabic font: Cairo subsets to ~39 KB per weight and the page needs 2-4 weights,
+so Ghostscript + `mutool clean -gggg -z` bottoms out around 210 KB for three
+pages. Things already tried that do **not** help enough: dropping to one font
+weight, one tall page, `-dNoOutputFonts` (text to outlines — inflates to 1.1 MB),
+downscaling the logo, `/screen` vs `/printer`.
+
+Until the connector accepts a file path, deliver the PDF in chat and either let
+Ahmed drop it into Drive himself or upload a reduced PDF. Keep the HTML build —
+it is what the PDF is rendered from.
+
+**Rendering the roster PDF** (`deploy/` has no script for this yet):
+Chromium at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome --headless
+--print-to-pdf`, with Cairo subset into `~/.fonts` via `pyftsubset
+--layout-features=* --notdef-outline --name-IDs=*`. Do **not** add
+`--no-hinting --desubroutinize`: it corrupts the Arabic-Indic digits (٤٤ renders
+as "EE"). Cairo has no ✓ ▲ ←, so those are drawn in CSS (`.ck`, `.tri`) instead
+of pulling in fallback fonts.
+
 ## Data Schemas
 
 ### Stocktaking (الجرد) — `stock_counts` / `stock_count_lines`

@@ -19,11 +19,11 @@
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
-  font-family:'Cairo','Noto Sans Arabic',sans-serif;
+  font-family:'Cairo',sans-serif;
   color:var(--ink); font-size:9.1pt; line-height:1.6;
   font-variant-numeric:tabular-nums; background:#fff;
 }
-h1,h2,h3,th,.num{font-family:'Cairo','Noto Sans Arabic',sans-serif}
+h1,h2,h3,th,.num{font-family:'Cairo',sans-serif}
 
 /* ---------- masthead ---------- */
 .mast{
@@ -113,6 +113,10 @@ tr.fri td:first-child{color:var(--amber)}
   display:flex;font-size:7pt;color:var(--ink3)}
 .foot .b{font-family:'Cairo';font-weight:800;color:var(--brand);font-size:7.8pt}
 .foot .rr{margin-right:auto;direction:ltr}
+.ck{display:inline-block;width:.34em;height:.66em;border:solid currentColor;
+  border-width:0 .15em .15em 0;transform:rotate(45deg);margin:0 .3em 0 .12em;vertical-align:-.04em}
+.tri{display:inline-block;width:0;height:0;border-left:.32em solid transparent;
+  border-right:.32em solid transparent;border-bottom:.52em solid currentColor;margin-left:.25em}
 .pb{break-before:page}
 </style></head><body>
 
@@ -123,7 +127,7 @@ tr.fri td:first-child{color:var(--amber)}
     <div class="sub">صيدليات بروكير — فرعا السنطة و مسهله</div>
   </div>
   <div class="rt">
-    <b>السبت ١٩ ← الجمعة ٢٥ سبتمبر ٢٠٢٦</b>
+    <b>السبت ١٩ – الجمعة ٢٥ سبتمبر ٢٠٢٦</b>
     أُصدر ١٨ سبتمبر ٢٠٢٦
   </div>
 </div>
@@ -168,7 +172,7 @@ tr.fri td:first-child{color:var(--amber)}
         <td><span class="p e">يوسف</span></td><td><span class="dash">—</span></td><td><span class="p n">كريم</span></td></tr>
       <tr class="fri"><td>الجمعة<span class="d">Fri 25</span></td>
         <td><span class="p m">ندى</span></td><td><span class="dash">—</span></td>
-        <td><span class="p e">يوسف</span></td><td><span class="dash">—</span></td><td><span class="p n">عبدالله ▲</span></td></tr>
+        <td><span class="p e">يوسف</span></td><td><span class="dash">—</span></td><td><span class="p n">عبدالله <i class="tri"></i></span></td></tr>
     </tbody>
   </table>
   <div class="leg">
@@ -211,7 +215,7 @@ tr.fri td:first-child{color:var(--amber)}
     </tr></thead>
     <tbody>
       <tr><td>أم أدهم</td><td>النظافة والضيافة</td><td>١٠ص – ٣م</td><td>سبت – خميس</td><td><span class="p off">الجمعة</span></td></tr>
-      <tr><td colspan="5" style="text-align:right;padding-right:10px;background:#FEF8EE !important;color:#7A4A06;font-size:7.8pt;font-family:'Noto Sans Arabic',sans-serif;font-weight:400">▲ <b style="font-family:'Cairo'">استثناء هذا الأسبوع:</b> أم أدهم غابت الأحد ٢٠ سبتمبر (مرض) وهتعوّضها يوم الجمعة ٢٥ بدلاً منه.</td></tr>
+      <tr><td colspan="5" style="text-align:right;padding-right:10px;background:#FEF8EE !important;color:#7A4A06;font-size:7.8pt;font-family:'Noto Sans Arabic',sans-serif;font-weight:400"><i class="tri"></i> <b style="font-family:'Cairo'">استثناء هذا الأسبوع:</b> أم أدهم غابت الأحد ٢٠ سبتمبر (مرض) وهتعوّضها يوم الجمعة ٢٥ بدلاً منه.</td></tr>
       <tr><td>أحمد طارق</td><td>التوصيل والمعاملات بين الفروع</td><td>٩ص ثم تحت الطلب</td><td>٧ أيام</td><td><span class="p shut">بدون</span></td></tr>
     </tbody>
   </table>
@@ -225,13 +229,13 @@ tr.fri td:first-child{color:var(--amber)}
       <th>الموظف</th><th>الفرع</th><th>الورديات</th><th>الساعات</th><th>يوم الإجازة</th><th>الحالة</th>
     </tr></thead>
     <tbody>
-      <tr><td>ندى</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الاثنين</span></td><td class="ok">ضمن الحد ✓</td></tr>
-      <tr><td>د. نور</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الجمعة</span></td><td class="ok">ضمن الحد ✓</td></tr>
-      <tr><td>عبدالله</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الخميس</span></td><td class="ok">ضمن الحد ✓</td></tr>
-      <tr><td>كريم محي</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الجمعة</span></td><td class="ok">ضمن الحد ✓</td></tr>
-      <tr><td>د. يوسف</td><td>السنطة</td><td>٧</td><td>٥٦</td><td><span class="p shut">بدون</span></td><td class="warn">بالاتفاق ▲</td></tr>
-      <tr><td>ريم</td><td>مسهله</td><td>٦</td><td>٤٨</td><td><span class="p off">الثلاثاء</span></td><td class="ok">ضمن الحد ✓</td></tr>
-      <tr><td>عفاف</td><td>مسهله</td><td>٦</td><td>٤٨</td><td><span class="p off">الأربعاء</span></td><td class="ok">ضمن الحد ✓</td></tr>
+      <tr><td>ندى</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الاثنين</span></td><td class="ok">ضمن الحد<i class="ck"></i></td></tr>
+      <tr><td>د. نور</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الجمعة</span></td><td class="ok">ضمن الحد<i class="ck"></i></td></tr>
+      <tr><td>عبدالله</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الخميس</span></td><td class="ok">ضمن الحد<i class="ck"></i></td></tr>
+      <tr><td>كريم محي</td><td>السنطة</td><td>٦</td><td>٤٨</td><td><span class="p off">الجمعة</span></td><td class="ok">ضمن الحد<i class="ck"></i></td></tr>
+      <tr><td>د. يوسف</td><td>السنطة</td><td>٧</td><td>٥٦</td><td><span class="p shut">بدون</span></td><td class="warn">بالاتفاق <i class="tri"></i></td></tr>
+      <tr><td>ريم</td><td>مسهله</td><td>٦</td><td>٤٨</td><td><span class="p off">الثلاثاء</span></td><td class="ok">ضمن الحد<i class="ck"></i></td></tr>
+      <tr><td>عفاف</td><td>مسهله</td><td>٦</td><td>٤٨</td><td><span class="p off">الأربعاء</span></td><td class="ok">ضمن الحد<i class="ck"></i></td></tr>
     </tbody>
   </table>
 </div>
@@ -242,14 +246,14 @@ tr.fri td:first-child{color:var(--amber)}
   <table>
     <thead><tr><th>النافذة</th><th style="width:30%">المطلوب</th><th style="width:16%">الحالة</th></tr></thead>
     <tbody>
-      <tr><td>السنطة ١–٣م (سبت–خميس)</td><td>تغطية مزدوجة</td><td class="ok">✓ مستوفى</td></tr>
-      <tr><td>السنطة ٥–٨م (سبت–خميس)</td><td>تغطية مزدوجة</td><td class="ok">✓ مستوفى</td></tr>
-      <tr><td>السنطة ٨م – ١٢م</td><td>فرد مصرّح له منفرد</td><td class="ok">✓ مستوفى</td></tr>
-      <tr><td>السنطة الليالي سبت–خميس</td><td>كريم محي</td><td class="ok">✓ ٦ ليالٍ</td></tr>
-      <tr><td>السنطة ليلة الجمعة</td><td>تغطية ٢٤ ساعة</td><td class="warn">▲ عبدالله (استثناء)</td></tr>
-      <tr><td>الجمعة — التغطية المزدوجة</td><td>مستثناة (مفيش ذروة)</td><td class="warn">▲ مستثناة</td></tr>
-      <tr><td>مسهله ٧ أيام</td><td>تغطية كاملة</td><td class="ok">✓ مستوفى</td></tr>
-      <tr><td>الراحة بين الورديات</td><td>٨ ساعات أو أكثر</td><td class="ok">✓ مستوفى</td></tr>
+      <tr><td>السنطة ١–٣م (سبت–خميس)</td><td>تغطية مزدوجة</td><td class="ok"><i class="ck"></i>مستوفى</td></tr>
+      <tr><td>السنطة ٥–٨م (سبت–خميس)</td><td>تغطية مزدوجة</td><td class="ok"><i class="ck"></i>مستوفى</td></tr>
+      <tr><td>السنطة ٨م – ١٢م</td><td>فرد مصرّح له منفرد</td><td class="ok"><i class="ck"></i>مستوفى</td></tr>
+      <tr><td>السنطة الليالي سبت–خميس</td><td>كريم محي</td><td class="ok"><i class="ck"></i>٦ ليالٍ</td></tr>
+      <tr><td>السنطة ليلة الجمعة</td><td>تغطية ٢٤ ساعة</td><td class="warn"><i class="tri"></i> عبدالله (استثناء)</td></tr>
+      <tr><td>الجمعة — التغطية المزدوجة</td><td>مستثناة (مفيش ذروة)</td><td class="warn"><i class="tri"></i> مستثناة</td></tr>
+      <tr><td>مسهله ٧ أيام</td><td>تغطية كاملة</td><td class="ok"><i class="ck"></i>مستوفى</td></tr>
+      <tr><td>الراحة بين الورديات</td><td>٨ ساعات أو أكثر</td><td class="ok"><i class="ck"></i>مستوفى</td></tr>
     </tbody>
   </table>
 </div>
@@ -296,14 +300,14 @@ tr.fri td:first-child{color:var(--amber)}
 
 <div class="sec">
   <div class="flag">
-    <b>▲ تنبيه — الأربعاء بدون احتياطي</b>
+    <b><i class="tri"></i> تنبيه — الأربعاء بدون احتياطي</b>
     مع إجازة عفاف يوم الأربعاء، الفريق بيغطي ٦ ورديات بـ٦ أفراد بالظبط عبر الفرعين: صفر احتياطي. أي غياب مفاجئ يوم الأربعاء هيفتح فجوة فورية لا يمكن سدها داخلياً. الخيارات وقتها: تأجيل إجازة عفاف، أو تقصير ساعات مسهله ذلك اليوم، أو استدعاء أحمد طارق لتغطية التوصيل فقط وتحرير فرد. <b style="display:inline">ملاحظة:</b> نقل إجازة عفاف للجمعة من الأسبوع القادم بيحلّ اليوم ده.
   </div>
 </div>
 
 <div class="sec">
   <div class="flag" style="border-color:#D9A7A0;background:#FDF3F1;color:#8A3229">
-    <b style="color:#7A2B23;font-size:8.8pt">▲ استثناء مسجّل — ليلة الجمعة</b>
+    <b style="color:#7A2B23;font-size:8.8pt"><i class="tri"></i> استثناء مسجّل — ليلة الجمعة</b>
     جدول التصاريح بيحدد كريم وندى فقط كمصرّح لهم بوردية ليلية منفردة. تكليف عبدالله بليلة الجمعة ١٢ص–٨ص هو <b>استثناء بقرار الإدارة</b> لتغطية الـ٢٤ ساعة، ومسجّل هنا للمرجعية. البديل المطابق للتصاريح: ندى ليلي وعبدالله صباحي.
   </div>
 </div>
