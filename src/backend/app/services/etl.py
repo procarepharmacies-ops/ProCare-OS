@@ -33,7 +33,7 @@ import os
 import time
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text
+from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -84,6 +84,15 @@ COVERED_SOURCE_TABLES = frozenset({
 # Destination tables cleared (children first) before a full load. Branches and
 # the reference/lookup seeds are kept; the mirror fills operational data.
 _WIPE_ORDER = [
+    # Derived rows whose FKs are NOT NULL, so they cannot outlive their parents:
+    # incentives point at a sale AND its line, affinity/forecasts at products.
+    # All three are recomputed (incentives per sale, affinity and forecasts by
+    # the nightly jobs), so clearing them costs nothing and omitting them fails
+    # the parent DELETE with a FOREIGN KEY error that kills the whole cycle.
+    m.IncentiveLedger if hasattr(m, "IncentiveLedger") else None,
+    m.ProductAffinity if hasattr(m, "ProductAffinity") else None,
+    m.Forecast if hasattr(m, "Forecast") else None,
+    m.BranchOrderLine if hasattr(m, "BranchOrderLine") else None,
     m.LoyaltyTransaction,  # references sales + customers — must go first
     m.SaleLine, m.Sale, m.PurchaseLine, m.Purchase, m.StockMovement,
     m.StockTransferLine, m.StockTransfer, m.CashTransfer if hasattr(m, "CashTransfer") else None,
@@ -93,6 +102,23 @@ _WIPE_ORDER = [
     # ProductChange references products — must be cleared before Product.
     m.ProductChange if hasattr(m, "ProductChange") else None,
     m.LedgerEntry, m.PurchaseOrderDraft, m.StockBatch, m.Product, m.Customer, m.Vendor,
+]
+
+# Rows that reference wiped tables but must SURVIVE the wipe: either local
+# ProCare data the mirror has no business destroying (a cashier's parked cart,
+# a captured prescription) or ledgers deliberately kept out of _WIPE_ORDER
+# because they upsert by source_id (the Gedo_* balances, same posture as
+# shareholders). Every FK here is nullable, so the link is detached and the row
+# lives on; the loaders re-resolve it on the next pass.
+_WIPE_DETACH = [
+    ("HeldInvoice", "customer_id"),
+    ("Prescription", "customer_id"),
+    ("GedoCustomerBalance", "customer_id"),
+    ("GedoInstallmentBalance", "customer_id"),
+    ("GedoVendorBalance", "vendor_id"),
+    ("ShortageItem", "product_id"),
+    ("DecisionCard", "ref_product_id"),
+    ("DecisionCard", "ref_purchase_id"),
 ]
 
 
@@ -608,6 +634,12 @@ def _wipe_destination(dst: Session) -> None:
     from app.services import backup
 
     backup.backup_if_stale(6, "pre-sync-wipe")
+    # Detach the survivors first, or their dangling FKs fail the parent DELETE.
+    for model_name, col in _WIPE_DETACH:
+        model = getattr(m, model_name, None)
+        if model is None or not hasattr(model, col):
+            continue
+        dst.execute(update(model).where(getattr(model, col).is_not(None)).values({col: None}))
     for model in _WIPE_ORDER:
         if model is not None:
             dst.execute(text(f"DELETE FROM {model.__tablename__}"))
@@ -625,6 +657,13 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
     if not ids:
         return
     sale_ids = select(m.Sale.sale_id).where(m.Sale.branch_id.in_(ids))
+    # Incentive rows carry NOT NULL FKs to BOTH the sale and its line, so they
+    # must go before either. Written by pos.py on every sale, so on a live till
+    # they are never empty — leaving them here failed the sale DELETE with a
+    # FOREIGN KEY error, and because sync.py soft-fails per source that killed
+    # every cycle silently, freezing the mirror while the app looked healthy.
+    if hasattr(m, "IncentiveLedger"):
+        dst.execute(delete(m.IncentiveLedger).where(m.IncentiveLedger.sale_id.in_(sale_ids)))
     dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
     dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
     # Returns first (self-FK sales.original_sale_id), then the originals.
@@ -691,6 +730,12 @@ def _wipe_branch_sales_window(dst: Session, branch_ids: set[int], cutoff: date) 
     sale_ids = select(m.Sale.sale_id).where(
         m.Sale.branch_id.in_(ids), m.Sale.sale_date >= cutoff
     )
+    # Incentive rows first — NOT NULL FKs to both the sale and its line. This is
+    # the steady-state production path (every cycle once a branch is filled), and
+    # today's till sales are always inside the window, so this is the FK that
+    # would fire first and most often.
+    if hasattr(m, "IncentiveLedger"):
+        dst.execute(delete(m.IncentiveLedger).where(m.IncentiveLedger.sale_id.in_(sale_ids)))
     dst.execute(delete(m.LoyaltyTransaction).where(m.LoyaltyTransaction.sale_id.in_(sale_ids)))
     dst.execute(delete(m.SaleLine).where(m.SaleLine.sale_id.in_(sale_ids)))
     dst.execute(

@@ -1,0 +1,92 @@
+# CI for ProCare OS — enforces the CLAUDE.md pre-push checklist automatically.
+#
+# Until now nothing ran on a PR: the checklist ("tests pass, frontend builds,
+# no committed credentials") was honour-system, so a green PR meant only that
+# whoever opened it remembered to check locally.
+#
+# Jobs run in parallel and are deliberately cheap — no database service, no
+# browser. The suite drives SQLite through PROCARE_DB_URL (set by
+# app/tests/conftest.py, which also pins PROCARE_CONFIG_FILE to the committed
+# example and forces SYNC_ENABLED=0, so CI can never touch a real eStock).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push supersedes the run in flight for the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.11 matches deploy/Dockerfile.backend and the pharmacy PC.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: src/backend/requirements.txt
+
+      # pyodbc is commented out of requirements.txt (it needs the ODBC driver,
+      # which only the pharmacy host has), so no system packages are required.
+      - name: Install dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: src/backend
+        run: python -m pytest app/tests/ -q
+
+  frontend:
+    name: Frontend build (next build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # 22 matches deploy/Dockerfile.frontend. Newer majors are untested here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      # Catches what the Python suite cannot: hydration mismatches, bad imports,
+      # and a broken route that would only surface in the pharmacy's browser.
+      - name: Build
+        working-directory: src/frontend
+        run: npm run build
+
+  invariants:
+    name: Repo invariants (credentials · SQL Server 2008)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Guards the two CLAUDE.md rules that fail SILENTLY: a committed
+      # credential file, and SQL constructs newer than 2008 — which SQLite
+      # accepts, so the suite above stays green while production breaks.
+      - name: Check invariants
+        run: python tools/check_invariants.py
