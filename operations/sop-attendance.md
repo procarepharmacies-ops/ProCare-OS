@@ -32,23 +32,42 @@ Every employee MUST:
 - Camera footage is reviewed weekly by management
 - If eStock registration time and camera timestamp differ by more than **15 minutes**, the camera time is used
 
-## 4. Shift Times
+## 4. Shift Times & Weekly Schedule
 
-### Branch 1
+### Branch 1 — الفرع الأول
 
-| Shift | Hours | Staff |
-|-------|-------|-------|
-| Morning (صباحي) | 8:00 AM - 4:00 PM | Nour |
-| Midday (وسط) | 11:00 AM - 7:00 PM | Nada |
-| Evening (مسائي) | 4:00 PM - 12:00 AM | Abdalla |
-| Night (ليلي) | 8:00 PM - 4:00 AM | Youssef |
+| Shift | Hours | Staff | Days |
+|-------|-------|-------|------|
+| Morning (صباحي) | 8:00 AM - 4:00 PM | Nada | Sat-Tue, Thu-Fri |
+| Midday (وسط) | 12:00 PM - 8:00 PM | Nour | Sat-Wed, Fri (Thu off) |
+| Evening (مسائي) | 4:00 PM - 12:00 AM | Youssef | Mon, Thu-Fri, Sat-Sun (Mon off) |
+| Extended Evening (مسائي ليلي) | 6:00 PM - 2:00 AM | Youssef | Tue-Wed only (pharmacy closes 2 AM) |
+| Night (ليلي) | 8:00 PM - 4:00 AM | Abdalla | Sat-Tue, Thu (Fri off) |
+| Late Night (ليلي متأخر) | 12:00 AM - 8:00 AM | Karim Mohy | Sat-Thu (Fri off) |
+| Cleaning (النظافة) | 10:00 AM - 3:00 PM | Um Adham | Sat-Thu (Fri off) |
 
-### Branch 2
+### Branch 2 — الفرع الثاني
 
-| Shift | Hours | Staff |
-|-------|-------|-------|
-| Morning (صباحي) | 8:00 AM - 4:00 PM | Reem |
-| Evening (مسائي) | 4:00 PM - 12:00 AM | Afaf |
+| Shift | Hours | Staff | Days |
+|-------|-------|-------|------|
+| Morning (صباحي) | 8:00 AM - 4:00 PM | Reem | Sat-Mon, Wed-Fri (Tue off) |
+| Evening (مسائي) | 4:00 PM - 12:00 AM | Afaf | All 7 days (no days off) |
+
+### Cross-Branch Coverage (مسهلة)
+
+**Tuesday Arrangement:**
+- **Nada** covers Branch 2 morning shift as مسهلة ر2 (coverage easement)
+- **Abdalla** covers Branch 1 morning shift (8 AM - 4 PM) to maintain continuity
+- Both branches remain fully staffed during peak hours
+
+### Peak-Hour Coverage Guarantee
+
+- **Peak Hours:** 12 PM - 8 PM (71.1% of daily pharmacy sales)
+- **Minimum staffing:** 2 licensed pharmacists always present
+- Coverage maintained by:
+  - Nada 8 AM-4 PM overlap with Nour 12-8 PM (Sat-Fri, staggered days off)
+  - Nour 12-8 PM overlap with Youssef 4-12 PM/6-2 AM
+  - Continuous 24-hour pharmacy operations with night-to-morning pharmacist handoff
 
 ## 5. Grace Period
 
@@ -71,15 +90,31 @@ Every employee MUST:
 | Buddy punching (using another's account) | Written warning | 3-day suspension | Termination |
 | Unexcused absence | 1-day deduction | 3-day deduction | Termination review |
 
-## 8. Acknowledgment
+## 8. Schedule Distribution & Automated Notifications
 
-Each employee must sign this SOP to confirm they have read and understood the attendance policy.
+All staff receive automatic schedule reminders via WhatsApp:
 
-| Employee | Signature | Date |
-|----------|-----------|------|
-| Nour | __________ | ____/____/2026 |
-| Nada | __________ | ____/____/2026 |
-| Abdalla | __________ | ____/____/2026 |
-| Youssef | __________ | ____/____/2026 |
-| Reem | __________ | ____/____/2026 |
-| Afaf | __________ | ____/____/2026 |
+- **Daily 9:00 PM:** Tomorrow's shift schedule reminder (all staff)
+- **Saturday 8:00 AM:** Full weekly schedule broadcast (all staff)
+- **Daily 10:00 AM (Sat-Thu):** Cleaning checklist for Um Adham (أم أدهم)
+
+Staff should review the detailed weekly schedule at: `operations/weekly-schedule.md` or the branded PDF: `docs/ProCare-Weekly-Schedule-Branded.html`
+
+Printed schedules are posted at each branch entrance and staff room. Each employee must sign a printed copy to confirm they have reviewed their schedule.
+
+---
+
+## 9. Acknowledgment
+
+Each employee must sign this SOP to confirm they have read and understood the attendance policy and their assigned shift schedule.
+
+| Employee | Position | Signature | Date |
+|----------|----------|-----------|------|
+| Nada | صيدلانية (Pharmacist) | __________ | ____/____/2026 |
+| Nour | صيدلانية امتياز (Pharmacy Intern) | __________ | ____/____/2026 |
+| Youssef | Dr. صيدلاني (Pharmacist) | __________ | ____/____/2026 |
+| Abdalla | صيدلاني ليلي (Night Pharmacist) | __________ | ____/____/2026 |
+| Karim Mohy | كريم محي (Late-Night Pharmacist) | __________ | ____/____/2026 |
+| Reem | صيدلانية (Pharmacist) | __________ | ____/____/2026 |
+| Afaf | المديرة (Manager) | __________ | ____/____/2026 |
+| Um Adham | أم أدهم (Cleaning Staff) | __________ | ____/____/2026 |
