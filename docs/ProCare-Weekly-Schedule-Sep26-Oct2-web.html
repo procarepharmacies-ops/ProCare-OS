@@ -1,0 +1,619 @@
+<title>جدول ورديات بروكير</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800;900&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --page:#f4f7f8;
+  --card:#ffffff;
+  --card-2:#fbfcfd;
+  --ink:#0f1f28;
+  --ink-2:#4c6471;
+  --ink-3:#7d949e;
+  --line:#dfe8ea;
+  --line-2:#c6d5d9;
+  --brand:#0E3E60;
+  --brand-2:#1B6FAD;
+  --teal:#2496B0;
+  --s-m:#139166;  /* صباحي */
+  --s-p:#c8501f;  /* وسط   */
+  --s-e:#2467b8;  /* مسائي */
+  --s-y:#c25680;  /* خاص   */
+  --s-n:#4a3aa7;  /* ليلي  */
+  --good:#0a7a0a;
+  --warn-ink:#8a5c04;
+  --warn-bg:rgba(250,178,25,.13);
+  --warn-line:rgba(250,178,25,.45);
+  --crit-ink:#a33232;
+  --crit-bg:rgba(208,59,59,.1);
+  --crit-line:rgba(208,59,59,.32);
+  --shadow:0 1px 2px rgba(15,31,40,.04), 0 6px 20px rgba(15,31,40,.06);
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --page:#0d161c;
+    --card:#16232b;
+    --card-2:#1a2932;
+    --ink:#eaf1f4;
+    --ink-2:#a8bec8;
+    --ink-3:#7d949e;
+    --line:#263842;
+    --line-2:#37505c;
+    --brand:#9fd0ee;
+    --brand-2:#64b3e3;
+    --teal:#4dc0d8;
+    --s-m:#16a878;
+    --s-p:#e06a33;
+    --s-e:#4287d8;
+    --s-y:#d4739a;
+    --s-n:#7d6fe0;
+    --good:#4fc24f;
+    --warn-ink:#f0bd4a;
+    --warn-bg:rgba(250,178,25,.12);
+    --warn-line:rgba(250,178,25,.32);
+    --crit-ink:#f08a8a;
+    --crit-bg:rgba(208,59,59,.14);
+    --crit-line:rgba(208,59,59,.34);
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.34);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d161c;
+  --card:#16232b;
+  --card-2:#1a2932;
+  --ink:#eaf1f4;
+  --ink-2:#a8bec8;
+  --ink-3:#7d949e;
+  --line:#263842;
+  --line-2:#37505c;
+  --brand:#9fd0ee;
+  --brand-2:#64b3e3;
+  --teal:#4dc0d8;
+  --s-m:#16a878;
+  --s-p:#e06a33;
+  --s-e:#4287d8;
+  --s-y:#d4739a;
+  --s-n:#7d6fe0;
+  --good:#4fc24f;
+  --warn-ink:#f0bd4a;
+  --warn-bg:rgba(250,178,25,.12);
+  --warn-line:rgba(250,178,25,.32);
+  --crit-ink:#f08a8a;
+  --crit-bg:rgba(208,59,59,.14);
+  --crit-line:rgba(208,59,59,.34);
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.34);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--page); color:var(--ink);
+  font-family:'Cairo', 'Segoe UI', system-ui, sans-serif;
+  font-size:16px; line-height:1.7; direction:rtl;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:880px; margin:0 auto; padding-inline:16px; padding-block:18px 56px;
+  display:flex; flex-direction:column; gap:22px}
+
+/* ---------- masthead ---------- */
+.mast{
+  position:relative; overflow:hidden; border-radius:18px; color:#fff;
+  background:linear-gradient(126deg,#0E3E60 0%,#12557F 54%,#1C7E9B 100%);
+  padding:22px 20px; box-shadow:var(--shadow);
+}
+.mast::after{content:""; position:absolute; width:210px; height:210px; border-radius:50%;
+  left:-70px; top:-96px; background:radial-gradient(circle at 36% 36%, rgba(127,230,214,.42), transparent 66%)}
+.mast-in{position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:14px}
+.mast h1{margin:0; font-size:1.45rem; font-weight:900; letter-spacing:-.3px; text-wrap:balance}
+.mast .sub{font-size:.85rem; opacity:.88; margin-top:2px}
+.mast .when{margin-inline-start:auto; text-align:start; font-size:.78rem; opacity:.9;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+  padding:8px 13px; border-radius:12px; line-height:1.5}
+.mast .when b{display:block; font-size:.95rem; font-weight:800}
+
+/* ---------- stats ---------- */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px}
+.stat{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 15px 13px; box-shadow:var(--shadow)}
+.stat .k{font-size:.72rem; font-weight:700; color:var(--ink-3); letter-spacing:.2px}
+.stat .v{font-size:1.6rem; font-weight:900; color:var(--brand); line-height:1.2;
+  font-variant-numeric:tabular-nums}
+.stat .v small{font-size:.72rem; font-weight:700; color:var(--ink-2)}
+.stat .bar{height:4px; border-radius:99px; background:var(--line); margin-top:7px; overflow:hidden}
+.stat .bar i{display:block; height:100%; border-radius:99px}
+
+/* ---------- sections ---------- */
+section{display:flex; flex-direction:column; gap:11px}
+h2{margin:0; font-size:1.06rem; font-weight:800; display:flex; align-items:baseline;
+  gap:9px; flex-wrap:wrap; padding-inline-start:11px; border-inline-start:4px solid var(--brand-2)}
+h2 .en{font-size:.72rem; font-weight:700; color:var(--ink-3); direction:ltr}
+h2 .tag{margin-inline-start:auto; font-size:.7rem; font-weight:700; color:var(--ink-2);
+  background:var(--card); border:1px solid var(--line); padding:3px 11px; border-radius:99px}
+
+/* ---------- day cards ---------- */
+.days{display:flex; flex-direction:column; gap:10px}
+.day{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden}
+.day.is-fri{border-color:var(--warn-line)}
+.day-h{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;
+  padding:11px 15px 9px; border-bottom:1px solid var(--line); background:var(--card-2)}
+.day-h b{font-size:1rem; font-weight:900}
+.day-h .dt{font-size:.74rem; font-weight:700; color:var(--ink-3); direction:ltr}
+.day-h .mark{margin-inline-start:auto; font-size:.7rem; font-weight:800;
+  padding:2px 10px; border-radius:99px}
+.mark.full{color:var(--good); background:rgba(10,122,10,.1)}
+.mark.thin{color:var(--warn-ink); background:var(--warn-bg)}
+
+.branch{padding:11px 15px 13px}
+.branch + .branch{border-top:1px dashed var(--line)}
+.branch-n{font-size:.74rem; font-weight:800; color:var(--ink-3); margin-bottom:7px;
+  letter-spacing:.3px}
+.chips{display:flex; flex-wrap:wrap; gap:6px}
+.chip{display:inline-flex; align-items:baseline; gap:6px; padding:4px 12px; border-radius:99px;
+  font-size:.82rem; font-weight:800; color:#fff; white-space:nowrap}
+.chip .t{font-size:.68rem; font-weight:600; opacity:.85; direction:ltr;
+  font-variant-numeric:tabular-nums}
+.c-m{background:var(--s-m)} .c-p{background:var(--s-p)} .c-e{background:var(--s-e)}
+.c-y{background:var(--s-y)} .c-n{background:var(--s-n)}
+.chip.xb{background:transparent; color:var(--s-p); border:1.5px dashed var(--s-p)}
+.chip.ex{box-shadow:0 0 0 2px var(--warn-line)}
+
+/* 24h mini bar */
+.bar24{direction:ltr; display:grid; grid-template-columns:repeat(24,1fr); gap:0;
+  margin-top:9px; height:13px; border-radius:7px; overflow:hidden; background:var(--line)}
+.bar24 i{grid-row:1; height:13px; display:block}
+.b-m{background:var(--s-m)} .b-p{background:var(--s-p)} .b-e{background:var(--s-e)}
+.b-y{background:var(--s-y)} .b-n{background:var(--s-n)}
+.bar24 i.ov{height:5px; align-self:end; opacity:.95}
+.ticks{direction:ltr; display:grid; grid-template-columns:repeat(4,1fr); font-size:.63rem;
+  color:var(--ink-3); font-weight:700; margin-top:3px}
+.ticks span:nth-child(n+2){text-align:center}
+.ticks span:last-child{text-align:right}
+
+/* ---------- legend ---------- */
+.legend{display:flex; flex-wrap:wrap; gap:8px 14px; font-size:.76rem; font-weight:700;
+  color:var(--ink-2); background:var(--card); border:1px solid var(--line);
+  border-radius:var(--radius); padding:11px 15px}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.legend i{width:17px; height:9px; border-radius:3px; display:inline-block}
+
+/* ---------- hours ---------- */
+.hours{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:14px 15px; display:flex; flex-direction:column; gap:9px}
+.hrow{display:grid; grid-template-columns:72px 1fr auto; gap:11px; align-items:center;
+  font-size:.86rem}
+.hrow .nm{font-weight:800}
+.track{height:16px; border-radius:99px; background:var(--line); overflow:hidden}
+.track i{display:block; height:100%; border-radius:99px}
+.hrow .vv{font-size:.76rem; font-weight:800; color:var(--ink-2); white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.cap-note{font-size:.76rem; color:var(--ink-3); font-weight:600; line-height:1.6;
+  border-top:1px dashed var(--line); padding-top:9px}
+.cap-note b{color:var(--warn-ink)}
+
+/* ---------- checks ---------- */
+.checks{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden}
+.chk{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center;
+  padding:9px 15px; font-size:.85rem; border-top:1px solid var(--line)}
+.chk:first-child{border-top:none}
+.chk:nth-child(even){background:var(--card-2)}
+.chk .w{color:var(--ink-2)}
+.chk .s{font-weight:800; font-size:.8rem; white-space:nowrap}
+.s.ok{color:var(--good)} .s.wr{color:var(--warn-ink)}
+
+/* ---------- rationale ---------- */
+.why{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden}
+.why details{border-top:1px solid var(--line)}
+.why details:first-child{border-top:none}
+.why summary{padding:11px 15px; font-weight:800; font-size:.88rem; cursor:pointer;
+  color:var(--brand); list-style:none; display:flex; gap:9px; align-items:baseline}
+.why summary::-webkit-details-marker{display:none}
+.why summary::before{content:"+"; font-weight:900; color:var(--ink-3); font-size:1rem;
+  line-height:1; width:12px; flex:none}
+.why details[open] summary::before{content:"\2212"}
+.why summary:focus-visible{outline:2px solid var(--brand-2); outline-offset:-2px}
+.why p{margin:0; padding:0 15px 13px 15px; padding-inline-start:36px;
+  font-size:.86rem; color:var(--ink-2); line-height:1.75}
+.why p b{color:var(--ink)}
+
+/* ---------- notes ---------- */
+.notes{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); margin:0; padding:6px 15px 10px; list-style:none}
+.notes li{position:relative; padding:8px 16px 8px 0; font-size:.86rem; color:var(--ink-2);
+  border-top:1px dotted var(--line); line-height:1.7}
+.notes li:first-child{border-top:none}
+.notes li::before{content:""; position:absolute; right:3px; top:17px; width:5px; height:5px;
+  border-radius:50%; background:var(--teal)}
+.notes li b{color:var(--ink); font-weight:800}
+
+/* ---------- flags ---------- */
+.flag{border-radius:var(--radius); padding:13px 16px; font-size:.86rem; line-height:1.7}
+.flag b.t{display:block; font-size:.95rem; font-weight:900; margin-bottom:3px}
+.f-w{background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn-ink)}
+.f-c{background:var(--crit-bg); border:1px solid var(--crit-line); color:var(--crit-ink)}
+.flag b{font-weight:800}
+
+footer{border-top:1px solid var(--line); padding-top:14px; display:flex; flex-wrap:wrap;
+  gap:6px 14px; font-size:.75rem; color:var(--ink-3)}
+footer .b{font-weight:800; color:var(--brand-2)}
+footer .r{margin-inline-start:auto; direction:ltr}
+
+@media (max-width:430px){
+  .hrow{grid-template-columns:60px 1fr; row-gap:3px}
+  .hrow .vv{grid-column:1 / -1; text-align:start}
+  .mast .when{margin-inline-start:0}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important; animation:none!important}}
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <div class="mast-in">
+      <div>
+        <h1>جدول الورديات الأسبوعي</h1>
+        <div class="sub">صيدليات بروكير — فرعا السنطة و مسهله</div>
+      </div>
+      <div class="when">
+        <b>السبت ٢٦ سبتمبر – الجمعة ٢ أكتوبر ٢٠٢٦</b>
+        أُصدر ٢٥ سبتمبر ٢٠٢٦
+      </div>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="k">إجمالي الورديات</div><div class="v">٤١</div>
+      <div class="bar"><i style="width:100%;background:linear-gradient(90deg,var(--s-e),var(--teal))"></i></div></div>
+    <div class="stat"><div class="k">تغطية السنطة</div><div class="v">١٦٨<small> / ١٦٨ ساعة</small></div>
+      <div class="bar"><i style="width:100%;background:var(--s-m)"></i></div></div>
+    <div class="stat"><div class="k">تغطية مسهله</div><div class="v">١١٢<small> / ١١٢ ساعة</small></div>
+      <div class="bar"><i style="width:100%;background:var(--s-m)"></i></div></div>
+    <div class="stat"><div class="k">تغطية مزدوجة</div><div class="v">٥<small> / ٧ أيام</small></div>
+      <div class="bar"><i style="width:71%;background:var(--s-p)"></i></div></div>
+  </div>
+
+  <section>
+    <h2>الجدول يوم بيوم <span class="en">Day by day</span>
+      <span class="tag">الشريط = تغطية الـ٢٤ ساعة في السنطة</span></h2>
+
+    <div class="legend">
+      <span><i class="b-m"></i>صباحي ٨ص–٤م</span>
+      <span><i class="b-p"></i>وسط ١م–٩م أو ١٢ظ–٨م</span>
+      <span><i class="b-e"></i>مسائي ٤م–١٢م</span>
+      <span><i class="b-y"></i>خاص ٦م–٢ص</span>
+      <span><i class="b-n"></i>ليلي ١٢ص–٨ص</span>
+    </div>
+
+    <div class="days">
+
+      <article class="day">
+        <div class="day-h"><b>السبت</b><span class="dt">Sat 26</span>
+          <span class="mark thin">من غير وردية وسط</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">نور<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عبدالله<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-y">يوسف<span class="t">٦م–٢ص</span></span>
+            <span class="chip c-n">كريم<span class="t">١٢ص–٨ص</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+            <i class="b-y ov" style="grid-column:19/25"></i>
+            <i class="b-y ov" style="grid-column:1/3"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">ريم<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عفاف<span class="t">٤م–١٢م</span></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="day">
+        <div class="day-h"><b>الأحد</b><span class="dt">Sun 27</span>
+          <span class="mark full">تغطية مزدوجة</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">ندى<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-p">نور<span class="t">١م–٩م</span></span>
+            <span class="chip c-e">عبدالله<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-n">كريم<span class="t">١٢ص–٨ص</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+            <i class="b-p ov" style="grid-column:14/22"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">ريم<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عفاف<span class="t">٤م–١٢م</span></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="day">
+        <div class="day-h"><b>الاثنين</b><span class="dt">Mon 28</span>
+          <span class="mark full">تغطية مزدوجة</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">ندى<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-p">نور<span class="t">١م–٩م</span></span>
+            <span class="chip c-e">يوسف<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-n">كريم<span class="t">١٢ص–٨ص</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+            <i class="b-p ov" style="grid-column:14/22"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">عفاف<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عبدالله<span class="t">٤م–١٢م · نقل من السنطة</span></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="day">
+        <div class="day-h"><b>الثلاثاء</b><span class="dt">Tue 29</span>
+          <span class="mark thin">من غير وردية وسط</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">ندى<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عبدالله<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-n">كريم<span class="t">١٢ص–٨ص</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">عفاف<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">يوسف<span class="t">٤م–١٢م · نقل من السنطة</span></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="day">
+        <div class="day-h"><b>الأربعاء</b><span class="dt">Wed 30</span>
+          <span class="mark full">تغطية مزدوجة</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">عبدالله<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-p">نور<span class="t">١م–٩م</span></span>
+            <span class="chip c-e">يوسف<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-n">كريم<span class="t">١٢ص–٨ص</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+            <i class="b-p ov" style="grid-column:14/22"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">ندى<span class="t">٨ص–٤م · نقل من السنطة</span></span>
+            <span class="chip c-e">عفاف<span class="t">٤م–١٢م</span></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="day">
+        <div class="day-h"><b>الخميس</b><span class="dt">Thu 1 Oct</span>
+          <span class="mark full">تغطية مزدوجة</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">ندى<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-p">نور<span class="t">١٢ظ–٨م</span></span>
+            <span class="chip c-e">يوسف<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-n">كريم<span class="t">١٢ص–٨ص</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+            <i class="b-p ov" style="grid-column:13/21"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">ريم<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عفاف<span class="t">٤م–١٢م</span></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="day is-fri">
+        <div class="day-h"><b>الجمعة</b><span class="dt">Fri 2 Oct</span>
+          <span class="mark thin">ليلة استثنائية</span></div>
+        <div class="branch">
+          <div class="branch-n">فرع السنطة</div>
+          <div class="chips">
+            <span class="chip c-m">ندى<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-p">نور<span class="t">١٢ظ–٨م</span></span>
+            <span class="chip c-e">يوسف<span class="t">٤م–١٢م</span></span>
+            <span class="chip c-n ex">عبدالله<span class="t">١٢ص–٨ص · استثناء</span></span>
+          </div>
+          <div class="bar24">
+            <i class="b-n" style="grid-column:1/9"></i>
+            <i class="b-m" style="grid-column:9/17"></i>
+            <i class="b-e" style="grid-column:17/25"></i>
+            <i class="b-p ov" style="grid-column:13/21"></i>
+          </div>
+          <div class="ticks"><span>12ص</span><span>6ص</span><span>12ظ</span><span>6م</span></div>
+        </div>
+        <div class="branch">
+          <div class="branch-n">فرع مسهله</div>
+          <div class="chips">
+            <span class="chip c-m">ريم<span class="t">٨ص–٤م</span></span>
+            <span class="chip c-e">عفاف<span class="t">٤م–١٢م</span></span>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>ساعات كل فرد <span class="en">Weekly hours</span>
+      <span class="tag">الحد ٤٨ ساعة · الشريط الكامل ٥٦</span></h2>
+    <div class="hours">
+      <div class="hrow"><span class="nm">ندى</span>
+        <div class="track"><i style="width:85.7%;background:var(--s-m)"></i></div>
+        <span class="vv">٤٨ ساعة · إجازة السبت</span></div>
+      <div class="hrow"><span class="nm">د. نور</span>
+        <div class="track"><i style="width:85.7%;background:var(--s-m)"></i></div>
+        <span class="vv">٤٨ ساعة · إجازة الثلاثاء</span></div>
+      <div class="hrow"><span class="nm">عبدالله</span>
+        <div class="track"><i style="width:85.7%;background:var(--s-m)"></i></div>
+        <span class="vv">٤٨ ساعة · إجازة الخميس</span></div>
+      <div class="hrow"><span class="nm">كريم محي</span>
+        <div class="track"><i style="width:85.7%;background:var(--s-m)"></i></div>
+        <span class="vv">٤٨ ساعة · إجازة الجمعة</span></div>
+      <div class="hrow"><span class="nm">د. يوسف</span>
+        <div class="track"><i style="width:85.7%;background:var(--s-m)"></i></div>
+        <span class="vv">٤٨ ساعة · إجازة الأحد</span></div>
+      <div class="hrow"><span class="nm">ريم</span>
+        <div class="track"><i style="width:57.1%;background:var(--s-e)"></i></div>
+        <span class="vv">٣٢ ساعة · ٣ أيام كلية</span></div>
+      <div class="hrow"><span class="nm">عفاف</span>
+        <div class="track"><i style="width:100%;background:#d99a1a"></i></div>
+        <span class="vv">٥٦ ساعة · بدون إجازة</span></div>
+      <p class="cap-note">الحد المعتمد ٤٨ ساعة —
+        <b>عفاف وحدها فوق الحد</b> بعد إلغاء إجازتها، وريم ٣٢ ساعة لأن كليتها
+        الاتنين والثلاثاء والأربعاء.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>فريق الدعم <span class="en">Support</span></h2>
+    <div class="checks">
+      <div class="chk"><span class="w"><b>أم أدهم</b> — النظافة والضيافة · ١٠ص – ٣م · سبت–خميس</span>
+        <span class="s wr">إجازة الجمعة</span></div>
+      <div class="chk"><span class="w"><b>أحمد طارق</b> — التوصيل والمعاملات بين الفروع · ٩ص ثم تحت الطلب</span>
+        <span class="s ok">٧ أيام</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>فحص التغطية <span class="en">Coverage check</span></h2>
+    <div class="checks">
+      <div class="chk"><span class="w">السنطة — ٢٤ ساعة × ٧ أيام</span><span class="s ok">١٦٨ / ١٦٨</span></div>
+      <div class="chk"><span class="w">مسهله — ٨ص إلى ١٢م × ٧ أيام</span><span class="s ok">١١٢ / ١١٢</span></div>
+      <div class="chk"><span class="w">تغطية مزدوجة وقت الذروة</span><span class="s wr">٥ أيام من ٧</span></div>
+      <div class="chk"><span class="w">السبت والثلاثاء — وردية وسط</span><span class="s wr">غير متاحة</span></div>
+      <div class="chk"><span class="w">السنطة ٨م – ١٢م — فرد مصرّح له منفرد</span><span class="s ok">مستوفى</span></div>
+      <div class="chk"><span class="w">الليالي سبت–خميس — كريم محي</span><span class="s ok">٦ ليالٍ</span></div>
+      <div class="chk"><span class="w">ليلة الجمعة — تغطية ٢٤ ساعة</span><span class="s wr">عبدالله · استثناء</span></div>
+      <div class="chk"><span class="w">الراحة بين الورديات — ٨ ساعات فأكثر</span><span class="s ok">مستوفى</span></div>
+      <div class="chk"><span class="w">الحد الأسبوعي ٤٨ ساعة</span><span class="s wr">عفاف ٥٦ ساعة</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>مبررات القرارات <span class="en">Rationale</span>
+      <span class="tag">اضغط على أي سؤال</span></h2>
+    <div class="why">
+      <details open><summary>ليه مواعيد نور بتتغيّر كل يوم؟</summary>
+        <p>دي مواعيدها الجديدة المثبتة: السبت ٨–٤، الأحد والاثنين والأربعاء ١–٩،
+          الخميس والجمعة ١٢–٨، والثلاثاء إجازتها. الجدول كله اتبنى حواليها.</p></details>
+      <details><summary>ليه ريم ٤ أيام بس؟</summary>
+        <p>كليتها <b>الاتنين والثلاثاء والأربعاء</b> — فبتشتغل السبت والأحد والخميس
+          والجمعة، ٣٢ ساعة.</p></details>
+      <details><summary>إزاي اتغطت أيام ريم التلاتة؟</summary>
+        <p><b>مسائي عبدالله</b> الاتنين، <b>مسائي يوسف</b> الثلاثاء، <b>صباحي ندى</b>
+          الأربعاء — كلها في مسهله، وعفاف بتاخد الشيفت التاني في اليوم.</p></details>
+      <details><summary>ليه عفاف من غير إجازة؟</summary>
+        <p>إلغاء إجازتها هو اللي خلّى مسهله تفضل مفتوحة ١١٢ ساعة كاملة رغم أيام كلية
+          ريم. ٥٦ ساعة، فوق الحد بـ٨ ساعات.</p></details>
+      <details><summary>ليه ندى إجازتها السبت؟</summary>
+        <p>ونور بتاخد الصباحي مكانها ٨–٤ حسب مواعيدها الجديدة، فالسنطة فاتحة عادي.</p></details>
+      <details><summary>ليه مفيش وردية وسط السبت والثلاثاء؟</summary>
+        <p>نور إجازتها الثلاثاء، والسبت هي نفسها على الصباحي. الأولوية
+          <b>للفتح وعدد الساعات مش للذروة</b> — فالفرع مفتوح ٢٤ ساعة اليومين دول،
+          بس بفرد واحد في كل نافذة.</p></details>
+      <details><summary>ليه عبدالله صباحي الأربعاء؟</summary>
+        <p>ندى نازلة تغطي مسهله الأربعاء، وعبدالله هو المصرّح له يشتغل صباحي منفرد
+          في السنطة.</p></details>
+      <details><summary>ليه عبدالله ليلي الجمعة؟</summary>
+        <p>كريم إجازته الجمعة، وعبدالله بياخد ١٢ص–٨ص علشان الفرع يفضل ٢٤ ساعة بدل
+          ما يقفل. <b>استثناء مسجّل</b>، زي الأسبوع اللي فات.</p></details>
+    </div>
+  </section>
+
+  <section>
+    <h2>ملاحظات تشغيلية <span class="en">Operating notes</span></h2>
+    <ul class="notes">
+      <li>ذروتان في اليوم: <b>١ ظهراً</b> و <b>٦ مساءً</b>. وردية الوسط بتغطي الاتنين
+        ٥ أيام؛ السبت والثلاثاء من غيرها.</li>
+      <li>النافذة المكشوفة على المسائي هي <b>٨م – ١٢م</b> — يشغلها منفرداً يوسف أو
+        عبدالله أو ندى فقط، وده متحقق كل أيام الأسبوع.</li>
+      <li><b>راحة عند الحد الأدنى بالظبط:</b> عبدالله من مسائي الثلاثاء لصباحي
+        الأربعاء = ٨ ساعات؛ وعفاف من مسائي الأحد لصباحي الاثنين = ٨ ساعات.
+        مسموح، بس مفيش هامش.</li>
+      <li>يوسف يوم السبت على <b>الوردية الخاصة ٦م–٢ص</b> — فالسنطة عندها تغطية
+        مزدوجة من ٦م لـ١٢م رغم إن مفيش وردية وسط.</li>
+      <li><b>ثلاث نقلات بين الفروع</b> هذا الأسبوع: عبدالله (اتنين)، يوسف (ثلاثاء)،
+        ندى (أربعاء) — كلهم نازلين مسهله.</li>
+      <li>على كل موظف تأكيد استلام الجدول قبل نهاية يوم <b>السبت ٢٦ سبتمبر</b>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="flag f-w">
+      <b class="t">تنبيه — صفر احتياطي طول الأسبوع</b>
+      الفريق بيغطي ٤١ وردية بـ٧ أفراد، وعفاف شغالة ٧ أيام من غير إجازة. مفيش أي فرد
+      متاح لتغطية غياب مفاجئ في أي يوم. <b>لو ينفع نرجّع لعفاف إجازة يوم واحد،
+      الخميس هو الأنسب</b> — ريم موجودة صباحي، وعبدالله إجازته نفس اليوم فمتاح للتغطية.
+    </div>
+  </section>
+
+  <section>
+    <div class="flag f-c">
+      <b class="t">استثناء مسجّل — ليلة الجمعة</b>
+      جدول التصاريح بيحدد <b>كريم وندى</b> فقط كمصرّح لهم بوردية ليلية منفردة.
+      تكليف عبدالله بليلة الجمعة ١٢ص–٨ص هو <b>استثناء بقرار الإدارة</b> لتغطية
+      الـ٢٤ ساعة. البديل المطابق للتصاريح: ندى ليلي وعبدالله صباحي.
+    </div>
+  </section>
+
+  <footer>
+    <span><span class="b">ProCare Pharmacies</span> · صيدليات بروكير · جدول الورديات الأسبوعي</span>
+    <span class="r">Sat 26 Sep – Fri 2 Oct 2026</span>
+  </footer>
+
+</div>
