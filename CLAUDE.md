@@ -332,6 +332,16 @@ never declare `assets` on a page meant for branch staff — host the page alone
 and share it from its own Share menu. Keep the HTML build; it is what the PDF is
 rendered from.
 
+**What DOES reach Drive:** a Google Doc, created with Drive `create_file`,
+`contentMimeType: "text/html"` and the roster as `textContent` (parentId =
+the folder above). Ahmed accepted this as the fallback on 28 Sep 2026. Headings,
+tables and lists convert cleanly; the logo, the glass panels and the timeline do
+not, so the Doc is the plain-text record and the PDF stays the branded one.
+**`<b>` inside a `<td>` does not convert** — it lands as literal `**` in the
+cell, so keep table cells unformatted and put emphasis in body paragraphs.
+This session has no Google Docs editor connector, only Drive, so a created Doc
+cannot be edited afterwards: get the HTML right before uploading.
+
 **Rendering the roster PDF** (`deploy/` has no script for this yet):
 Chromium at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome --headless
 --print-to-pdf`, with Cairo subset into `~/.fonts` via `pyftsubset
