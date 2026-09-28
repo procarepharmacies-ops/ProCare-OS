@@ -259,3 +259,20 @@
   test_forecast.py failures (UNIQUE on forecasts for real today's date).
 - `zoneinfo` needs the `tzdata` wheel on `python:3.11-slim` (no system tz DB);
   added to requirements so `BRANCH_TIMEZONE` resolves in Docker.
+- The AI provider table drives DISPATCH, not just defaults: generalising the
+  Claude-CLI path to `p in _cli_providers()` silently dropped `claude-cli`
+  itself, because only the new `hermes-cli` entry declared `cli_bin`. A
+  provider missing `cli_bin` falls out of CLI dispatch entirely and answers
+  nothing. Caught by an explicit "claude-cli still runs claude" regression test,
+  not by any existing one.
+- `_norm_provider` matches on EXACT strings, so "hermes-cli" never collides
+  with the `("hermes", "openrouter", "nous")` branch — but the -cli aliases are
+  listed first anyway, because the failure mode if they ever did collide is
+  silent: a keyless install routed to OpenRouter has no key and drops to the
+  keyword router with no visible cause.
+- The backend test suite is order/state-dependent: a full run can fail
+  test_accounting/test_api on one pass and test_branch_import on another, from
+  leftover SQLite state (worse when two pytest runs share the file). Verify any
+  "new" failure by running the same files in isolation AND the full suite on a
+  stashed tree before blaming a diff. Baseline on this branch: exactly one
+  pre-existing failure, test_branch_import::test_append_two_branches_shares_one_catalogue.

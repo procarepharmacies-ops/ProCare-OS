@@ -1565,3 +1565,27 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   source_id, `GET /api/accounting/gl-journal`). Left as-is it overstated the
   outstanding work. The only accounting mirror genuinely outstanding is PR 2e's
   sub-ledger BALANCES.
+
+## hermes-cli provider (local Hermes binary)
+
+- Added `hermes-cli` to `_AI_PROVIDER_DEFAULTS` — keyless, aliases
+  `hermes_cli`/`hermescli`, defaults `hermes -p <prompt>`. Deliberately its own
+  provider, NOT an alias of `hermes`: that one posts to OpenRouter with
+  `OPENROUTER_API_KEY`, this one shells out locally and holds no key.
+- Generalised the Claude-CLI subprocess path in `llm.py` into one transport
+  shared by both CLI providers, driven by new `cli_bin`/`cli_args` entries in
+  the provider table; `_CLI_PROVIDERS` is derived from it. Per-machine override
+  via `HERMES_CLI_BIN`/`HERMES_CLI_ARGS` (and `CLAUDE_CLI_*`), since a local
+  binary's name and flags belong to the PC, not to ProCare.
+- Prompt is always the LAST argv element, never a shell string (no
+  `shell=True`), so Arabic prescription text containing `;` `$( )` backticks
+  cannot execute. Covered by a test and by an end-to-end run against a real
+  stub binary, which echoed the metacharacters back unexpanded.
+- `status()` now reports `cli_bin`: a CLI provider otherwise shows
+  "configured + keyless" on a PC where the binary was never installed.
+- TESTS: +10 in test_llm.py (own-provider separation, aliases, argv order,
+  shell-injection, overrides, missing binary, non-zero exit, wrapped-JSON
+  classify, claude-cli regression, status). Full suite: 492 passed, 1 failed —
+  the same pre-existing `test_branch_import` failure present on the clean tree.
+- Docs: CLAUDE.md provider table + invariants, `.env.example` options 4 & 5,
+  `connections.example.json` provider list.

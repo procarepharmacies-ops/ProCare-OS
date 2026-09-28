@@ -152,7 +152,24 @@ _AI_PROVIDER_DEFAULTS = {
     "ollama": {"model": "hermes3", "key_env": "OLLAMA_API_KEY", "keyless": True,
                "base_url": "http://localhost:11434"},
     # Shell out to a locally installed & logged-in Claude Code CLI.
-    "claude-cli": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY", "keyless": True},
+    "claude-cli": {"model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY", "keyless": True,
+                   "cli_bin": "claude", "cli_args": "-p"},
+    # Shell out to a locally installed Hermes CLI. Keyless here means ProCare
+    # holds no key: the binary carries its own auth (its own login/config), the
+    # same arrangement as claude-cli. Distinct from the "hermes" provider,
+    # which talks to OpenRouter over HTTP with OPENROUTER_API_KEY.
+    "hermes-cli": {"model": "hermes", "key_env": "OPENROUTER_API_KEY", "keyless": True,
+                   "cli_bin": "hermes", "cli_args": "-p"},
+}
+
+# Providers that answer by shelling out to a local binary instead of HTTP.
+# Each entry: the default executable and the default args placed BEFORE the
+# prompt (the prompt is always appended as the final argv element, never
+# interpolated into a shell string — no shell=True anywhere in this path).
+_CLI_PROVIDERS = {
+    p: {"bin": d.get("cli_bin", ""), "args": d.get("cli_args", "")}
+    for p, d in _AI_PROVIDER_DEFAULTS.items()
+    if d.get("cli_bin")
 }
 
 # Ordered fallbacks tried when the primary free model is retired or rate-limits
@@ -179,6 +196,10 @@ def _norm_provider(p: str) -> str:
         return "hermes"
     if p in ("ollama", "local"):
         return "ollama"
+    # Check the -cli forms BEFORE the bare provider names above would ever be
+    # reached: "hermes-cli" is a local binary, NOT the hosted OpenRouter path.
+    if p in ("hermes-cli", "hermes_cli", "hermescli"):
+        return "hermes-cli"
     if p in ("claude-cli", "claude_cli", "cli"):
         return "claude-cli"
     if p in ("claude",):
