@@ -26,7 +26,7 @@ export default function AnalyticsPage() {
           api.dashboardSummary(branch).catch(() => ({})),
           api.dailySales(branch, 30).catch(() => ({ series: [] })),
           api.topProducts(branch, 30).catch(() => ({ products: [] })),
-          api.byBranch().catch(() => ({ branches: [] })),
+          Promise.resolve(null), // by-branch is fetched below, once the server's "today" is known
           api.dashboardSummary(branch).catch(() => ({})),
           api.dashboardSummary(branch).catch(() => ({})),
           api.decisions().catch(() => ({ cards: [] })),
@@ -34,11 +34,17 @@ export default function AnalyticsPage() {
           api.staffNow(branch).catch(() => null),
         ]);
 
+      // Today's per-branch figures, pinned to the SERVER's business date
+      // (summary.as_of) so the strip agrees with the "sales today" KPI.
+      // by-branch with no range defaults to month-to-date.
+      const asOf = summary?.as_of;
+      const perBranch = await (asOf ? api.byBranch(asOf, asOf) : api.byBranch()).catch(() => ({ branches: [] }));
+
       setData({
         summary: summary?.kpis || {},
         daily: daily?.series || [],
         top: top?.products || [],
-        branches: branches?.branches || [],
+        branches: perBranch?.branches || [],
         decisions: decisions?.cards || [],
         staff: staff || null,
       });
@@ -53,11 +59,12 @@ export default function AnalyticsPage() {
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const pct = (n) => `${Number(n || 0).toFixed(1)}%`;
 
-  // Branch comparison data
+  // Branch comparison data — /dashboard/by-branch returns revenue / bills /
+  // name_ar / name_en (there is no sales_today / bills_today / name field).
   const branchData = data.branches.map((b) => ({
-    date: b.name || b.branch_id,
-    revenue: b.sales_today || 0,
-    bills: b.bills_today || 0,
+    date: (lang === "ar" ? b.name_ar : b.name_en) || b.name_ar || b.branch_id,
+    revenue: b.revenue || 0,
+    bills: b.bills || 0,
   }));
 
   // Sales + forecast overlay
