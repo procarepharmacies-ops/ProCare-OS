@@ -259,3 +259,9 @@
   test_forecast.py failures (UNIQUE on forecasts for real today's date).
 - `zoneinfo` needs the `tzdata` wheel on `python:3.11-slim` (no system tz DB);
   added to requirements so `BRANCH_TIMEZONE` resolves in Docker.
+
+- ETL (`etl.py` sales header load) never sets `Sale.is_credit`, so eStock-mirrored
+  credit sales have `is_credit = False`. `monthly_report.py` therefore treats an
+  invoice as credit when `is_credit` OR (non-return, customer_id set, cash+card
+  paid < total_net by > 0.5). Needs Ahmed's confirmation against eStock's real
+  credit-sale marker; consider mapping it in ETL (pre-existing gap, not fixed here).

@@ -1565,3 +1565,15 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   source_id, `GET /api/accounting/gl-journal`). Left as-is it overstated the
   outstanding work. The only accounting mirror genuinely outstanding is PR 2e's
   sub-ledger BALANCES.
+
+## 2026-10-02 — Monthly performance + credit-sales invoice reports (Sept 2026 request)
+- ASK (Ahmed): performance report for September, plus a SEPARATE report of all
+  credit (بيع آجل) invoices for September.
+- BLOCKER: this cloud container has no ProCare/eStock DB (no connections.json,
+  no .db, `procare-os` MCP failed to connect), so REAL September numbers could
+  not be produced here. Nothing was fabricated.
+- DONE: `src/backend/tools/monthly_report.py` — read-only generator.
+  `python tools/monthly_report.py --year 2026 --month 9 [--branch-id N] [--out DIR]`
+  writes `performance_2026-09.html`, `credit_sales_2026-09.html`, `credit_sales_2026-09.csv`.
+- TESTED only against the seeded DEMO db (June 2026: 239 bills, 42 credit);
+  run on the pharmacy PC against the real DB for Sept.
