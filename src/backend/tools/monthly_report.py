@@ -7,7 +7,8 @@ Writes, per run (READ-ONLY on the DB, SELECT only):
     performance_YYYY-MM.html   monthly performance (KPIs, daily trend, branches,
                                cashiers, top products, vs previous month)
     credit_sales_YYYY-MM.html  every credit invoice in the month, by customer
-    credit_sales_YYYY-MM.csv   same rows, for Excel
+    credit_sales_YYYY-MM.csv   same invoices, for Excel
+    credit_sales_lines_YYYY-MM.csv  every item line of every credit invoice
 
 Credit definition: eStock-mirrored sales do NOT carry ``is_credit`` (ETL does
 not set it), so an invoice counts as credit when ``is_credit`` is true OR it
@@ -124,10 +125,18 @@ def collect(session, year: int, month: int, branch_id: int | None) -> dict:
         c = by_cashier[emps.get(s.cashier_id, "—")]
         c["revenue"] += _f(s.total_net); c["bills"] += 1
 
+    credit_sales = [s for s in cur if _is_credit(s)]
+    cids = [s.sale_id for s in credit_sales]
+    lines_by_sale: dict[int, list] = defaultdict(list)
+    for i in range(0, len(cids), 500):  # chunked IN() — no OFFSET, 2008-safe
+        for ln in session.scalars(select(m.SaleLine).where(m.SaleLine.sale_id.in_(cids[i:i + 500]))):
+            lines_by_sale[ln.sale_id].append(ln)
+    need = {ln.product_id for v in lines_by_sale.values() for ln in v}
+    cnames = {p.product_id: (p.name_ar or p.name_en) for p in session.scalars(
+        select(m.Product).where(m.Product.product_id.in_(list(need) or [0])))}
+
     credit_rows = []
-    for s in cur:
-        if not _is_credit(s):
-            continue
+    for s in credit_sales:
         paid = _f(s.cash_paid) - _f(s.change_given) + _f(s.card_paid)
         c = custs.get(s.customer_id)
         credit_rows.append({
@@ -136,6 +145,10 @@ def collect(session, year: int, month: int, branch_id: int | None) -> dict:
             "customer": (c.name_ar or c.name_en) if c else str(s.customer_id),
             "cashier": emps.get(s.cashier_id, "—"),
             "net": _f(s.total_net), "paid": paid, "credit": _f(s.total_net) - paid,
+            "items": [{"name": cnames.get(ln.product_id, str(ln.product_id)),
+                       "qty": _f(ln.amount), "price": _f(ln.sell_price),
+                       "total": _f(ln.amount) * _f(ln.sell_price)}
+                      for ln in lines_by_sale.get(s.sale_id, [])],
         })
     return {
         "year": year, "month": month, "kpis": k, "prev": pk, "daily": dict(daily),
@@ -212,10 +225,13 @@ def render_credit(d: dict) -> str:
             "<h2>ملخص حسب العميل</h2>" + _table(["العميل", "الفواتير", "إجمالي الفواتير", "المبلغ الآجل"], [
                 [n, v["n"], _fmt(v["net"]), _fmt(v["credit"])]
                 for n, v in sorted(by_cust.items(), key=lambda x: -x[1]["credit"])])
-            + "<h2>تفاصيل الفواتير</h2>" + _table(
-                ["رقم الفاتورة", "التاريخ", "الفرع", "العميل", "الكاشير", "الصافي", "المدفوع", "الآجل"],
-                [[r["sale_id"], r["date"], r["branch"], r["customer"], r["cashier"],
-                  _fmt(r["net"]), _fmt(r["paid"]), _fmt(r["credit"])] for r in rows], num_from=5))
+            + "<h2>تفاصيل الفواتير</h2>")
+    for r in rows:
+        body += (f'<h3>فاتورة #{r["sale_id"]} — {html.escape(r["customer"])} — {r["date"]}</h3>'
+                 f'<p>الفرع: {html.escape(r["branch"])} · الكاشير: {html.escape(r["cashier"])} · '
+                 f'الصافي: {_fmt(r["net"])} · المدفوع: {_fmt(r["paid"])} · <b>الآجل: {_fmt(r["credit"])}</b></p>'
+                 + _table(["الصنف", "الكمية", "السعر", "الإجمالي"],
+                          [[i["name"], _fmt(i["qty"]), _fmt(i["price"]), _fmt(i["total"])] for i in r["items"]]))
     return _page(f'تقرير فواتير البيع الآجل — {d["month"]:02d}/{d["year"]}', body)
 
 
@@ -239,7 +255,13 @@ def main() -> int:
     with (out / f"credit_sales_{tag}.csv").open("w", newline="", encoding="utf-8-sig") as fh:
         w = csv.DictWriter(fh, fieldnames=["sale_id", "date", "branch", "customer", "cashier", "net", "paid", "credit"])
         w.writeheader()
-        w.writerows(d["credit"])
+        w.writerows({k: v for k, v in r.items() if k != "items"} for r in d["credit"])
+    with (out / f"credit_sales_lines_{tag}.csv").open("w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.writer(fh)
+        w.writerow(["sale_id", "date", "customer", "item", "qty", "price", "line_total"])
+        for r in d["credit"]:
+            for i in r["items"]:
+                w.writerow([r["sale_id"], r["date"], r["customer"], i["name"], i["qty"], i["price"], i["total"]])
     print(f"OK {tag}: {d['kpis']['bills']} bills, {len(d['credit'])} credit -> {out}")
     return 0
 

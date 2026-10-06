@@ -1577,3 +1577,9 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   writes `performance_2026-09.html`, `credit_sales_2026-09.html`, `credit_sales_2026-09.csv`.
 - TESTED only against the seeded DEMO db (June 2026: 239 bills, 42 credit);
   run on the pharmacy PC against the real DB for Sept.
+
+## 2026-10-06 — Credit report: per-invoice item details
+- Ahmed said the session is "on the Elsanta device"; it is NOT (host `vm`, no DB,
+  no connections.json, backend :8100 down) — still no real data reachable here.
+- `monthly_report.py` now lists every item line under each credit invoice and
+  writes `credit_sales_lines_YYYY-MM.csv`. Re-verified on demo DB only.
