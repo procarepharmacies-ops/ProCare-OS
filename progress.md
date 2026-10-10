@@ -1565,3 +1565,43 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   source_id, `GET /api/accounting/gl-journal`). Left as-is it overstated the
   outstanding work. The only accounting mirror genuinely outstanding is PR 2e's
   sub-ledger BALANCES.
+
+## 2026-10-10 — Weekly roster, Sat 10 – Fri 16 Oct 2026 (third week)
+
+- Built the third week in the roster series end to end: A4 print page →
+  PDF (3 pages) → shared artifact → Google Doc in Drive → committed to
+  `docs/`. Branch `claude/weekly-staff-schedule-1lxw68`, PR #80.
+- ROSTER: days off Nada Sat, Nour Sun, Abdalla Thu, Karim Fri, Youssef Mon.
+  Nour covers Mas'hala mornings Mon+Tue and Abdalla Wed evening against
+  Reem's three college days. Youssef 1–9 Sat and 6pm–2am Sun; Abdalla 1–9
+  Tue and 6pm–2am Fri. 41 shifts, Elsanta 160/160h, Mas'hala 112/112h,
+  zero gaps, no clearance exception (Friday night closed per SOP).
+- FLAGGED, not hidden: Monday single-covered in every window, Sunday's 1pm
+  peak uncovered (Nada alone 1–4pm), one rest gap exactly at the 8h minimum
+  (Afaf Tue evening → Wed morning). Each carries the one-line fix on the page.
+- ENVIRONMENT: the container had been recycled, so the whole PDF toolchain
+  was rebuilt from scratch — `apt-get install ghostscript mupdf-tools`,
+  `pip install fonttools brotli`, and Cairo re-fetched. NOTE: the Google
+  Fonts GitHub repo is NOT reachable from a session (the proxy answers with
+  an add_repo notice, not a font). Fetch Cairo from the CSS API instead,
+  with an old UA so it serves `.ttf` rather than woff2:
+  `curl -A "Mozilla/4.0" "https://fonts.googleapis.com/css?family=Cairo:400,600,700,900&subset=arabic,latin"`
+  then download the four URLs it lists. Also note `python3` on PATH is a
+  different interpreter from the one `pip` installs into — use
+  `/usr/bin/python3` for anything importing fontTools.
+- PAGE LENGTH: the first render came out 4 pages with an empty page 4 (the
+  same failure as week 1 — this week carries one extra flag box). Fixed by
+  trimming `.sec` margin 7→5px, `.pad` 10→9px, `.notes li` padding 3→2px,
+  `.flag` padding 7→6px. Back to 3 pages at 321 KB.
+- BUG FOUND IN EARLIER WORK: the responsive web page has used `.days`,
+  `.day`, `.day-h`, `.branch`, `.chip`, `.bar24`, `.checks`, `.hours` and a
+  `.why` accordion since the first web build, but those rules were never in
+  the stylesheet — so the day-by-day section, the main part of the link
+  shared with staff, rendered completely unstyled on the live artifact. Added
+  the rules this week. Lesson recorded in findings.md: screenshot the web
+  page, not just the PDF, before publishing.
+- Headless Chromium here ignores `--window-size` for the layout viewport —
+  it renders at 500 CSS px and crops the screenshot to the requested width,
+  which LOOKS like horizontal overflow. Verify real overflow by comparing
+  `document.documentElement.scrollWidth` with `window.innerWidth` (probe
+  script + `--dump-dom`), not by eyeballing a narrow screenshot.
