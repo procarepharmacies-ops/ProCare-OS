@@ -316,9 +316,31 @@ pages. Things already tried that do **not** help enough: dropping to one font
 weight, one tall page, `-dNoOutputFonts` (text to outlines — inflates to 1.1 MB),
 downscaling the logo, `/screen` vs `/printer`.
 
-Until the connector accepts a file path, deliver the PDF in chat and either let
-Ahmed drop it into Drive himself or upload a reduced PDF. Keep the HTML build —
-it is what the PDF is rendered from.
+Measured again 25 Sep 2026, stacking **every** lever at once — 2 font weights
+instead of 4, the 88×88 logo, `-dSubsetFonts=true`, and a print block that
+flattens every gradient and orb so Chromium stops rasterising (11 images → 6):
+**287 KB / 383 KB base64**, against 313 KB for the full-quality build. The
+levers are worth ~8 %; the glyph outlines are the floor and they do not
+compress. Do **not** re-run this experiment — no combination reaches a size one
+tool call can carry.
+
+So: deliver the PDF in chat (Ahmed drops it into Drive himself — the target is
+the "Procare Ai" folder, id `1jdI_OGBA5BKUtZ35AjoILTFfD8JydqEn`), and publish
+the week as an **Artifact** for a shareable link. Note an artifact is private on
+publish and its `assets` capability makes the page organization-internal, so
+never declare `assets` on a page meant for branch staff — host the page alone
+and share it from its own Share menu. Keep the HTML build; it is what the PDF is
+rendered from.
+
+**What DOES reach Drive:** a Google Doc, created with Drive `create_file`,
+`contentMimeType: "text/html"` and the roster as `textContent` (parentId =
+the folder above). Ahmed accepted this as the fallback on 28 Sep 2026. Headings,
+tables and lists convert cleanly; the logo, the glass panels and the timeline do
+not, so the Doc is the plain-text record and the PDF stays the branded one.
+**`<b>` inside a `<td>` does not convert** — it lands as literal `**` in the
+cell, so keep table cells unformatted and put emphasis in body paragraphs.
+This session has no Google Docs editor connector, only Drive, so a created Doc
+cannot be edited afterwards: get the HTML right before uploading.
 
 **Rendering the roster PDF** (`deploy/` has no script for this yet):
 Chromium at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome --headless

@@ -259,3 +259,23 @@
   test_forecast.py failures (UNIQUE on forecasts for real today's date).
 - `zoneinfo` needs the `tzdata` wheel on `python:3.11-slim` (no system tz DB);
   added to requirements so `BRANCH_TIMEZONE` resolves in Docker.
+
+## Weekly roster deliverables — web page needs its own visual check (2026-10-10)
+
+The roster PDF has been verified every week by rendering each page to PNG and
+reading it. The **web** version never was, and it had been shipping with its
+day-by-day section unstyled since the first build: the markup used `.days`,
+`.day`, `.chip`, `.bar24`, `.checks`, `.hours` and a `.why` accordion, none of
+which existed in the stylesheet. The PDF and the web page are built from
+different bodies against different stylesheets, so a clean PDF says nothing
+about the page staff actually open.
+
+Rule going forward: before republishing the artifact, screenshot the web build
+and look at it, the same way the PDF pages are looked at.
+
+Two environment traps found while rebuilding the toolchain in a fresh
+container, both recorded in progress.md: GitHub raw is not reachable for the
+Google Fonts repo (use the Fonts CSS API with an old UA to get `.ttf`), and
+headless Chromium renders at a fixed 500 CSS px regardless of `--window-size`,
+so a narrow screenshot crops rather than reflows — measure `scrollWidth` vs
+`innerWidth` to tell real overflow from a cropped capture.
