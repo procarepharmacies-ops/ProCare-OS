@@ -68,3 +68,6 @@ dsetup*.dll
 # Local (no-Docker) launcher runtime state
 .local-run/
 *.pid
+
+# Generated reports contain customer/financial data - never commit
+.tmp/
