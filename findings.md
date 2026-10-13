@@ -270,3 +270,18 @@
 - Before this fix the ETL fell back to unit_factor = 1 for every Mashala product.
 - Still open: whether `Product_Amount.amount` is stored in small or big units
   (diagnose grid 4). Amounts are mirrored raw; no normalisation added yet.
+
+## 2026-10-13 — replication stall + F2 stale across branches (hypothesis, unverified)
+- Schema dump (Elsanta, is_server): eStock replicates branch data to the head server
+  into `Branches_*` tables keyed by `branch_id` (Branches_Product_Amount 123,029 rows,
+  Branches_purchase_details 267,384 rows). Per-stream watermarks live in `Branches`
+  (`rep_purchase_date`, `rep_last_pa_date`, `rep_sales_date`, …).
+- Elsanta's eStock F2 reads that replicated copy for Mashala, so it is only as fresh as
+  the last replication; Mashala's F2 reads its own live Product_Amount. The monitor's
+  "purchase_details stalled 552h (last row 2026-09-20 17:03)" fits replication stopping.
+- ETL RISK (not yet changed): `_load_branch_product_amount` and `_load_purchases` for the
+  `Branches_*` tables resolve the branch through `store_id` + the SOURCE's store map and
+  ignore the `branch_id` column. On the Elsanta source (map 1,2 -> ELSANTA) replicated
+  Mashala rows would be mislabeled ELSANTA. Needs sql/diagnose-replication.sql grids 2-3
+  to confirm before touching stock logic.
+- "ProCare Branch Monitor" (Slack/Discord bot) is not in this repo; its source is unknown.
