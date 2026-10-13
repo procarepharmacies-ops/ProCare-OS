@@ -1652,6 +1652,11 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   and new feature branches created since P0.4. Owner is active on the repo but 
   P0.4 review has not been prioritized yet.
   
+- ACTION TAKEN: Added status comment to PR #78 summarizing completion state and 
+  unblocking criteria. Comment provides visibility on readiness for production 
+  deployment without being prescriptive. Noted that PR #75 (same branch, earlier 
+  work) was already merged by owner on 2026-09-12, confirming active review pattern.
+  
 - ACTION PLAN: Continue monitoring for owner feedback on PR #78. When approved, 
   immediately execute documented deployment steps (baseline → preview → repair 
   → verify → test POS). No further code changes needed unless owner requests 
