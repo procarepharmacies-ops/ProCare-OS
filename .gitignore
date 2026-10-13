@@ -68,3 +68,6 @@ dsetup*.dll
 # Local (no-Docker) launcher runtime state
 .local-run/
 *.pid
+
+# Temporary diagnostic / investigative output — never commit
+.tmp/

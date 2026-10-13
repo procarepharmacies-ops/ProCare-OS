@@ -31,6 +31,39 @@
   prefix matches, so typing "ب" felt broken. Fix: rank prefix (name_ar/name_en/
   code) first, then scientific-name prefix, then contains. (2026-07-11)
 
+## Unit discrepancy — product 51293 (2026-10-13)
+
+**Observation:** eStock sales screen at Mashala showed product 51293
+("حفاضات كبار سن ليدو 36 قطعة") twice with amounts 465.12 vs 12.92
+(ratio = 36 = pack size) and reorder levels 2592 vs 72 (same ratio).
+
+**Diagnosis (SELECT-only on both eStock servers):**
+- `product_no2per1` column ABSENT on both Elsanta + Mashala eStock servers.
+  ETL already defaults factor → 1 gracefully. No column to normalise from.
+- `product_unit1=5`, `product_unit2=23` are numeric lookup-table IDs, not
+  unit names or the factor.
+- CURRENT `Product_Amount.amount` = 1.22 (Mashala), 0.803 (Elsanta) — both
+  fractional, clearly big-unit (box) values. Consistent across both tables.
+- `Branches_Product_Amount` sell_prices are per-piece (700 ÷ 36 = 19.44 ✓),
+  while `Product_Amount` sell_prices are per-box. Amounts themselves are in
+  big units in both tables.
+- The 465.12 / 12.92 figures are NOT in the current raw data; stock has
+  changed. At the time of observation one table held the value in boxes and
+  the other in pieces — a data-entry error inside eStock, not a ProCare bug.
+
+**Verdict: eStock display-only / past eStock data-entry error. No ETL
+unit-normalisation change required in ProCare.**
+
+**Side-note (separate ticket):** `Branches_Product_Amount` stores per-piece
+sell/buy prices, but the ETL (`_load_branch_product_amount`) imports them as
+if they were per-box. This would mislead ProCare's margin calculations for
+products with a non-trivial factor. Deserves a dedicated fix.
+
+**eStock fix (for the pharmacy team):** Check product 51293 in eStock admin;
+the `Branches_Product_Amount` row(s) for Mashala should have their amount
+reconciled to big-unit (box) quantities to stop the screen showing it twice
+with a 36× discrepancy.
+
 ## Self-annealing log
 - 2026-07-11 · `test_sync` failed after جرد models landed: the eStock mirror
   WIPES AND RELOADS products/stock_batches every sync cycle (etl `_WIPE_ORDER`),

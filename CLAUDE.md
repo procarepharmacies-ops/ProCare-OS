@@ -6,14 +6,26 @@
 
 **Local development (Windows/Mac/Linux):**
 ```bash
-cd src/backend && pip install -r requirements.txt && python run.py   # :8100
-cd src/frontend && npm install && npm run dev                        # :3100
+cd src/backend && pip install -r requirements.txt && python run.py   # API :8100
+cd src/frontend && npm install && npm run dev                        # UI  :3100
+```
+
+**Run tests:**
+```bash
+cd src/backend && pytest app/tests/          # 89 backend tests
+cd src/frontend && npm run build             # type-check + build (catches hydration errors)
 ```
 
 **Production (Docker):**
 ```bash
-docker compose up -d --build
-# UI http://localhost:3000 · API http://localhost:3000/api (proxied)
+docker compose up -d --build     # UI :3000 · API :7000 · SQL Server :1433
+deploy/procare.sh start|stop|update|logs|health   # control center
+```
+
+**One-click launcher (pharmacy PC, no Docker):**
+```bat
+deploy\ProCare-Desktop-Icon.bat       # installs Desktop icon; one click to start
+deploy\ProCare-Autostart-Install.bat  # same + starts with Windows automatically
 ```
 
 **Connect real eStock database:**
@@ -187,10 +199,17 @@ use constructs newer than 2008 in query code or migrations:
   │  └─ public/manifest.json (PWA installable on mobile)
   ├─ deploy/
   │  ├─ ProCare-Connect-eStock.bat (User-facing: config → test connection → full sync → auto-enable continuous)
+  │  ├─ procare.sh (Docker control center: start/stop/update/logs/health/restart)
+  │  ├─ procare-watchdog.{sh,bat} (external health poller; restarts stack on 3 failures)
+  │  ├─ ProCare-Desktop-Icon.bat / ProCare-Autostart-Install.bat (no-Docker Windows launchers)
   │  ├─ Dockerfile.backend (Python 3.11 + FastAPI)
   │  ├─ Dockerfile.frontend (Node 22 + Next.js)
   │  ├─ docker-compose.yml (full stack: backend, frontend, SQL Server, eStock seed)
   │  └─ README.md (deployment guide: Multipass, Docker, Windows PC)
+  ├─ docs/
+  │  ├─ 01-architecture.md (non-negotiable guardrails, security model)
+  │  ├─ 06-roadmap.md (mirror → parallel → replace eStock phases)
+  │  └─ (eStock DB reference, data-quality rules, multi-branch model)
   └─ CLAUDE_SYSTEM_PROMPT.md (long-form standards; CLAUDE.md is the working guide)
 
 [Runtime: Backend (run.py on :8100)]

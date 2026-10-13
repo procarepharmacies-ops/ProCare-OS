@@ -33,6 +33,16 @@
 - Drill-down verdict: backend + UI fine in this build — pharmacy PC needs
   `git pull` + `npm run build` (stale build), not a code fix.
 
+## 2026-10-13 · Unit discrepancy investigation — product 51293
+
+- Ran SELECT-only diagnostic against both eStock servers (Mashala 192.168.1.2
+  + Elsanta 196.202.93.37) via `tools/diagnose_unit_51293.py`.
+- Results in `.tmp/unit_diagnosis_51293.json` (git-ignored).
+- Finding: `product_no2per1` (factor column) absent on both servers; amounts
+  in big units in both `Product_Amount` and `Branches_Product_Amount`.
+- Verdict: eStock display-only / historical data-entry error. No ETL change.
+- Detailed finding recorded in findings.md.
+
 ## 2026-07-11 (later) · Phase 2 — eStock parity round 2 (owner feedback)
 - Owner: "مش زي eStock بالظبط" — named gaps: أصناف راكدة, cross-branch
   availability during sale, unit hierarchy (علبة/شريط/أمبول, كبرى/صغرى).
