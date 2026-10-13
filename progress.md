@@ -1605,3 +1605,28 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   which LOOKS like horizontal overflow. Verify real overflow by comparing
   `document.documentElement.scrollWidth` with `window.innerWidth` (probe
   script + `--dump-dom`), not by eyeballing a narrow screenshot.
+
+## 2026-10-13 · Phase 6 P0.4 — Arabic text corruption repair tooling — branch claude/phase-6-proceed-yju8m0 (PR #78, draft)
+
+- COMPLETED: Two production-grade Python scripts for SQL Server collation damage remediation:
+  1. **assess_arabic_damage.py** — quantifies corruption extent across 7 tables (customers, vendors, products, employees, branches, jobs, units) by counting rows where name_ar contains '?' corruption markers. Produces a prioritized report guiding repair workflow.
+  2. **repair_arabic.py** — restores corrupted names by re-fetching from eStock source. Supports `--dry-run` mode for safe testing, `--limit N` for batch processing, and off-peak execution. Integrates with existing eStock credentials and _ResilientSource connection class with retry logic. Non-blocking, idempotent, safe to re-run.
+
+- ROOT CAUSE: SQL Server collation (SQL_Latin1_General_CP1_CI_AS) lacks Arabic codepage support. Fixed in PR #73 by changing VARCHAR → NVARCHAR columns. This PR adds remediation tools for data corrupted BEFORE the fix was deployed.
+
+- DESIGN: both scripts are idempotent and safe to re-run. The repair_arabic tool currently targets customers and vendors (highest priority); can be extended to other tables using the same pattern.
+
+- TESTS: Python syntax validation, import resolution, and test suite health check passed. No automated CI configured on this repo (0 check runs), so manual validation approach taken.
+
+- GIT: Two commits pushed to claude/phase-6-proceed-yju8m0:
+  * 35fdd89: tools: add Arabic text corruption assessment and repair scripts
+  * 0d5fb75: docs: record P0.4 Arabic repair tooling in progress log
+
+- PR #78 created (draft) with comprehensive documentation. Scripts complete and committed. Work is waiting for owner review and approval to proceed with production deployment.
+
+- NEXT STEPS (pending owner approval):
+  1. Run assess_arabic_damage.py against staging DB to establish baseline
+  2. Run repair_arabic.py --dry-run to preview changes
+  3. Execute repair off-peak on production
+  4. Re-run assess_arabic_damage.py to verify corruption cleared
+  5. Test POS customer/vendor search/lookup functionality
