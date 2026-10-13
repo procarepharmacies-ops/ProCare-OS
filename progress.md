@@ -1565,3 +1565,8 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   source_id, `GET /api/accounting/gl-journal`). Left as-is it overstated the
   outstanding work. The only accounting mirror genuinely outstanding is PR 2e's
   sub-ledger BALANCES.
+
+## 2026-10-13 — unit factor for Mashala
+- Added `product_unit1_2` to the `unit_factor` column candidates in `etl._load_products`.
+- Test `test_etl_reads_mashala_unit_factor_column` (fails before, passes after).
+- ETL/sync/unit/estock tests: 54 passed. Awaiting Product_Amount rows from Mashala.

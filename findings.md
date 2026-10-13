@@ -259,3 +259,14 @@
   test_forecast.py failures (UNIQUE on forecasts for real today's date).
 - `zoneinfo` needs the `tzdata` wheel on `python:3.11-slim` (no system tz DB);
   added to requirements so `BRANCH_TIMEZONE` resolves in Docker.
+
+## 2026-10-13 — Mashala unit factor column (product 51293)
+- Mashala eStock `Products` has no `product_no2per1`. The small-per-big factor is
+  `product_unit1_2` (36 for حفاضات كبار سن ليدو 36 قطعة); `product_unit1_3` mirrors it
+  for unit3. Evidence: sell_price 700 / 36 = unit2_sell_price 19.4444.
+- `product_unit1` / `product_unit2` hold numeric unit IDs (5, 23), not names; the ETL
+  stores them stringified, so unit labels read "5"/"23" until a units lookup table is
+  mapped (table name still unknown — need the sql/diagnose-unit-balance.sql grid 3).
+- Before this fix the ETL fell back to unit_factor = 1 for every Mashala product.
+- Still open: whether `Product_Amount.amount` is stored in small or big units
+  (diagnose grid 4). Amounts are mirrored raw; no normalisation added yet.

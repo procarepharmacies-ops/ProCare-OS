@@ -106,3 +106,35 @@ def test_etl_maps_units(session):
     finally:
         eng.dispose()
         reset_and_seed()
+
+
+def test_etl_reads_mashala_unit_factor_column():
+    """Mashala's eStock has no product_no2per1: the small-per-big factor is
+    ``product_unit1_2`` (36 for the 36-piece pack, product 51293). Without it the
+    mirror silently fell back to factor 1."""
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.orm import Session
+
+    from app.services import etl
+
+    src_eng = create_engine("sqlite://")
+    with src_eng.begin() as c:
+        c.execute(text(
+            "CREATE TABLE Products (product_id INTEGER PRIMARY KEY, product_code TEXT,"
+            " product_name_ar TEXT, sell_price NUMERIC, buy_price NUMERIC,"
+            " product_unit1 INTEGER, product_unit2 INTEGER, product_unit1_2 NUMERIC)"
+        ))
+        c.execute(text(
+            "INSERT INTO Products VALUES (51293, 'MASH51293', 'حفاضات كبار سن ليدو 36 قطعة',"
+            " 700, 599.41, 5, 23, 36)"
+        ))
+    dst_eng = create_engine("sqlite://")
+    m.Base.metadata.create_all(dst_eng)
+    try:
+        with src_eng.connect() as src, Session(dst_eng) as dst:
+            etl._load_products(inspect(src_eng), src, dst, {})
+            prod = dst.scalars(select(m.Product).where(m.Product.code == "MASH51293")).one()
+            assert prod.unit_factor == 36
+    finally:
+        src_eng.dispose()
+        dst_eng.dispose()

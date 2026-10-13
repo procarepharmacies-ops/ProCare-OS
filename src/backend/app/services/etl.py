@@ -736,7 +736,10 @@ def _load_products(insp, src, dst, counts, dedup: bool = False, update_on_match:
     unit_big = _pick(cols, "product_unit1", "unit1", "product_unit", "unit_name", "product_unit_ar")
     unit_small = _pick(cols, "product_unit2", "unit2", "sub_unit", "product_sub_unit")
     unit_factor = _pick(
-        cols, "product_no2per1", "no2per1", "unit2_per_unit1", "product_unit2_count", "unit_factor"
+        cols, "product_no2per1", "no2per1", "unit2_per_unit1", "product_unit2_count", "unit_factor",
+        # Mashala's eStock names it product_unit1_2 (small units per big unit;
+        # 36 for a 36-piece pack: sell_price 700 / 36 = unit2_sell_price 19.4444).
+        "product_unit1_2",
     )
 
     def _factor(r) -> float:
