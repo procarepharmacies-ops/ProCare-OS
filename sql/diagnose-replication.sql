@@ -6,11 +6,7 @@
 
 -- 1) eStock's own replication watermarks per branch: when each stream last
 --    arrived from each branch. A stream stuck at 2026-09-20 = replication stopped.
-SELECT branch_id, branch_code, branch_name, active, branch_ip1, branch_ip2,
-       rep_sales_date, rep_purchase_date, rep_shortcoming_date, rep_product_date,
-       rep_cash_disk_date, rep_back_purchase_date, rep_last_pa_date,
-       rep_last_master_pa_date, rep_last_emp_date, update_date
-FROM Branches;
+SELECT * FROM Branches;   -- 2 rows; read the rep_*_date columns
 
 -- 2) What the replicated stock table holds, per branch/store. This is the table
 --    Elsanta's F2 reads for Mashala. MAX(update_date) = how stale it is.
