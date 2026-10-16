@@ -118,8 +118,9 @@ bilingual (Arabic RTL first).
       "Mirror eStock's Gedo_Financial (the central GL journal) verbatim",
       `GlJournalEntry`, upserted by source_id, `GET /api/accounting/gl-journal`),
       alongside `_load_gl_accounts` (Account_Tree) and `_load_gl_adjustments`
-      (Tuning_accounts). Corrected 2026-08-18 — the only accounting mirror still
-      outstanding is PR 2e's Gedo_* sub-ledger BALANCES, tracked below.
+      (Tuning_accounts). Corrected 2026-08-18. COMPLETED 2026-09-12: PR 2e's
+      Gedo_* sub-ledger balances merged in PR #75 alongside schema audit and
+      schema-dump tool.
 - [x] Shareholders: company_Owner + Gedo_Dividends_paied — `Shareholder` +
       `DividendPayment` models, ETL `_load_shareholders` (upsert by source id,
       graceful-absent, skips deleted owners + orphan dividends), `services/
@@ -372,18 +373,17 @@ and reviewed against real eStock usage. Three PRs, executed 3 → 1 → 2.
       installment_state all 0 rows; Checks 0 rows; News_bar 0 rows).
       Employee_daily_time (92 rows, not 2.8M as originally estimated pre-dump)
       remains deliberately deferred — low value, attendance-only.
-  - [ ] **PR 2e — GL sub-ledger balances** (BLOCKED on the schema dump —
-        `deploy/Dump-eStock-Schema.bat` now makes that one double-click):
+  - [x] **PR 2e — GL sub-ledger balances** (MERGED in PR #75, 2026-09-12):
         `Gedo_customers`, `Gedo_Vendors`, `Gedo_branches`, `Gedo_employee`,
-        `Gedo_installment` (per-party for_him/for_me balances). Unlike every
-        other Phase-7 mirror, these are NOT safely inferrable even with the
-        `_pick`-tolerant pattern: the balance-column names are undocumented,
-        and a wrong guess there doesn't just skip a field — it silently
-        stores a real sub-ledger row with a zeroed/wrong balance, which
-        reads as legitimate data. Genuinely blocked on the schema-dump.
-      HONEST BASELINE: ETL now reads 31 source tables (not 48 — that's ProCare's
-      own table count); ~25 uncovered tables are empty/temp/config;
-      Employee_daily_time (2.8M) deliberately deferred.
+        `Gedo_installment` (per-party for_him/for_me balances). Delivered
+        alongside comprehensive eStock schema audit (38 screens, 92% coverage,
+        28 source tables documented) and ProCare-Schema-Dump desktop tool
+        (`deploy/Dump-eStock-Schema.bat`). The 5 new models + ETL loaders +
+        REST endpoints (`/api/accounting/gedo-*-balances`) enable GL visibility
+        on the dashboard. 
+      BASELINE UPDATE: ETL now reads 36+ source tables (includes new Gedo_*);
+      ~25 uncovered tables remain empty/temp/config; Employee_daily_time
+      (92 rows, attendance-only) remains deliberately deferred.
 
 ## Backlog
 - [x] **Fix `Branches_Cash_disk_close` branch attribution** (2026-08-23):
