@@ -1661,3 +1661,19 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   immediately execute documented deployment steps (baseline → preview → repair 
   → verify → test POS). No further code changes needed unless owner requests 
   modifications to the scripts or workflow.
+
+## 2026-10-16 · P0.4 monitoring — 3-day wait window
+
+- STATUS: PR #78 remains in draft with status comment visible. No owner feedback 
+  or additional comments. Branch is clean and all commits pushed.
+  
+- OTHER WORK OBSERVED:
+  * PR #81 (analytics fix, non-draft, Sep 29) — clean, mergeable, awaiting owner
+  * PR #83 (unit factor fix, Oct 15) — draft status, incomplete diagnostics
+  * PR #84 (roster docs, today Oct 16) — new weekly schedule work
+  
+- ASSESSMENT: No blocking issues identified. Production system is stable. 
+  P0.4 remediation remains the critical path blocker. All supporting work 
+  (assessment script, repair script, documentation, PR comment) complete and ready.
+  
+- NEXT MILESTONE: Await owner approval to execute P0.4 deployment on Elsanta.
