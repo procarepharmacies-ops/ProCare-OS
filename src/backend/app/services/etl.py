@@ -33,7 +33,7 @@ import os
 import time
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text
+from sqlalchemy import bindparam, create_engine, delete, func, insert, inspect, select, text, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -92,7 +92,9 @@ _WIPE_ORDER = [
     m.StockAdjustment if hasattr(m, "StockAdjustment") else None,
     # ProductChange references products — must be cleared before Product.
     m.ProductChange if hasattr(m, "ProductChange") else None,
-    m.LedgerEntry, m.PurchaseOrderDraft, m.StockBatch, m.Product, m.Customer, m.Vendor,
+    m.LedgerEntry, m.PurchaseOrderDraft, m.StockBatch,
+    m.BranchOrderLine, m.BranchOrderHeader,
+    m.Product, m.Customer, m.Vendor,
 ]
 
 
@@ -640,32 +642,28 @@ def _wipe_branch_rows(dst: Session, branch_ids: set[int]) -> None:
 
 
 def _wipe_branch_stock(dst: Session, ids: list[int]) -> None:
-    """Clear ``ids``' stock rows (batches + movements + transfers touching them).
+    """Clear ``ids``' stock rows (batches + movements); transfers are KEPT, detached.
 
     Runs on EVERY sync cycle — ``Product_Amount`` is current-state, so stock is
     always a full per-branch refresh even when sales sync incrementally.
     """
     batch_ids = select(m.StockBatch.batch_id).where(m.StockBatch.branch_id.in_(ids))
-    # Transfers touch batches on BOTH ends — any line touching a wiped batch
-    # goes, then every transfer with a wiped endpoint branch. Lines are matched
-    # by parent transfer too, not only by batch: a *requested* (not yet
-    # approved) transfer's lines have NULL batch ids and would otherwise
-    # survive, failing the parent delete with a FK error and killing the whole
-    # sync cycle.
-    dying_transfers = select(m.StockTransfer.transfer_id).where(
-        m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
+    # Stock transfers are ProCare-native (requested / in_transit / received /
+    # cancelled) — eStock has no matching table, so nothing re-creates them after a
+    # wipe. This runs every sync cycle, so DELETING them made a pending request
+    # vanish within one interval and lost every in-transit shipment. Keep the
+    # transfer and its lines; only detach the line -> batch links (the batches
+    # are about to be reloaded with new ids). A line keeps product, amount, cost
+    # and expiry, which is all that receive/history needs.
+    dst.execute(
+        update(m.StockTransferLine)
+        .where(m.StockTransferLine.from_batch_id.in_(batch_ids))
+        .values(from_batch_id=None)
     )
     dst.execute(
-        delete(m.StockTransferLine).where(
-            m.StockTransferLine.from_batch_id.in_(batch_ids)
-            | m.StockTransferLine.to_batch_id.in_(batch_ids)
-            | m.StockTransferLine.transfer_id.in_(dying_transfers)
-        )
-    )
-    dst.execute(
-        delete(m.StockTransfer).where(
-            m.StockTransfer.from_branch_id.in_(ids) | m.StockTransfer.to_branch_id.in_(ids)
-        )
+        update(m.StockTransferLine)
+        .where(m.StockTransferLine.to_batch_id.in_(batch_ids))
+        .values(to_batch_id=None)
     )
     dst.execute(
         delete(m.StockMovement).where(
@@ -1322,6 +1320,24 @@ def _load_branch_orders(insp, src, dst, counts, product_map, branch_map, default
     if not insp.has_table("Branch_order_header"):
         counts["branch_orders"] = 0
         return
+
+    # Idempotent: this loader runs on EVERY sync cycle. Branch orders are an
+    # append-only source table that nothing else wipes, so without this each cycle
+    # re-inserted the whole table (thousands of rows every ~30s, growing without
+    # bound). Refresh just the orders touching the branches this source owns.
+    scope_ids = [int(b) for b in (set(branch_map.values()) | {default_branch}) if b is not None]
+    if scope_ids:
+        dying_orders = select(m.BranchOrderHeader.order_id).where(
+            m.BranchOrderHeader.from_branch_id.in_(scope_ids)
+            | m.BranchOrderHeader.to_branch_id.in_(scope_ids)
+        )
+        dst.execute(delete(m.BranchOrderLine).where(m.BranchOrderLine.order_id.in_(dying_orders)))
+        dst.execute(
+            delete(m.BranchOrderHeader).where(
+                m.BranchOrderHeader.from_branch_id.in_(scope_ids)
+                | m.BranchOrderHeader.to_branch_id.in_(scope_ids)
+            )
+        )
 
     # Load headers
     h_cols = {c["name"] for c in insp.get_columns("Branch_order_header")}

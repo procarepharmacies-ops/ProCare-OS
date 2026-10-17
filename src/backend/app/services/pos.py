@@ -715,7 +715,7 @@ def request_transfer(
 def approve_transfer(session: Session, transfer_id: int, *, approved_by: int | None = None) -> m.StockTransfer:
     """Approve a requested transfer: execute the FEFO stock move now and mark it
     received. Idempotency-guarded — only a 'requested' transfer can be approved."""
-    transfer = session.get(m.StockTransfer, transfer_id)
+    transfer = session.get(m.StockTransfer, transfer_id, with_for_update=True)
     if transfer is None:
         raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
     if transfer.status != "requested":
@@ -741,7 +741,7 @@ def approve_transfer(session: Session, transfer_id: int, *, approved_by: int | N
 
 def reject_transfer(session: Session, transfer_id: int) -> m.StockTransfer:
     """Reject a requested transfer (status -> cancelled). No stock moves."""
-    transfer = session.get(m.StockTransfer, transfer_id)
+    transfer = session.get(m.StockTransfer, transfer_id, with_for_update=True)
     if transfer is None:
         raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
     if transfer.status != "requested":
@@ -800,7 +800,7 @@ def ship_transfer(session: Session, transfer_id: int, *, shipped_by: int | None 
     """Two-phase step 1 (صرف/شحن): the source releases the goods. Stock leaves
     the source now (transfer_out); it is NOT yet in destination stock — the
     destination must confirm receipt (expiry + quantity) to complete it."""
-    transfer = session.get(m.StockTransfer, transfer_id)
+    transfer = session.get(m.StockTransfer, transfer_id, with_for_update=True)
     if transfer is None:
         raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
     if transfer.status != "requested":
@@ -837,7 +837,7 @@ def receive_transfer(
     ``confirmations``: ``{line_id: {"amount": float, "exp_date": "YYYY-MM-DD"}}``.
     Missing lines default to the shipped amount + expiry (accept as sent).
     """
-    transfer = session.get(m.StockTransfer, transfer_id)
+    transfer = session.get(m.StockTransfer, transfer_id, with_for_update=True)
     if transfer is None:
         raise POSError("not_found", "طلب التحويل غير موجود / transfer request not found")
     if transfer.status != "in_transit":

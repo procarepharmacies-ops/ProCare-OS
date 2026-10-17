@@ -389,8 +389,19 @@ out-of-stock rows so the cashier knows the other branch has it.
 
 ### Sync wipe rule
 
-`etl._wipe_branch_rows` must delete children by BOTH batch linkage and parent
-transfer linkage — requested transfers have NULL-batch lines.
+`etl._wipe_branch_stock` runs every sync cycle and must **never delete
+`stock_transfers` / `stock_transfer_lines`**: transfers are ProCare-native (eStock
+has no matching table), so deleting them made pending requests vanish within one
+interval and lost in-transit shipments. It only NULLs the lines' `from_batch_id` /
+`to_batch_id` before the batches are reloaded (a line keeps product, amount, cost,
+expiry, so receive/history still work). `etl._load_branch_orders` (eStock
+`Branch_order_*` → `branch_order_headers/lines`) must stay **idempotent per cycle**:
+it first deletes the orders touching this source's branches, then reloads them —
+otherwise every cycle re-appends the whole table. Transfer state changes
+(approve/reject/ship/receive) lock the row (`with_for_update`) so two managers or a
+double-click cannot move stock twice. NB: while ProCare mirrors eStock read-only,
+the next sync resets stock to eStock's truth, so a transfer approved in ProCare must
+also be executed in eStock.
 
 ### Product search
 

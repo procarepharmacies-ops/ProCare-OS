@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 
 from app.db import models as m
 from app.db.base import SessionLocal
@@ -361,6 +361,107 @@ def test_load_branch_orders(estock_source):
             assert len(lines) == 2
             assert lines[0].quantity == 20
             assert lines[0].received_qty == 20
+    finally:
+        reset_and_seed()
+
+
+def _branch_order_source(estock_source):
+    with estock_source.begin() as c:
+        c.execute(text(
+            "CREATE TABLE Branch_order_header ("
+            "bo_id INT, from_store_id INT, to_store_id INT, "
+            "order_date TEXT, received_date TEXT, status TEXT, notice TEXT)"
+        ))
+        c.execute(text(
+            "INSERT INTO Branch_order_header VALUES "
+            "(1,1,2,'2026-07-20','2026-07-21','received','a'),"
+            "(2,2,1,'2026-07-22',NULL,'pending','b')"
+        ))
+        c.execute(text(
+            "CREATE TABLE Branch_order_details ("
+            "bol_id INT, bo_id INT, product_id INT, qty REAL, received_qty REAL, notice TEXT)"
+        ))
+        c.execute(text(
+            "INSERT INTO Branch_order_details VALUES "
+            "(1,1,101,20,20,NULL),(2,1,102,5,5,NULL),(3,2,101,7,0,NULL)"
+        ))
+
+
+def test_branch_orders_not_duplicated_across_sync_cycles(estock_source):
+    """The continuous sync re-runs mirror() every ~30s. Branch orders (eStock
+    inter-branch transfers) must be refreshed, never appended again: before the
+    fix every cycle re-inserted the whole table, so counts grew without bound."""
+    try:
+        _branch_order_source(estock_source)
+        for _ in range(3):
+            with SessionLocal() as dst:
+                etl.mirror(estock_source, dst, store_branch_map={1: 1, 2: 2}, branch_scoped=True)
+        with SessionLocal() as s:
+            assert s.query(m.BranchOrderHeader).count() == 2
+            assert s.query(m.BranchOrderLine).count() == 3
+            assert s.query(m.BranchOrderHeader).filter(
+                m.BranchOrderHeader.source_order_id == 1
+            ).count() == 1
+    finally:
+        reset_and_seed()
+
+
+def test_sync_keeps_native_transfers(estock_source):
+    """A transfer created inside ProCare (request / in_transit / received) is not
+    in eStock, so the per-cycle stock refresh must never delete it — a pending
+    request used to vanish within one sync interval."""
+    try:
+        with SessionLocal() as s:
+            branches = s.scalars(select(m.Branch).order_by(m.Branch.branch_id)).all()
+            a, b = branches[0].branch_id, branches[1].branch_id
+            pid = s.scalars(select(m.Product.product_id)).first()
+            ids = []
+            for status in ("requested", "in_transit", "received", "cancelled"):
+                t = m.StockTransfer(from_branch_id=a, to_branch_id=b, status=status)
+                s.add(t)
+                s.flush()
+                s.add(m.StockTransferLine(transfer_id=t.transfer_id, product_id=pid, amount=1))
+                ids.append(t.transfer_id)
+            s.commit()
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: a, 2: b}, branch_scoped=True)
+        with SessionLocal() as s:
+            kept = s.scalars(
+                select(m.StockTransfer.transfer_id).where(m.StockTransfer.transfer_id.in_(ids))
+            ).all()
+            assert sorted(kept) == sorted(ids)
+            for tid in ids:
+                assert s.query(m.StockTransferLine).filter(
+                    m.StockTransferLine.transfer_id == tid
+                ).count() == 1
+    finally:
+        reset_and_seed()
+
+
+def test_in_transit_transfer_survives_sync_and_can_be_received(estock_source):
+    """Goods already shipped (in_transit) must still be receivable after a sync
+    cycle reloaded the batches the shipment lines pointed at."""
+    from app.services import pos
+
+    try:
+        with SessionLocal() as s:
+            branches = s.scalars(select(m.Branch).order_by(m.Branch.branch_id)).all()
+            a, b = branches[0].branch_id, branches[1].branch_id
+            pid = s.execute(
+                select(m.StockBatch.product_id)
+                .where(m.StockBatch.branch_id == a, m.StockBatch.amount > 0)
+            ).first()[0]
+            req = pos.request_transfer(s, a, b, [pos.SaleLineInput(product_id=pid, amount=1)])
+            tid = req.transfer_id
+            pos.ship_transfer(s, tid)
+        with SessionLocal() as dst:
+            etl.mirror(estock_source, dst, store_branch_map={1: a, 2: b}, branch_scoped=True)
+        with SessionLocal() as s:
+            t = s.get(m.StockTransfer, tid)
+            assert t is not None and t.status == "in_transit"
+            assert t.lines and all(l.from_batch_id is None for l in t.lines)
+            received = pos.receive_transfer(s, tid)
+            assert received.status == "received"
     finally:
         reset_and_seed()
 

@@ -1570,3 +1570,9 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
 - Added `product_unit1_2` to the `unit_factor` column candidates in `etl._load_products`.
 - Test `test_etl_reads_mashala_unit_factor_column` (fails before, passes after).
 - ETL/sync/unit/estock tests: 54 passed. Awaiting Product_Amount rows from Mashala.
+
+## 2026-10-17 — transfers fix
+- etl: keep native transfers in `_wipe_branch_stock`, idempotent `_load_branch_orders`,
+  branch orders added to the full wipe order; pos: row lock on transfer transitions.
+- Tests added in test_etl.py: branch orders not duplicated across cycles, native transfers
+  survive a sync, in-transit transfer still receivable after a sync (all failed/needed the fix).

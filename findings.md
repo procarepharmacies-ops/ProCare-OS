@@ -285,3 +285,19 @@
   Mashala rows would be mislabeled ELSANTA. Needs sql/diagnose-replication.sql grids 2-3
   to confirm before touching stock logic.
 - "ProCare Branch Monitor" (Slack/Discord bot) is not in this repo; its source is unknown.
+
+## 2026-10-17 — transfers (التحويلات): two sync bugs, both reproduced by tests
+1. **Branch orders duplicated every cycle.** `_load_branch_orders` (eStock Branch_order_* →
+   branch_order_headers/lines) inserted the whole table on every sync cycle; nothing wiped
+   it and there was no dedupe. 3 cycles → 6 headers for 2 source rows (grows ~every 30s;
+   Elsanta has 8,204 headers / 61,872 lines, so the table and the 10 GB Express cap
+   balloon). Fix: loader deletes the orders touching its branches before reloading.
+2. **Native transfers deleted every cycle.** `_wipe_branch_stock` (runs each cycle) deleted
+   every `stock_transfers` row touching the synced branches. Transfers are created in
+   ProCare, never mirrored, so requests vanished in ≤ 1 interval and in-transit
+   shipments could never be received. Fix: keep transfers/lines; NULL the batch links.
+3. Concurrency: approve/ship/receive/reject only checked `status` (read-then-write). Two
+   concurrent approvals could both move stock. Fix: `session.get(..., with_for_update=True)`.
+- Not changed (flagged): `transfers.request_transfer` docstring says it validates source
+  availability but doesn't (failure only at approval). In mirror mode a transfer's stock
+  move is overwritten by the next sync (eStock is the stock truth) — do it in eStock too.
