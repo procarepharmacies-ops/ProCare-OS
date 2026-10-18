@@ -336,3 +336,18 @@
 - `ProCare`: SIMPLE, NOTHING ⇒ its 8.7 GB log is reusable (just grown); only a one-off shrink
   after deploying the branch-order fix (f6a9d81) and a sync cycle that purges the duplicates.
 - Runbook for `stock` (owner's decision, all changes commented out): sql/stock-log-maintenance.sql.
+
+## 2026-10-18 — Elsanta `Branches` table (SELECT * FROM Branches on Elsanta)
+- Row 2 (فرع مسهله, ip 196.202.93.36): every replication watermark is frozen at 2026-06-01
+  (rep_sales_date 18:05, rep_purchase_date 17:52 / last id 12513, rep_shortcoming_date 18:06,
+  rep_cash_disk_close_date 17:22; rep_back_purchase_date 2026-05-09; rep_last_sales_id = 0).
+  Row 1 (فرع السنطة, ip "(local)") is current: sales 2026-10-17, purchase 2026-10-18 (id 13046),
+  shortcoming 2026-10-18. Both rows were edited on 2026-06-08 (update_date). active = '0' on both.
+- So eStock replication Mashala -> Elsanta looks stopped since ~2026-06-01 across ALL streams,
+  not 2026-09-20; the monitor's Sep 20 date is a different measurement (source unknown, not in repo).
+- CORRECTION: the 10-row purchase list earlier labelled "Mashala" (ids 13031..13040, last 2026-10-13)
+  matches ELSANTA's own counter (13046 on 10-18), not Mashala's (12513 on 06-01); likely run on
+  Elsanta by mistake. "Mashala still records purchases" is therefore unproven.
+- DEPLOY_LOCALLY.md describes Mashala as a customers-only ProCare source (operational data via
+  the main server's replicated Branches_*); if so ProCare's Mashala data is stale from June too.
+  progress.md shows a direct full Mashala load on 2026-07-20 — check config/connections.json.
