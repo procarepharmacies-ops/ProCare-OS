@@ -6,6 +6,8 @@
 
 -- 1) eStock's own replication watermarks per branch: when each stream last
 --    arrived from each branch. A stream stuck at 2026-09-20 = replication stopped.
+USE stock;   -- the eStock database is named `stock` (NOT ProCare)
+
 SELECT * FROM Branches;   -- 2 rows; read the rep_*_date columns
 
 -- 2) What the replicated stock table holds, per branch/store. This is the table

@@ -4,6 +4,8 @@
 -- send ALL result grids back. Change @code to the product being checked.
 -- Uses SELECT * and INFORMATION_SCHEMA so it works whatever the column names are.
 
+USE stock;   -- the eStock database is named `stock` (NOT ProCare)
+
 DECLARE @code NVARCHAR(50) = N'51293';
 
 -- 1) The product row, every column (look for unit / factor / pack columns).

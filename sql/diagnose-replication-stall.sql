@@ -6,6 +6,8 @@
 -- Send every grid back (Copy with Headers). No writes anywhere. ProCare never
 -- edits eStock's rep_* watermarks or Branches_* tables.
 
+USE stock;   -- the eStock database is named `stock` (NOT ProCare)
+
 DECLARE @since DATETIME = '2026-09-20 17:00:00';   -- just before the last replicated row
 
 ------------------------------------------------------------------------------
