@@ -328,3 +328,11 @@
   deployed there). Confirm with the branch_order_headers row count vs distinct source ids.
 - Do NOT shrink/alter `stock`'s recovery model without the owner's decision; the ProCare
   log fix (sql/fix-transaction-log-full.sql) applies to the ProCare database only.
+
+## 2026-10-18 — sys.databases on the Elsanta instance
+- `stock`: FULL recovery, log_reuse_wait_desc = LOG_BACKUP ⇒ no log backups, log (17 GB) never
+  truncated. Confirmed cause of the oversized log. Whether it halted the 2026-09-20 replication
+  still depends on free disk / max_size (xp_fixeddrives, max_mb in diagnose-capacity.sql).
+- `ProCare`: SIMPLE, NOTHING ⇒ its 8.7 GB log is reusable (just grown); only a one-off shrink
+  after deploying the branch-order fix (f6a9d81) and a sync cycle that purges the duplicates.
+- Runbook for `stock` (owner's decision, all changes commented out): sql/stock-log-maintenance.sql.
