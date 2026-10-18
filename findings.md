@@ -301,3 +301,18 @@
 - Not changed (flagged): `transfers.request_transfer` docstring says it validates source
   availability but doesn't (failure only at approval). In mirror mode a transfer's stock
   move is overwritten by the next sync (eStock is the stock truth) — do it in eStock too.
+
+## 2026-10-18 — replication Mashala -> Elsanta stalled: what history shows
+- git history 2026-09-10..30: no commit touches replication or eStock; only roster/docs/UI
+  work (ProCare is read-only to eStock). The 2026-09-20 17:03 stall is not from a ProCare change.
+- Monitor says ONLY Mashala `purchase_details` is stalled while the branch heartbeat moves:
+  that points to one blocked stream (a "poison row": bad product/amount/orphan header) or a
+  full disk/log on a server, not a dead link. Router/IP change would stop every stream.
+- eStock's `Branches` row carries the watermarks (`rep_last_purchase_id`, `rep_purchase_date`,
+  `rep_last_pa_*`) and `branch_ip1/ip2` used to reach the other branch.
+- Capacity angle: ProCare co-hosts its DB on the Elsanta instance. The branch-order duplication
+  fixed in f6a9d81 re-inserted ~70K rows every sync cycle, which can exhaust disk/log on that
+  server and stall writes for eStock too. Unproven; sql/diagnose-replication-stall.sql
+  (xp_fixeddrives, DBCC SQLPERF, log_reuse_wait_desc) settles it.
+- Nothing is "fixed" in code for this: the fix lives in eStock's replication, which ProCare must
+  not write to (no editing rep_* watermarks or Branches_* rows).
