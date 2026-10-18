@@ -282,7 +282,7 @@
 - ETL RISK (not yet changed): `_load_branch_product_amount` and `_load_purchases` for the
   `Branches_*` tables resolve the branch through `store_id` + the SOURCE's store map and
   ignore the `branch_id` column. On the Elsanta source (map 1,2 -> ELSANTA) replicated
-  Mashala rows would be mislabeled ELSANTA. Needs sql/diagnose-replication.sql grids 2-3
+  Mashala rows would be mislabeled ELSANTA. Needs sql/diagnose-replication-elsanta.sql grids 2-3
   to confirm before touching stock logic.
 - "ProCare Branch Monitor" (Slack/Discord bot) is not in this repo; its source is unknown.
 
@@ -312,7 +312,7 @@
   `rep_last_pa_*`) and `branch_ip1/ip2` used to reach the other branch.
 - Capacity angle: ProCare co-hosts its DB on the Elsanta instance. The branch-order duplication
   fixed in f6a9d81 re-inserted ~70K rows every sync cycle, which can exhaust disk/log on that
-  server and stall writes for eStock too. Unproven; sql/diagnose-replication-stall.sql
+  server and stall writes for eStock too. Unproven; sql/diagnose-replication-elsanta.sql + sql/diagnose-replication-mashala.sql
   (xp_fixeddrives, DBCC SQLPERF, log_reuse_wait_desc) settles it.
 - Nothing is "fixed" in code for this: the fix lives in eStock's replication, which ProCare must
   not write to (no editing rep_* watermarks or Branches_* rows).
