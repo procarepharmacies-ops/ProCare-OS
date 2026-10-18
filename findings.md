@@ -316,3 +316,15 @@
   (xp_fixeddrives, DBCC SQLPERF, log_reuse_wait_desc) settles it.
 - Nothing is "fixed" in code for this: the fix lives in eStock's replication, which ProCare must
   not write to (no editing rep_* watermarks or Branches_* rows).
+
+## 2026-10-18 — capacity numbers from the Elsanta instance (sys.master_files)
+- `stock` LOG 17,180 MB vs ROWS 1,223 MB (log 14x the data): log is not being truncated
+  (FULL recovery without log backups, an open transaction, or a stuck reader). A full
+  disk/log halts eStock writes incl. replication into Branches_*. Not proven to be the
+  cause of the 2026-09-20 stall; sql/diagnose-capacity.sql reads log_reuse_wait_desc,
+  free disk, max_size and DBCC OPENTRAN to settle it.
+- `ProCare` ROWS 13,308 + 5,120 MB (18.4 GB) and LOG 8,734 MB for a mirror of a 1.2 GB
+  source: consistent with the per-cycle branch-order duplication fixed in f6a9d81 (not yet
+  deployed there). Confirm with the branch_order_headers row count vs distinct source ids.
+- Do NOT shrink/alter `stock`'s recovery model without the owner's decision; the ProCare
+  log fix (sql/fix-transaction-log-full.sql) applies to the ProCare database only.
