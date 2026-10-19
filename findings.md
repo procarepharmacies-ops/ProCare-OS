@@ -351,3 +351,14 @@
 - DEPLOY_LOCALLY.md describes Mashala as a customers-only ProCare source (operational data via
   the main server's replicated Branches_*); if so ProCare's Mashala data is stale from June too.
   progress.md shows a direct full Mashala load on 2026-07-20 — check config/connections.json.
+
+## 2026-10-19 — "Panadol disappeared" — code-side facts
+- ProCare has NO code path that deletes or hides a product on its own. Only two ways:
+  (1) the sync copies eStock `Products.deleted`/`active` every cycle (`deleted='0'` = removed,
+  inverted naming, see `_product_deleted`); (2) a full-wipe mirror (`_WIPE_ORDER`) deletes and
+  reloads products — a product created only in ProCare would not come back.
+- eStock keeps the evidence: `Branches_products_edit` (per-edit snapshot incl. deleted/active,
+  up_date, up_uid), `Product_Changes` (price/unit), `Product_amount_Change` (stock moves).
+  sql/diagnose-missing-product.sql reads all of them + ProCare's row (read-only).
+- Side note: `Product_units` (26 rows) is the unit-name lookup for product_unit1/2 ids
+  (e.g. 5, 23) — the fix for unit labels mirroring as "5"/"23".
