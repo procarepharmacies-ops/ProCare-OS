@@ -180,6 +180,27 @@ Back_Sales_details = Table(
 )
 
 
+# A real eStock catalogue has ~53,600 products; the demo seed writes a few hundred.
+REAL_SOURCE_PRODUCTS = 5000
+
+
+def _refuse_real_source(engine) -> None:
+    """Never DROP a real pharmacy database. ``drop_all`` on the live eStock `stock`
+    DB would destroy Products, Product_Amount, sales and purchases. Refuse when the
+    target already holds a real-sized catalogue."""
+    from sqlalchemy import inspect as _inspect, text as _text
+
+    if not _inspect(engine).has_table("Products"):
+        return
+    with engine.connect() as c:
+        n = int(c.execute(_text("SELECT COUNT(*) FROM Products")).scalar() or 0)
+    if n >= REAL_SOURCE_PRODUCTS:
+        raise RuntimeError(
+            f"refusing to drop/reseed: target already has {n} Products — this looks like a "
+            "real eStock database, not the demo source"
+        )
+
+
 def seed_estock_source(engine, *, days: int = 60, drop: bool = True) -> dict:
     """Create eStock-shaped tables on ``engine`` and fill realistic raw data.
 
@@ -187,6 +208,7 @@ def seed_estock_source(engine, *, days: int = 60, drop: bool = True) -> dict:
     reproducible. Safe on SQLite and SQL Server.
     """
     if drop:
+        _refuse_real_source(engine)
         metadata.drop_all(engine)
     metadata.create_all(engine)
 
@@ -337,6 +359,14 @@ def _engine_from_env():
     url = os.environ.get("ESTOCK_SEED_URL")
     if url:
         return create_engine(url)
+    # Only the demo container path: ESTOCK_ENSURE_DB=1 marks a throwaway source
+    # (deploy/docker-compose.sqlserver.yml). Never fall back to the configured
+    # live eStock credentials — that is the pharmacy's real `stock` database.
+    if os.environ.get("ESTOCK_ENSURE_DB") != "1":
+        raise SystemExit(
+            "Refusing: set ESTOCK_SEED_URL to a demo database (or ESTOCK_ENSURE_DB=1 in the "
+            "demo container). The configured eStock source is the real pharmacy DB."
+        )
     from app.config import settings
 
     src = settings.estock_sqlalchemy_url()

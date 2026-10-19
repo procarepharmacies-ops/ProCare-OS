@@ -43,7 +43,9 @@ STEPS:
 5. Firewall on this PC: `netsh advfirewall firewall show rule name=all | findstr /i 1433`. If an
    inbound allow from Mashala is missing, propose:
    `netsh advfirewall firewall add rule name="eStock SQL from Mashala" dir=in action=allow protocol=TCP localport=1433 remoteip=196.202.93.36`
-6. Disk/log: from the check file, report free space per drive and the `stock` log size. If a
+6. Disk/log: from the check file, report free space per drive and the `stock` log size.
+   HOLD: do NOT back up, shrink or change the recovery model of the `stock` log while a
+   deleted product (Panadol) is being recovered from it (sql/find-product-delete-in-log.sql). If a
    drive is under 10% free, say so first. For the 17 GB `stock` log follow
    `sql\stock-log-maintenance.sql` Section 1 (read-only); only with the owner's "yes" use
    Option A (log backup + one shrink). Never Option B without the owner choosing it.

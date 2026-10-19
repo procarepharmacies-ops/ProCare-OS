@@ -10,6 +10,10 @@
 -- !! an operator runbook, not something the application runs.
 -- !! Do NOT use sql/fix-transaction-log-full.sql here: it is for ProCare ONLY.
 
+-- !! HOLD (2026-10-19): Panadol is missing from `stock`. Its DELETE is still in this
+-- !! untruncated log (sql/find-product-delete-in-log.sql). Do NOT run Sections 2-4
+-- !! (log backup / shrink / SIMPLE) until it is recovered — they erase that evidence.
+
 USE stock;
 
 ------------------------------------------------------------------------------

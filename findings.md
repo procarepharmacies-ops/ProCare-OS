@@ -362,3 +362,14 @@
   sql/diagnose-missing-product.sql reads all of them + ProCare's row (read-only).
 - Side note: `Product_units` (26 rows) is the unit-name lookup for product_unit1/2 ids
   (e.g. 5, 23) — the fix for unit labels mirroring as "5"/"23".
+
+## 2026-10-19 — Panadol missing from the eStock `stock` database
+- Repo audit: nothing in ProCare writes to `stock`, EXCEPT a latent hazard now closed:
+  `python -m app.db.estock_seed` without ESTOCK_SEED_URL fell back to the configured LIVE eStock
+  credentials and ran `drop_all` (would drop every eStock table). Now: refuses unless
+  ESTOCK_SEED_URL or ESTOCK_ENSURE_DB=1, and `seed_estock_source(drop=True)` refuses a target with
+  >= 5000 Products. Not the Panadol cause (it would wipe everything, not one item).
+- `stock` is FULL recovery with an untruncated log, so the DELETE is still readable with fn_dblog
+  (sql/find-product-delete-in-log.sql: time, SQL login, rows). Recovery = restore a pre-delete
+  backup as stock_recover and copy back only the missing Products row(s)
+  (sql/restore-product-from-backup.sql, writes commented out). Log maintenance put on HOLD.
