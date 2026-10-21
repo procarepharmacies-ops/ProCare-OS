@@ -22,3 +22,6 @@ pytest>=8.0
 #                         still runs; jobs stay fireable on demand via the API.
 # prophet>=1.1           # replaces the moving-average forecast in services/alerts.py
 # anthropic>=0.40        # alternative to the raw httpx Claude call in services/ai.py
+
+# Only needed for tools/investor_pack.py (Arabic team deck .pptx). The app runs without it.
+# python-pptx==1.0.2

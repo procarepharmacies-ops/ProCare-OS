@@ -1583,3 +1583,19 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   no connections.json, backend :8100 down) — still no real data reachable here.
 - `monthly_report.py` now lists every item line under each credit invoice and
   writes `credit_sales_lines_YYYY-MM.csv`. Re-verified on demo DB only.
+
+## 2026-10-21 — Investor report + staff motivation deck (Arabic, YoY)
+- ASK (Ahmed): professional September report for an investor meeting (YoY, Arabic)
+  + a PPT for employees to motivate them toward October results.
+- Still NO real data reachable from the cloud session (Elsanta CLI not connected).
+  Nothing fabricated; the tool computes every number from the DB.
+- DONE: `src/backend/tools/investor_pack.py` (read-only):
+  `python tools\investor_pack.py --year 2026 --month 9 [--branch-id N] [--target-growth-pct X]`
+  -> investor_report_2026-09.html/.pdf (YoY + MoM, daily chart vs last year, branches,
+  top products, credit exposure, methodology) + team_deck_2026-09.pptx (5 slides, RTL).
+- October target = Oct-2025 net revenue x (1 + growth); growth defaults to Sept YoY
+  (floored at 0) or --target-growth-pct. The slide prints the formula. NEEDS Ahmed's
+  confirmation of the business rule.
+- Verified on the seeded demo DB only: HTML + PDF rendered and visually checked (Arabic RTL OK).
+  The .pptx was NOT visually rendered (LibreOffice cannot open even a blank deck in this
+  container) — open it in PowerPoint and check text fit before sending to staff.
