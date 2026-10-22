@@ -1605,3 +1605,32 @@ ProCare OS is **production-ready** and **feature-complete** for a best-in-class 
   which LOOKS like horizontal overflow. Verify real overflow by comparing
   `document.documentElement.scrollWidth` with `window.innerWidth` (probe
   script + `--dump-dom`), not by eyeballing a narrow screenshot.
+
+## 2026-10-16 — Weekly roster, Sat 17 – Fri 23 Oct 2026 (fourth week)
+
+- Fourth week of the series, built end to end on a branch restarted from
+  the merged `main` (PR #80 squash-merged as 7c8943e, so the old branch
+  history was finished — new work starts fresh, never stacked on it).
+- ROSTER: days off Youssef Sat, Nour Sun, Nada Thu, Abdalla AND Karim Fri.
+  Nada covers Mas'hala mornings Mon + Wed, Abdalla covers Tue evening,
+  against Reem's three college days. Owner also fixed Nada on Saturday
+  8-4, Youssef Monday 8-4 and Abdalla Wednesday 8-4; a later message
+  swapped Nour and Abdalla on Thursday.
+- FIRST WEEK WITH **7/7 FULL DOUBLE COVERAGE**. The five days off land on
+  four distinct days (two people share Friday), so every day leaves three
+  Elsanta people besides the night — exactly enough for a midday shift
+  every single day. 41 shifts, Elsanta 160/160h, Mas'hala 112/112h, zero
+  gaps, and no clearance exception at all.
+- Nour takes no evening shift all week: the 8pm-12am solo window is
+  restricted to Youssef, Abdalla or Nada, so she holds mornings and
+  middays instead. Worth keeping as the default shape.
+- FLAGGED: two rests at exactly the 8h minimum (Abdalla Tue Mas'hala
+  evening -> Wed Elsanta morning, and Afaf Mon evening -> Tue morning);
+  both are forced by the requested Mas'hala cover, not chosen. Friday
+  carries zero reserve since Abdalla and Karim are both off, though the
+  branch is covered 8am-12am and the night is closed per SOP anyway.
+- PAGE: dropped the خاص (6pm-2am) column from the Elsanta table and its
+  legend entry - no such shift this week, so the column was all dashes.
+  Still 3 pages at 309 KB.
+- The whole toolchain survived in the scratchpad this time (fonts, logo,
+  Ghostscript, mutool), so only the charset re-subset was needed.
